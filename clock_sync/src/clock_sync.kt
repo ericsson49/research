@@ -1,5 +1,3 @@
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.random.Random
 
 typealias ClockId = Int
@@ -7,17 +5,13 @@ typealias Time = Double
 
 data class Interval(val a: Double, val b: Double, val mid: Double = (a+b)/2) {
   constructor(a: Int, b: Int): this(a.toDouble(), b.toDouble())
-  constructor(a: Double, b: Int): this(a, b.toDouble())
-  constructor(a: Int, b: Double): this(a.toDouble(), b)
 }
 
 operator fun Number.plus(b: Interval) = b.plus(this)
-//operator fun Number.times(b: Interval) = b.times(this)
 operator fun Interval.plus(o: Number) = Interval(a + o.toDouble(), b + o.toDouble())
 operator fun Interval.times(o: Number) = Interval(a * o.toDouble(), b * o.toDouble())
 operator fun Interval.plus(o: Interval) = Interval( a + o.a, b + o.b)
 operator fun Interval.minus(o: Number) = Interval(a - o.toDouble(), b + o.toDouble())
-
 
 fun marzullo(data: List<Interval>, k: Int): Interval {
   val lows = data.map { it.a }.sorted()
@@ -25,52 +19,13 @@ fun marzullo(data: List<Interval>, k: Int): Interval {
   return Interval(lows[data.size-k-1], highs[k])
 }
 
-data class Mark(val v: Double, val start: Boolean)
-
-fun iyengarBrooks(data: List<Interval>, k: Int, marzullo: Boolean = false): Interval {
-  val b = data
-    .flatMap { listOf(
-      Mark(it.a-Double.MIN_VALUE, true),
-      Mark(it.b+Double.MIN_VALUE, false))}
-    .sortedBy { it.v }
-
-  var w = 0
-  var minV = Double.MAX_VALUE
-  var maxV = -Double.MAX_VALUE
-  var sumV = 0.0
-  var cntV = 0
-  for (i in b.indices) {
-    if (i > 0) {
-      val start = b[i - 1].v
-      val end = b[i].v
-      if (start < end && w >= (N-k)) {
-        minV = min(minV, start)
-        maxV = max(maxV, end)
-        sumV += (start+end)*w / 2.0
-        cntV += w
-      }
-    }
-    if (b[i].start) {
-      w += 1
-    } else {
-      w -= 1
-    }
-  }
-  return if (!marzullo) {
-    Interval(minV, maxV, sumV/cntV)
-  } else {
-    Interval(minV, maxV)
-  }
-}
-
-
-const val N = 100
+const val N = 1000
 const val rho = 0.0
 const val minD = 0
 const val maxD = 2000
-const val ntpPrec = 1000
+const val refClockAccuracy = 1000
 
-val REF_CLOCK_ACCURACY = Interval(-ntpPrec/2,ntpPrec/2)
+val REF_CLOCK_ACCURACY = Interval(-refClockAccuracy/2,refClockAccuracy/2)
 val NETWORK_DELAY = Interval(minD, maxD)
 val DRIFT_FACTOR = Interval(1/(1+rho), 1+rho)
 val ZERO_INTERVAL = Interval(0, 0)
@@ -98,7 +53,7 @@ class TimeEstimator(val N: Int, val aggregateMethod: (List<Interval>, Int)->Inte
     val estimates = (remoteEstimates + localEstimate)
         .map { it.estimate + DRIFT_FACTOR * (localTime - it.localTimestamp) }
     val ests = (estimates + List(N-estimates.size) { FAR_IN_FUTURE })
-    aggregateMethod(ests, (N-1)/3)
+    aggregateMethod(ests, (N-1)/2)
   }
 }
 
@@ -107,7 +62,10 @@ fun main() {
   val nodes = List(N) { _ -> TimeEstimator(N, ::marzullo)}
   val localClockOffsets = List(N) {_ -> 0*rnd.nextDouble(-1000.0,1000.0)}
 
-  val badGuys = nodes.indices.toList().subList(0, 2*(N-1)/3).toSet()
+  val badGuysAmount = 0 * (N - 1) / 2
+  val twoSidedAttack = false
+
+  val badGuys = nodes.indices.toList().subList(0, badGuysAmount).toSet()
 
   val ticks = 100
 
@@ -116,8 +74,12 @@ fun main() {
     val trueTime = trueTimeStart + t*10000
     println("tt $trueTime")
     for (i in nodes.indices) {
-      val refClock = trueTime + rnd.nextDouble(REF_CLOCK_ACCURACY.a, REF_CLOCK_ACCURACY.b) + (
-          if (i in badGuys) (2*(i%2)-1)*rnd.nextDouble(1000.0,5000.0) else 0.0)
+      val refClockOffset = if (i in badGuys) {
+        val baseOffset = 10000.0 //rnd.nextDouble(10000.0,10000.0)
+        if (twoSidedAttack) (2*(i%2)-1)*baseOffset else baseOffset
+      } else 0.0
+
+      val refClock = trueTime + rnd.nextDouble(REF_CLOCK_ACCURACY.a, REF_CLOCK_ACCURACY.b) + refClockOffset
 
       val p = nodes[i]
       val localTime = trueTime + localClockOffsets[i]
@@ -143,7 +105,7 @@ fun main() {
     val widths = ests.map {it.b-it.a}
 
     println("lows   " + lows.min() + " " + lows.max())
-    println("mids   " + mids.min() + " " + mids.max())
+    println("mids   " + mids.min() + " " + mids.max() + " " + (mids.max()!! - mids.min()!!))
     println("highs  " + highs.min() + " " + highs.max())
     println("widths " + widths.min() + " " + widths.max())
   }

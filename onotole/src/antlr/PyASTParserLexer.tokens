@@ -1,0 +1,13 @@
+NUM=1
+WORD=2
+LPAR=3
+RPAR=4
+COMMA=5
+EQ=6
+WS=7
+NB_STRING_LIT=8
+BSTRING_LIT=9
+'('=3
+')'=4
+','=5
+'='=6

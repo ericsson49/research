@@ -1,3 +1,5 @@
+import antlr.PyASTParserLexer
+import antlr.PyASTParserParser
 import com.github.h0tk3y.betterParse.combinators.and
 import com.github.h0tk3y.betterParse.combinators.map
 import com.github.h0tk3y.betterParse.combinators.or
@@ -6,9 +8,10 @@ import com.github.h0tk3y.betterParse.combinators.times
 import com.github.h0tk3y.betterParse.combinators.unaryMinus
 import com.github.h0tk3y.betterParse.combinators.use
 import com.github.h0tk3y.betterParse.grammar.Grammar
-import com.github.h0tk3y.betterParse.grammar.parseToEnd
 import com.github.h0tk3y.betterParse.grammar.parser
 import com.github.h0tk3y.betterParse.parser.Parser
+import org.antlr.v4.runtime.CharStreams
+import org.antlr.v4.runtime.CommonTokenStream
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -261,6 +264,43 @@ object ItemsParser : Grammar<Item>() {
   override val rootParser by fcall
 }
 
+object ItemsParser2 {
+  fun parseValue(value: PyASTParserParser.ValueContext): Item {
+    return when {
+      value.NB_STRING_LIT() != null -> Literal(value.NB_STRING_LIT().text)
+      value.BSTRING_LIT() != null -> Literal(value.BSTRING_LIT().text)
+      value.WORD() != null -> Ident(value.WORD().text)
+      value.NUM() != null -> Number(Integer.parseInt(value.text))
+      else -> parseFCall(value.funcCall())
+    }
+  }
+
+  fun parseParam(param: PyASTParserParser.ParamContext): FParam {
+    return if (param.value() != null) {
+      VParam(parseValue(param.value()))
+    } else {
+      NamedParam(Ident(param.namedParam().WORD().text), parseValue(param.namedParam().value()))
+    }
+  }
+
+  fun parseParamList(paramList: PyASTParserParser.ParamListContext?): List<FParam> {
+    return paramList?.param()?.map { parseParam(it) } ?: listOf()
+  }
+
+  fun parseFCall(fcall: PyASTParserParser.FuncCallContext): FCall {
+    val paramList = fcall.paramList()
+    val params = parseParamList(paramList)
+    return FCall(fcall.WORD().text, params)
+  }
+
+  fun parseToEnd(it: String): Item {
+    val str = CharStreams.fromString(it)
+    val lexer = PyASTParserLexer(str)
+    val ts = CommonTokenStream(lexer)
+    val parser = PyASTParserParser(ts)
+    return parseFCall(parser.funcCall())
+  }
+}
 
 fun main(args: Array<String>) {
   val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs.txt")
@@ -270,7 +310,7 @@ fun main(args: Array<String>) {
   val fdefs = linkedMapOf<String, FunctionDef>()
 
   val t0 = System.nanoTime()
-  val parsed = Files.readAllLines(path).map { ItemsParser.parseToEnd(it) }
+  val parsed = Files.readAllLines(path).map { ItemsParser2.parseToEnd(it) }
   val t1 = System.nanoTime()
   parsed.forEach {
     val stmt = toStmt(it)

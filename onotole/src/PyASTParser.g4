@@ -1,9 +1,5 @@
 grammar PyASTParser;
 
-options {
-
-}
-
 value: BSTRING_LIT | NB_STRING_LIT | WORD | NUM | funcCall;
 namedParam : WORD EQ value;
 param : value | namedParam;

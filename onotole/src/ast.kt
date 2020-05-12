@@ -1,3 +1,5 @@
+import kotlin.Number
+
 typealias identifier = String
 typealias int = Int
 typealias string = String
@@ -10,7 +12,7 @@ val False = false
 
 sealed class Alias
 sealed class WithItem
-sealed class ExceptHandler
+data class ExceptHandler(val typ: TExpr, val name: identifier?, val body: List<Stmt>)
 
 data class Keyword(val arg: identifier?, val value: TExpr)
 data class Arg(val arg: identifier, val annotation: TExpr? = null)
@@ -70,7 +72,7 @@ data class Compare(val left: TExpr, val ops: List<ECmpOp>, val comparators: List
 data class Call(val func: TExpr, val args: List<TExpr>, val keywords: List<Keyword>): TExpr()
 class FormattedValue(value: TExpr, conversion: int? = null, format_spec: TExpr? = null): TExpr()
 class JoinedStr(values: List<TExpr>): TExpr()
-sealed class Constant(value: constant, kind: string? = null): TExpr()
+sealed class Constant(val value: constant, kind: string? = null): TExpr()
 data class Attribute(val value: TExpr, val attr: identifier, val ctx: ExprContext): TExpr()
 data class Subscript(val value: TExpr, val slice: TSlice, val ctx: ExprContext): TExpr()
 data class Starred(val value: TExpr, val ctx: ExprContext): TExpr()
@@ -79,9 +81,9 @@ data class TList(val elts: List<TExpr>, val ctx: ExprContext): TExpr()
 data class Tuple(val elts: List<TExpr>, val ctx: ExprContext): TExpr()
 
 data class Str(val s: String): Constant(s, "str")
-data class Num(val n: Int): Constant(n, "num")
+data class Num(val n: Number): Constant(n, "num")
 data class Bytes(val s: String): Constant(s, "bytes")
-data class NameConstant(val value: constant): Constant(value, "name")
+data class NameConstant(val _value: constant): Constant(_value, "name")
 
 sealed class Stmt
 data class FunctionDef(val name: identifier, val args: Arguments,
@@ -111,7 +113,7 @@ class With(items: List<WithItem> = listOf(), body: List<Stmt> = listOf(), type_c
 class AsyncWith(items: List<WithItem> = listOf(), body: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
 
 class Raise(exc: TExpr? = null, cause: TExpr? = null): Stmt()
-class Try(body: List<Stmt> = listOf(), handlers: List<ExceptHandler> = listOf(), orelse: List<Stmt> = listOf(), finalbody: List<Stmt> = listOf()): Stmt()
+data class Try(val body: List<Stmt> = listOf(), val handlers: List<ExceptHandler> = listOf(), val orelse: List<Stmt> = listOf(), val finalbody: List<Stmt> = listOf()): Stmt()
 data class Assert(val test: TExpr, val msg: TExpr? = null): Stmt()
 
 class Import(names: List<Alias> = listOf()): Stmt()

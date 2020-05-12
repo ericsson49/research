@@ -90,7 +90,7 @@ abstract class BaseGen {
         genExpr(e.value) + "[" + slice + "]"
       }
 
-      is IfExp -> "if " + genExpr(e.test) + " " + genExpr(e.body) + " else " + genExpr(e.orelse)
+      is IfExp -> "if (" + genExpr(e.test) + " " + genExpr(e.body) + ") else " + genExpr(e.orelse)
       is ListComp -> genComprehension(e.elt, e.generators) + ".toMutableList()"
       is Tuple -> (if (storeCtx) "" else "Tuple") + "(" + e.elts.map { genExpr(it) }.joinToString(", ") + ")"
       is Dict -> "mutableMapOf(" + e.keys.zip(e.values).map { genExpr(it.first) + " := " + genExpr(it.second) }.joinToString(", ") + ")"
@@ -122,11 +122,15 @@ abstract class BaseGen {
         (if (newVar) "var " else "") + s.targets.map { genExpr(it, true) }.joinToString(", ") + " = " + genExpr(s.value)
       }
       is While -> {
-        println("while (" + genExpr(s.test) + ") {")
-        s.body.forEach {
-          genStmt(it, vars)
+        if (s.orelse.isNotEmpty())
+          fail("not implemented")
+        else {
+          println("while (" + genExpr(s.test) + ") {")
+          s.body.forEach {
+            genStmt(it, vars)
+          }
+          "}"
         }
-        "}"
       }
       is If -> {
         println("if (" + genExpr(s.test) + ") {")
@@ -136,9 +140,13 @@ abstract class BaseGen {
         "}"
       }
       is For -> {
-        println("for (" + genExpr(s.target, true) + " in " + genExpr(s.iter) + ") {")
-        s.body.forEach { genStmt(it, vars) }
-        "}"
+        if (s.orelse.isNotEmpty())
+          fail("not implemented")
+        else {
+          println("for (" + genExpr(s.target, true) + " in " + genExpr(s.iter) + ") {")
+          s.body.forEach { genStmt(it, vars) }
+          "}"
+        }
       }
       is Assert -> {
         "assert(" + genExpr(s.test) + (s.msg?.let { ", " + genExpr(it) } ?: "") + ")"
@@ -146,6 +154,30 @@ abstract class BaseGen {
       is AugAssign -> genExpr(s.target) + " " + genOperator(s.op) + "= " + genExpr(s.value)
       is AnnAssign -> {
         genExpr(s.target) + ": " + genNativeType(s.annotation) + " = " + genExpr(s.value!!)
+      }
+      is FunctionDef -> genFunc(s)
+      is Pass -> "// pass"
+      is Continue -> "continue"
+      is Try -> {
+        println("try {")
+        s.body.forEach { genStmt(it, vars) }
+        s.handlers.forEach {
+          println("} catch(${it.name?:'_'}: ${genExpr(it.typ)}) {")
+          it.body.forEach { genStmt(it, vars) }
+        }
+        if (s.orelse.isNotEmpty() && s.finalbody.isNotEmpty()) {
+          fail("try/else/finally is not yet implemented")
+        } else {
+          if (s.orelse.isNotEmpty()) {
+            println("}")
+            println("{ // else")
+            s.orelse.forEach { genStmt(it, vars) }
+          } else if (s.finalbody.isNotEmpty()) {
+            println("} finally {")
+            s.finalbody.forEach { genStmt(it, vars) }
+          }
+          println("}")
+        }
       }
       else -> fail(s.toString())
     }
@@ -210,6 +242,7 @@ abstract class BaseGen {
         t.elts.map { if (it is Name) genNativeType(it) else it.toString() }.joinToString(", ")
       }
       is NameConstant -> t.value?.toString() ?: "Unit"
+      is Attribute -> genNativeType(t.value) + "." + t.attr
       else -> fail(t.toString())
     }
   }

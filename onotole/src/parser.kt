@@ -8,15 +8,18 @@ import com.github.h0tk3y.betterParse.combinators.times
 import com.github.h0tk3y.betterParse.combinators.unaryMinus
 import com.github.h0tk3y.betterParse.combinators.use
 import com.github.h0tk3y.betterParse.grammar.Grammar
+import com.github.h0tk3y.betterParse.grammar.parseToEnd
 import com.github.h0tk3y.betterParse.grammar.parser
 import com.github.h0tk3y.betterParse.parser.Parser
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
+import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Paths
 
 sealed class Item
-data class Number(val value: Int): Item()
+data class CNumber(val value: Int): Item()
+data class CBigNumber(val value: BigInteger): Item()
 data class Ident(val name: String): Item()
 data class Literal(val lit: String): Item()
 data class FCall(val name: String, val params: List<FParam>): Item()
@@ -52,9 +55,17 @@ fun <T> toList(v: Item?, mapper: (Item) -> T): List<T> {
   return f.params.map { mapper(it.value) }
 }
 
-fun toInt(v: Item?): int {
+fun toInt(v: Item?): Int {
   return when(v) {
-    is Number -> v.value
+    is CNumber -> v.value
+    else -> fail()
+  }
+}
+
+fun toNum(v: Item?): Number {
+  return when(v) {
+    is CNumber -> v.value
+    is CBigNumber -> v.value
     else -> fail()
   }
 }
@@ -107,10 +118,16 @@ fun toCtx(v: Item?): ExprContext {
   return ExprContext.valueOf(f.name)
 }
 
-fun toIdent(v: Item?): identifier = when (v) {
+fun toIdentifierOpt(v: Item?): identifier? = when(v) {
+  is Ident -> if (v.name == "None") null else fail(v.toString())
+  else -> toIdentifier(v)
+}
+
+fun toIdentifier(v: Item?): identifier = when (v) {
   is Literal -> v.lit.substring(1,v.lit.length-1)
   else -> fail(v.toString())
 }
+fun toIdentifiers(v: Item?): List<identifier> = toList(v, ::toIdentifier)
 
 fun toConstant(v: Item?): Constant = when(v) {
   is Ident -> {
@@ -120,6 +137,8 @@ fun toConstant(v: Item?): Constant = when(v) {
       NameConstant(false)
     else if (v.name == "None")
       NameConstant(null)
+    else if (v.name == "Ellipsis")
+      NameConstant("...")
     else
       fail(v.toString())
   }
@@ -139,7 +158,7 @@ fun toExpr(v: Item?): TExpr {
     is FCall -> {
       val pm = paramsToMap(v.params)
       return when(v.name) {
-        "Name" -> Name(toIdent(pm["id"]), toCtx(pm["ctx"]))
+        "Name" -> Name(toIdentifier(pm["id"]), toCtx(pm["ctx"]))
         "Subscript" -> Subscript(value = toExpr(pm["value"]), slice = toSlice(pm["slice"]), ctx = toCtx(pm["ctx"]))
         "Tuple" -> Tuple(elts = pm.toExprs("elts"), ctx = toCtx(pm["ctx"]))
         "UnaryOp" -> UnaryOp(op = toUnaryop(pm["op"]), operand = pm.toExpr("operand"))
@@ -156,9 +175,19 @@ fun toExpr(v: Item?): TExpr {
         "Dict" -> Dict(keys = pm.toExprs("keys"), values = pm.toExprs("values"))
         "Bytes" -> Bytes(toStr(pm["s"]))
         "Call" -> Call(func = pm.toExpr("func"), args = pm.toExprs("args"), keywords = toKeywords(pm["keywords"]))
-        "Attribute" -> Attribute(value = pm.toExpr("value"), attr = toIdent(pm["attr"]), ctx = toCtx(pm["ctx"]))
+        "Attribute" -> Attribute(value = pm.toExpr("value"), attr = toIdentifier(pm["attr"]), ctx = toCtx(pm["ctx"]))
         "Lambda" -> Lambda(args = toArguments(pm["args"]), body = pm.toExpr("body"))
         "Starred" -> Starred(value = pm.toExpr("value"), ctx = toCtx(pm["ctx"]))
+        "Constant" -> {
+          val constValue = pm["value"]
+          when(constValue) {
+            is Ident -> toConstant(constValue)
+            is Literal -> Str(toStr(constValue))
+            is CNumber -> Num(toNum(constValue))
+            is CBigNumber -> Num(toNum(constValue))
+            else -> fail(constValue.toString())
+          }
+        }
         else -> fail(v.name)
       }
     }
@@ -170,14 +199,14 @@ fun toExprs(v: Item?) = toList(v, ::toExpr)
 fun toKeyword(v: Item?): Keyword {
   val f = toFCall(v, "keyword")
   val pm = paramsToMap(f.params)
-  return Keyword(toIdent(pm["arg"]), toExpr(pm["value"]))
+  return Keyword(toIdentifierOpt(pm["arg"]), toExpr(pm["value"]))
 }
 fun toKeywords(v: Item?) = toList(v, ::toKeyword)
 
 fun toArg(v: Item?): Arg {
   val f = toFCall(v, "arg")
   val pm = paramsToMap(f.params)
-  return Arg(arg = toIdent(pm["arg"]), annotation = pm.toExprOpt("annotation"))
+  return Arg(arg = toIdentifier(pm["arg"]), annotation = pm.toExprOpt("annotation"))
 }
 fun toArgOpt(v: Item?): Arg? {
   return when(v) {
@@ -210,11 +239,11 @@ fun toStmt(v: Item?): Stmt {
   val pm = paramsToMap(f.params)
   return when (f.name) {
     "ClassDef" -> {
-      ClassDef(name = toIdent(pm["name"]), bases = toExprs(pm["bases"]),
+      ClassDef(name = toIdentifier(pm["name"]), bases = toExprs(pm["bases"]),
           keywords = toKeywords(pm["keywords"]), body = toStmts(pm["body"]), decorator_list = toExprs(pm["decorator_list"]))
     }
     "FunctionDef" -> {
-      FunctionDef(name = toIdent(pm["name"]), args = toArguments(pm["args"]),
+      FunctionDef(name = toIdentifier(pm["name"]), args = toArguments(pm["args"]),
           decorator_list = pm.toExprs("decorator_list"), body = pm.toStmts("body"),
           returns = pm.toExprOpt("returns"))
     }
@@ -233,11 +262,20 @@ fun toStmt(v: Item?): Stmt {
     "Assert" -> Assert(test = pm.toExpr("test"), msg = pm.toExprOpt("msg"))
     "Pass" -> Pass()
     "Return" -> Return(value = pm.toExprOpt("value"))
+    "Continue" -> Continue()
+    "Try" -> Try(body = pm.toStmts("body"), handlers = toExceptHandlers(pm["handlers"]), orelse = pm.toStmts("orelse"), finalbody = pm.toStmts("finalbody"))
+    "Nonlocal" -> Nonlocal(names = toIdentifiers(pm["names"]))
     else -> fail(f.name)
   }
 }
 fun toStmts(v: Item?) = toList(v, ::toStmt)
 
+fun toExceptHandler(v: Item?): ExceptHandler {
+  val f = toFCall(v, "ExceptHandler")
+  val pm = paramsToMap(f.params)
+  return ExceptHandler(typ = pm.toExpr("type"), name = toIdentifierOpt(pm["name"]), body = pm.toStmts("body"))
+}
+fun toExceptHandlers(v: Item?) = toList(v, ::toExceptHandler)
 
 object ItemsParser : Grammar<Item>() {
   val NUM by token("\\d+")
@@ -251,7 +289,13 @@ object ItemsParser : Grammar<Item>() {
 
 
   val litp = (B_STRINGLIT or STRINGLIT) use { Literal(text)}
-  val nump = NUM use { Number(text.toInt()) }
+  val nump = NUM use {
+    try {
+      CNumber(text.toInt())
+    } catch (e: java.lang.NumberFormatException) {
+      CBigNumber(text.toBigInteger())
+    }
+  }
   val ident = WORD use { Ident(text) }
 
   val namedParam: Parser<FParam> = ident * -EQ * parser {value} map { NamedParam(it.t1, it.t2)}
@@ -270,7 +314,13 @@ object ItemsParser2 {
       value.NB_STRING_LIT() != null -> Literal(value.NB_STRING_LIT().text)
       value.BSTRING_LIT() != null -> Literal(value.BSTRING_LIT().text)
       value.WORD() != null -> Ident(value.WORD().text)
-      value.NUM() != null -> Number(Integer.parseInt(value.text))
+      value.NUM() != null -> {
+        try {
+          CNumber(value.NUM().text.toInt())
+        } catch(e: NumberFormatException) {
+          CBigNumber(value.NUM().text.toBigInteger())
+        }
+      }
       else -> parseFCall(value.funcCall())
     }
   }
@@ -303,7 +353,7 @@ object ItemsParser2 {
 }
 
 fun main(args: Array<String>) {
-  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs.txt")
+  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_phase1_v0.11.2.txt")
   //println(path.toAbsolutePath().toFile().exists())
   val consts = linkedMapOf<Set<String>, Assign>()
   val cdefs = linkedMapOf<String, ClassDef>()

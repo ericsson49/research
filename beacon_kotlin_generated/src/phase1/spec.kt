@@ -1075,7 +1075,7 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   assert((block.parent_root in store.block_states))
   var pre_state = store.block_states[block.parent_root]!!.copy()
   assert((get_current_slot(store) >= block.slot))
-  store.blocks[hash_tree_root(block)] = BeaconBlockHeader(slot = block.slot, proposer_index = block.proposer_index, state_root = block.state_root, body_root = hash_tree_root(block.body))
+  store.blocks[hash_tree_root(block)] = BeaconBlockHeader(slot = block.slot, proposer_index = block.proposer_index, parent_root = block.parent_root, state_root = block.state_root, body_root = hash_tree_root(block.body))
   var finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
   assert((block.slot > finalized_slot))
   assert((get_ancestor(store, hash_tree_root(block), finalized_slot) == store.finalized_checkpoint.root))

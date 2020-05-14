@@ -1184,7 +1184,6 @@ fun process_custody_game_operations(state: BeaconState, body: BeaconBlockBody): 
       fn(state, operation)
     }
   }
-  kotlin.Unit
   for_ops(body.custody_key_reveals, ::process_custody_key_reveal)
   for_ops(body.early_derived_secret_reveals, ::process_early_derived_secret_reveal)
   for_ops(body.custody_slashings, ::process_custody_slashing)
@@ -1683,7 +1682,6 @@ fun get_proposal_choices_at_slot(beacon_state: BeaconState, shard_state: ShardSt
     run { // else
       choices.append(block)
     }
-    kotlin.Unit
   }
   return choices
 }

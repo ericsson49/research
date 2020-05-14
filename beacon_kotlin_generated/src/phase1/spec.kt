@@ -41,6 +41,7 @@ import ssz.Bytes32
 import ssz.CBitlist
 import ssz.CDict
 import ssz.CList
+import ssz.CVector
 import ssz.SSZObject
 import ssz.Sequence
 import ssz.boolean
@@ -1781,7 +1782,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
       online_countdown = List(len(pre.validators).toInt()) { mutableListOf(ONLINE_PERIOD) }.flatten().toMutableList(),
       current_light_committee = CompactCommittee(),
       next_light_committee = CompactCommittee(),
-      exposed_derived_secrets = MutableList(EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS.toInt()) { mutableListOf() }
+      exposed_derived_secrets = range(EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS).map { CVector<CList<ValidatorIndex>>() }.flatten().toMutableList()
   )
   var next_epoch = Epoch((epoch + 1uL))
   post.current_light_committee = committee_to_compact_committee(post, get_light_client_committee(post, epoch))

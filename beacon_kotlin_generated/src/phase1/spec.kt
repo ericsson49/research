@@ -5,7 +5,7 @@ import pylib.all
 import pylib.any
 import pylib.append
 import pylib.bit_length
-import pylib.bool
+import pylib.pybool
 import pylib.contains
 import pylib.count
 import pylib.enumerate
@@ -22,7 +22,6 @@ import pylib.max
 import pylib.min
 import pylib.plus
 import pylib.pow
-import pylib.pybool
 import pylib.pybytes
 import pylib.pyint
 import pylib.range
@@ -163,7 +162,7 @@ fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: Indexe
 fun is_valid_merkle_branch(leaf: Bytes32, branch: Sequence<Bytes32>, depth: uint64, index: uint64, root: Root): pybool {
   var value = leaf
   for (i in range(depth)) {
-    if (bool(((index / (2uL.pow(i))) % 2uL))) {
+    if (pybool(((index / (2uL.pow(i))) % 2uL))) {
       value = hash((branch[i] + value))
     } else {
       value = hash((value + branch[i]))
@@ -185,7 +184,7 @@ fun compute_shuffled_index(index: ValidatorIndex, index_count: uint64, seed: Byt
     val source = hash(((seed + int_to_bytes(current_round, length = 1uL)) + int_to_bytes((position / 256uL), length = 4uL)))
     val byte = source[((position % 256uL) / 8uL)]
     val bit = ((byte shr (position % 8uL)) % 2uL)
-    index_ = if (bool(bit)) flip else index_
+    index_ = if (pybool(bit)) flip else index_
   }
   return ValidatorIndex(index_)
 }
@@ -1320,7 +1319,7 @@ fun pack_compact_validator(index: ValidatorIndex, slashed: pybool, balance_in_in
     Return validator index, slashed, balance // EFFECTIVE_BALANCE_INCREMENT
     */
 fun unpack_compact_validator(compact_validator: uint64): Triple<ValidatorIndex, pybool, uint64> {
-  return Triple(ValidatorIndex((compact_validator shr 16uL)), bool(((compact_validator shr 15uL) % 2uL)), (compact_validator and ((2uL.pow(15uL)) - 1uL)))
+  return Triple(ValidatorIndex((compact_validator shr 16uL)), pybool(((compact_validator shr 15uL) % 2uL)), (compact_validator and ((2uL.pow(15uL)) - 1uL)))
 }
 
 /*

@@ -97,7 +97,7 @@ operator fun <A> Pair<A, A>.get(i: uint64) = if (i == 0uL) first else if (i == 1
 operator fun pybytes.get(index: uint64) = get(index.toInt())
 
 operator fun <T> MutableList<T>.set(index: uint64, value: T) = set(index.toInt(), value)
-operator fun MutableList<Boolean>.set(i: uint64, v: uint64) = this.set(i, bool(v))
+operator fun MutableList<Boolean>.set(i: uint64, v: uint64) = this.set(i, pybool(v))
 
 fun <T> Iterable<T>.count(x: T): uint64 {
   fun pred(a: T): Boolean = a == x
@@ -116,8 +116,8 @@ infix fun uint64.shr(a: uint64): uint64 = this.shr(a)
 infix fun Byte.shr(a: uint64): uint64 = this.shr(a)
 infix fun pybool.shr(a: uint64): uint64 = if (this) 1uL.shr(a) else 0uL
 
-fun bool(a: uint64) = a != 0uL
-fun bool(a: Boolean) = a
+fun pybool(a: uint64) = a != 0uL
+fun pybool(a: Boolean) = a
 
 fun <T, U> zip(a: Collection<T>, b: Collection<U>) = a.zip(b)
 fun <T, U, V> zip(a: Collection<T>, b: Collection<U>, c: Collection<V>): Collection<Triple<T, U, V>> = a.zip(b).zip(c).map { Triple(it.first.first, it.first.second, it.second) }

@@ -353,7 +353,7 @@ object ItemsParser2 {
 }
 
 fun main(args: Array<String>) {
-  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_phase1_v0.11.2.txt")
+  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_phase0_v0.11.2.txt")
   //println(path.toAbsolutePath().toFile().exists())
   val consts = linkedMapOf<Set<String>, Assign>()
   val cdefs = linkedMapOf<String, ClassDef>()
@@ -376,19 +376,22 @@ fun main(args: Array<String>) {
 
   val gen = KotlinGen()
 
-  for ((k,a) in consts.entries) {
-    //gen.genTopLevelAssign(a)
+  val ignoredTopLevels = setOf("SSZVariableName", "GeneralizedIndex", "SSZObject", "_hash")
+  for((k,a) in consts.entries) {
+    if (ignoredTopLevels.containsAll(k))
+      continue
+    val n = k.toList()[0]
+    if (n.toList().all { it.toUpperCase() == it })
+      println("val " + n + " = " + gen.genExpr(a.value))
   }
-
   for ((k,c) in cdefs.entries) {
     gen.genClass(c)
   }
   val t3 = System.nanoTime()
 
-  for((k,f) in fdefs.entries) {
-    if (k == "init_SSZ_types")
-      continue
-    if (k == "apply_constants_preset")
+  val ignoredFuncs = setOf("cache_this", "hash") // setOf("init_SSZ_types", "apply_constants_preset")
+  for ((k,f) in fdefs.entries) {
+    if (k in ignoredFuncs)
       continue
     gen.genFunc(f)
   }

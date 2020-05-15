@@ -1,6 +1,9 @@
 class KotlinGen: BaseGen() {
   override fun genValueClass(name: String, base: String) {
     println("typealias $name = $base")
+    println("fun $name(x: $base): $name = x")
+    val default = getDefaultValueForBase(base)
+    println("fun $name() = $name($default)")
   }
 
   override fun genClsField(name: String, typ: String, init: String?): String {

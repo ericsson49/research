@@ -1,5 +1,8 @@
 package phase1
 
+import deps.bls
+import deps.hash
+import deps.hash_tree_root
 import pylib.Tuple2
 import pylib.all
 import pylib.any
@@ -1737,6 +1740,10 @@ fun get_shard_transition(beacon_state: BeaconState, shard: Shard, shard_blocks: 
   return ShardTransition(start_slot = start_slot, shard_block_lengths = shard_block_lengths, shard_data_roots = shard_data_roots.toMutableList(), shard_states = shard_states.toMutableList(), proposer_signature_aggregate = proposer_signature_aggregate)
 }
 
+fun phase0.BeaconBlockHeader.toPhase1() = BeaconBlockHeader(slot = this.slot, proposer_index = this.proposer_index, parent_root = this.parent_root, state_root = this.state_root, body_root = this.body_root)
+fun phase0.Eth1Data.toPhase1() = Eth1Data(deposit_root = this.deposit_root, deposit_count = this.deposit_count, block_hash = this.block_hash)
+fun phase0.Checkpoint.toPhase1() = Checkpoint(epoch = this.epoch, root = this.root)
+
 fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
   var epoch = phase0.get_current_epoch(pre)
   var post = BeaconState(
@@ -1746,12 +1753,12 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
           previous_version = pre.fork.current_version,
           current_version = PHASE_1_FORK_VERSION,
           epoch = epoch),
-      latest_block_header = pre.latest_block_header,
+      latest_block_header = pre.latest_block_header.toPhase1(),
       block_roots = pre.block_roots,
       state_roots = pre.state_roots,
       historical_roots = pre.historical_roots,
-      eth1_data = pre.eth1_data,
-      eth1_data_votes = pre.eth1_data_votes,
+      eth1_data = pre.eth1_data.toPhase1(),
+      eth1_data_votes = pre.eth1_data_votes.map {it.toPhase1()}.toMutableList(),
       eth1_deposit_index = pre.eth1_deposit_index,
       validators = enumerate(pre.validators).map { (i, phase0_validator) ->
         Validator(
@@ -1772,9 +1779,9 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
       previous_epoch_attestations = CList(),
       current_epoch_attestations = CList(),
       justification_bits = pre.justification_bits,
-      previous_justified_checkpoint = pre.previous_justified_checkpoint,
-      current_justified_checkpoint = pre.current_justified_checkpoint,
-      finalized_checkpoint = pre.finalized_checkpoint,
+      previous_justified_checkpoint = pre.previous_justified_checkpoint.toPhase1(),
+      current_justified_checkpoint = pre.current_justified_checkpoint.toPhase1(),
+      finalized_checkpoint = pre.finalized_checkpoint.toPhase1(),
       shard_states = range(INITIAL_ACTIVE_SHARDS).map { ShardState(slot = pre.slot, gasprice = MIN_GASPRICE, transition_digest = Root(), latest_block_root = Root()) }.toMutableList(),
       online_countdown = List(len(pre.validators).toInt()) { mutableListOf(ONLINE_PERIOD) }.flatten().toMutableList(),
       current_light_committee = CompactCommittee(),

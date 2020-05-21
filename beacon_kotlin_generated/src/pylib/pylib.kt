@@ -7,7 +7,6 @@ import ssz.uint64
 import java.lang.Long
 import java.math.BigInteger
 import java.util.*
-import kotlin.test.fail
 
 typealias pybytes = Bytes
 typealias pybool = Boolean
@@ -93,7 +92,7 @@ fun <T> MutableList<T>.updateSlice(f: uint64, t: uint64, x: List<T>) {
 }
 
 operator fun <T> List<T>.get(index: uint64) = get(index.toInt())
-operator fun <A> Pair<A, A>.get(i: uint64) = if (i == 0uL) first else if (i == 1uL) second else fail("bad index " + i)
+operator fun <A> Pair<A, A>.get(i: uint64) = if (i == 0uL) first else if (i == 1uL) second else throw IllegalArgumentException("bad index " + i)
 operator fun pybytes.get(index: uint64) = get(index.toInt())
 
 operator fun <T> MutableList<T>.set(index: uint64, value: T) = set(index.toInt(), value)

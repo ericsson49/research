@@ -121,8 +121,8 @@ abstract class BaseGen {
           fail(e.toString())
         tupleName + "(" + e.elts.map { genExpr(it) }.joinToString(", ") + ")"
       }
-      is Dict -> "mutableMapOf(" + e.keys.zip(e.values).map { genExpr(it.first) + " := " + genExpr(it.second) }.joinToString(", ") + ")"
-      is TList -> "mutableListOf(" + e.elts.map { genExpr(it) }.joinToString(", ") + ")"
+      is PyDict -> "mutableMapOf(" + e.keys.zip(e.values).map { genExpr(it.first) + " := " + genExpr(it.second) }.joinToString(", ") + ")"
+      is PyList -> "mutableListOf(" + e.elts.map { genExpr(it) }.joinToString(", ") + ")"
       is GeneratorExp -> genComprehension(e.elt, e.generators)
       is Bytes -> "bytes(" + e.s + ")"
       is Lambda -> "{" + e.args.args.map(::genArg).joinToString(",") + " -> " + genExpr(e.body) + "}"
@@ -294,8 +294,8 @@ abstract class BaseGen {
               else
                 fail("not implemented")
             } else if (t.value.id == "Callable") {
-              if (r.value.elts.size == 2 && r.value.elts[0] is TList) {
-                val tArgs = (r.value.elts[0] as TList).elts.map(::genNativeType).joinToString(",", "(", ")")
+              if (r.value.elts.size == 2 && r.value.elts[0] is PyList) {
+                val tArgs = (r.value.elts[0] as PyList).elts.map(::genNativeType).joinToString(",", "(", ")")
                 res = tArgs + "->" + genNativeType(r.value.elts[1])
               } else
                 fail(t.toString())

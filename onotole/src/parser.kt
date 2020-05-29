@@ -167,7 +167,7 @@ fun toExpr(v: Item?): TExpr {
         "IfExp" -> IfExp(test = pm.toExpr("test"), body = pm.toExpr("body"), orelse = pm.toExpr("orelse"))
         "ListComp" -> ListComp(elt = pm.toExpr("elt"), generators = toComprehensions(pm["generators"]))
         "GeneratorExp" -> GeneratorExp(elt = pm.toExpr("elt"), generators = toComprehensions(pm["generators"]))
-        "Num" -> Num(toInt(pm["n"]))
+        "Num" -> Num(toNum(pm["n"]))
         "NameConstant" -> toConstant(pm["value"])
         "Str" -> Str(toStr(pm["s"]))
         "List" -> PyList(elts = pm.toExprs("elts"), ctx = toCtx(pm["ctx"]))
@@ -187,6 +187,7 @@ fun toExpr(v: Item?): TExpr {
             else -> fail(constValue.toString())
           }
         }
+        "Ellipsis" -> NameConstant("...")
         else -> fail(v.name)
       }
     }

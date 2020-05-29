@@ -98,7 +98,7 @@ abstract class BaseGen {
       is NameConstant -> e.value.toString()
       is Subscript -> {
         when (e.slice) {
-          is Index -> genExpr(e.value) + "[" + genExpr(e.slice.value) + "]" + (if (storeCtx) "" else "!!")
+          is Index -> genExpr(e.value) + "[" + genExpr(e.slice.value) + "]" + (if (storeCtx) "" else "")
           is Slice -> {
             genExpr(e.value) + ".slice(" +
                 (e.slice.lower?.let { genExpr(it) } ?: "0uL") + (e.slice.upper?.let { "," + genExpr(it) }
@@ -121,7 +121,7 @@ abstract class BaseGen {
           fail(e.toString())
         tupleName + "(" + e.elts.map { genExpr(it) }.joinToString(", ") + ")"
       }
-      is PyDict -> "mutableMapOf(" + e.keys.zip(e.values).map { genExpr(it.first) + " := " + genExpr(it.second) }.joinToString(", ") + ")"
+      is PyDict -> "mutableMapOf(" + e.keys.zip(e.values).map { genExpr(it.first) + " to " + genExpr(it.second) }.joinToString(", ") + ")"
       is PyList -> "mutableListOf(" + e.elts.map { genExpr(it) }.joinToString(", ") + ")"
       is GeneratorExp -> genComprehension(e.elt, e.generators)
       is Bytes -> "bytes(" + e.s + ")"

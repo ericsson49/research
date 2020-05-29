@@ -8,7 +8,6 @@ import com.github.h0tk3y.betterParse.combinators.times
 import com.github.h0tk3y.betterParse.combinators.unaryMinus
 import com.github.h0tk3y.betterParse.combinators.use
 import com.github.h0tk3y.betterParse.grammar.Grammar
-import com.github.h0tk3y.betterParse.grammar.parseToEnd
 import com.github.h0tk3y.betterParse.grammar.parser
 import com.github.h0tk3y.betterParse.parser.Parser
 import org.antlr.v4.runtime.CharStreams
@@ -32,7 +31,7 @@ data class VParam(override val value: Item): FParam()
 
 typealias PM = Map<String, Item>
 
-fun <T> fail(e: String? = null): T = throw IllegalArgumentException(e)
+fun fail(e: String? = null): Nothing = throw IllegalArgumentException(e)
 fun paramsToMap(params: List<FParam>) = params.map {
   when(it) {
     is NamedParam -> it.name.name to it.value

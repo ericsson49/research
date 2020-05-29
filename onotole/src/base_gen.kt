@@ -57,7 +57,7 @@ abstract class BaseGen {
 
   fun genComprehension(e: TExpr, gs: List<Comprehension>): String {
     if (gs.size != 1)
-      fail<String>("too many generators")
+      fail("too many generators")
     val c = gs[0]
     val target = genExpr(c.target, true)
     val ifs = c.ifs.map { "filter{" + target + " -> " + genExpr(it) + "}" }
@@ -141,7 +141,7 @@ abstract class BaseGen {
       is Expr -> genExpr(s.value)
       is Assign -> {
         if (s.targets.size != 1)
-          fail<String>("not implemented")
+          fail("not implemented")
         val target = s.targets[0]
         val newVar = target is Name && target.id !in vars
         if (newVar) {
@@ -218,15 +218,15 @@ abstract class BaseGen {
 
   fun genFunc(f: FunctionDef) {
     if (f.args.posonlyargs.isNotEmpty())
-      fail<Unit>("posonlyargs is not yet supported")
+      fail("posonlyargs is not yet supported")
     if (f.args.kwonlyargs.isNotEmpty())
-      fail<Unit>("kwonlyargs is not yet supported")
+      fail("kwonlyargs is not yet supported")
     if (f.args.kw_defaults.isNotEmpty())
-      fail<Unit>("kw_defaults is not yet supported")
+      fail("kw_defaults is not yet supported")
     if (f.args.vararg != null)
-      fail<Unit>("vararg is not yet supported")
+      fail("vararg is not yet supported")
     if (f.args.kwarg != null)
-      fail<Unit>("kwarg is not yet supported")
+      fail("kwarg is not yet supported")
 
     val firstStmt = f.body[0]
     val (body, comment) = if (firstStmt is Expr && firstStmt.value is Str) {
@@ -361,11 +361,11 @@ abstract class BaseGen {
 
   fun genClass(c: ClassDef) {
     if (c.bases.size != 1)
-      fail<Unit>("")
+      fail("")
     val bases = c.bases.map(::genNativeType)
     if (c.body.size == 1 && c.body[0] is Pass) {
       if (c.bases.size > 1)
-        fail<Unit>("too many bases classes for a Value type")
+        fail("too many bases classes for a Value type")
       genValueClass(c.name, bases[0])
     } else {
       genContainerClass(c.name, c.body.map(::genClsField))

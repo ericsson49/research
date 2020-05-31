@@ -18,13 +18,13 @@ typealias Bytes48 = TuweniBytes48
 typealias Bytes96 = TuweniBytes
 
 typealias Bitlist = BooleanArray
-typealias CBitlist = List<Boolean>
-typealias CBitvector = MutableList<Boolean>
-typealias CByteList = List<Byte>
-typealias CList<T> = MutableList<T>
-typealias CVector<T> = MutableList<T>
+typealias SSZBitlist = List<Boolean>
+typealias SSZBitvector = MutableList<Boolean>
+typealias SSZByteList = List<Byte>
+typealias SSZList<T> = MutableList<T>
+typealias SSZVector<T> = MutableList<T>
 typealias CSequence<T> = List<T>
-typealias CDict<K, V> = MutableMap<K, V>
+typealias SSZDict<K, V> = MutableMap<K, V>
 
 typealias Sequence<T> = List<T>
 typealias Vector<T> = MutableList<T>
@@ -35,9 +35,11 @@ fun Bytes32(x: List<Byte>): Bytes32 = Bytes32.wrap(x.toByteArray())
 fun Bytes48(): Bytes48 = Bytes48.ZERO
 fun Bytes96(): Bytes96 = TuweniBytes.concatenate(Bytes48.ZERO, Bytes48.ZERO)
 
-fun CBitlist() = listOf<Boolean>()
-fun CBitvector(): CBitvector = mutableListOf<Boolean>()
-fun CByteList() = listOf<Byte>()
-fun <T> CList() = mutableListOf<T>()
-fun <T> CVector() = mutableListOf<T>()
-fun <K, V> CDict() = mutableMapOf<K, V>()
+fun SSZBitlist() = listOf<Boolean>()
+fun SSZBitvector(): SSZBitvector = mutableListOf<Boolean>()
+fun SSZByteList() = listOf<Byte>()
+fun <T> SSZList() = mutableListOf<T>()
+fun <T> SSZList(vararg elts: T) = mutableListOf<T>(*elts)
+inline fun <reified T> SSZList(elts: Collection<T>) = SSZList(*elts.toTypedArray())
+fun <T> SSZVector() = mutableListOf<T>()
+fun <K, V> SSZDict() = mutableMapOf<K, V>()

@@ -11,6 +11,7 @@ import java.util.*
 typealias pybytes = Bytes
 typealias pybool = Boolean
 typealias PyList<T> = MutableList<T>
+typealias PyDict<K,V> = MutableMap<K,V>
 
 inline class pyint(val value: BigInteger) {
   constructor(x: uint64) : this(x.toLong().toBigInteger())
@@ -140,6 +141,13 @@ fun <T> MutableList<T>.append(a: T) {
 operator fun <T> PyList<T>.times(dup: uint64): PyList<T> = List(dup.toInt()) { this }.flatten().toMutableList()
 
 fun <T> List<T>.index(a: T) = this.indexOf(a)
+
+fun <T> List<T>.toPyList(): PyList<T> = this.toMutableList()
+fun <T> PyList() = mutableListOf<T>()
+fun <T> PyList(vararg elts: T) = mutableListOf(*elts)
+
+fun <K,V> PyDict() = mutableMapOf<K,V>()
+fun <K,V> PyDict(vararg pairs: Pair<K, V>) = mutableMapOf(*pairs)
 
 fun <K, V> Map<K, V>.keys() = this.keys
 

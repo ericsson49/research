@@ -1,8 +1,10 @@
 package phase1
 
+import pylib.PyList
 import pylib.len
 import pylib.pow
 import pylib.pyint
+import pylib.times
 
 val GENESIS_SLOT = Slot(0uL)
 val GENESIS_EPOCH = Epoch(0uL)
@@ -86,7 +88,7 @@ val LIGHT_CLIENT_COMMITTEE_SIZE = (2uL.pow(7uL))
 val LIGHT_CLIENT_COMMITTEE_PERIOD = Epoch((2uL.pow(8uL)))
 val MAX_SHARD_BLOCK_SIZE = (2uL.pow(20uL))
 val TARGET_SHARD_BLOCK_SIZE = (2uL.pow(18uL))
-val SHARD_BLOCK_OFFSETS = mutableListOf(1uL, 2uL, 3uL, 5uL, 8uL, 13uL, 21uL, 34uL, 55uL, 89uL, 144uL, 233uL)
+val SHARD_BLOCK_OFFSETS = PyList(1uL, 2uL, 3uL, 5uL, 8uL, 13uL, 21uL, 34uL, 55uL, 89uL, 144uL, 233uL)
 val MAX_SHARD_BLOCKS_PER_ATTESTATION = len(SHARD_BLOCK_OFFSETS)
 val MAX_GASPRICE = Gwei((2uL.pow(14uL)))
 val MIN_GASPRICE = Gwei((2uL.pow(3uL)))

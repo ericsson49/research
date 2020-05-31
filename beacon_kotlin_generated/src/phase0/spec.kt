@@ -3,6 +3,8 @@ package phase0
 import deps.bls
 import deps.hash
 import deps.hash_tree_root
+import pylib.PyDict
+import pylib.PyList
 import pylib.Tuple2
 import pylib.all
 import pylib.any
@@ -34,13 +36,15 @@ import pylib.slice
 import pylib.sorted
 import pylib.sum
 import pylib.times
+import pylib.toPyList
 import pylib.to_bytes
 import pylib.unaryMinus
 import pylib.updateSlice
 import pylib.zip
 import ssz.Bytes32
-import ssz.CBitlist
-import ssz.CDict
+import ssz.SSZBitlist
+import ssz.SSZDict
+import ssz.SSZList
 import ssz.SSZObject
 import ssz.Sequence
 import ssz.uint64
@@ -127,7 +131,7 @@ fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: Indexe
   if ((len(indices) == 0uL) || !((indices == sorted(set(indices))))) {
     return false
   }
-  var pubkeys = indices.map { i -> state.validators[i].pubkey }.toMutableList()
+  var pubkeys = indices.map { i -> state.validators[i].pubkey }.toPyList()
   var domain = get_domain(state, DOMAIN_BEACON_ATTESTER, indexed_attestation.data.target.epoch)
   var signing_root = compute_signing_root(indexed_attestation.data, domain)
   return bls.FastAggregateVerify(pubkeys, signing_root, indexed_attestation.signature)
@@ -190,7 +194,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
 fun compute_committee(indices: Sequence<ValidatorIndex>, seed: Bytes32, index: uint64, count: uint64): Sequence<ValidatorIndex> {
   var start = ((len(indices) * index) / count)
   var end = ((len(indices) * (index + 1uL)) / count)
-  return range(start, end).map { i -> indices[compute_shuffled_index(i, len(indices), seed)] }.toMutableList()
+  return range(start, end).map { i -> indices[compute_shuffled_index(i, len(indices), seed)] }.toPyList()
 }
 
 /*
@@ -372,7 +376,7 @@ fun get_indexed_attestation(state: BeaconState, attestation: Attestation): Index
 /*
     Return the set of attesting indices corresponding to ``data`` and ``bits``.
     */
-fun get_attesting_indices(state: BeaconState, data: AttestationData, bits: CBitlist): Set<ValidatorIndex> {
+fun get_attesting_indices(state: BeaconState, data: AttestationData, bits: SSZBitlist): Set<ValidatorIndex> {
   var committee = get_beacon_committee(state, data.slot, data.index)
   return set(enumerate(committee).filter { (i, _) -> bits[i] }.map { (_, index) -> index })
 }
@@ -399,9 +403,9 @@ fun initiate_validator_exit(state: BeaconState, index: ValidatorIndex): Unit {
   if ((validator.exit_epoch != FAR_FUTURE_EPOCH)) {
     return
   }
-  var exit_epochs = state.validators.filter { v -> (v.exit_epoch != FAR_FUTURE_EPOCH) }.map { v -> v.exit_epoch }.toMutableList()
-  var exit_queue_epoch = max((exit_epochs + mutableListOf(compute_activation_exit_epoch(get_current_epoch(state)))))
-  var exit_queue_churn = len(state.validators.filter { v -> (v.exit_epoch == exit_queue_epoch) }.map { v -> v }.toMutableList())
+  var exit_epochs = state.validators.filter { v -> (v.exit_epoch != FAR_FUTURE_EPOCH) }.map { v -> v.exit_epoch }.toPyList()
+  var exit_queue_epoch = max((exit_epochs + PyList(compute_activation_exit_epoch(get_current_epoch(state)))))
+  var exit_queue_churn = len(state.validators.filter { v -> (v.exit_epoch == exit_queue_epoch) }.map { v -> v }.toPyList())
   if ((exit_queue_churn >= get_validator_churn_limit(state))) {
     exit_queue_epoch += Epoch(1uL)
   }
@@ -435,10 +439,10 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
       fork = fork,
       eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = len(deposits)),
       latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())),
-      randao_mixes = (mutableListOf(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR))
+      randao_mixes = (PyList(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR))
   var leaves = list(map({ deposit -> deposit.data }, deposits))
   for ((index, deposit) in enumerate(deposits)) {
-    var deposit_data_list = leaves.slice(0uL, (index.toULong() + 1uL))
+    var deposit_data_list = SSZList<DepositData>(*leaves.slice(0uL, (index.toULong() + 1uL)).toTypedArray())
     state.eth1_data.deposit_root = hash_tree_root(deposit_data_list)
     process_deposit(state, deposit)
   }
@@ -518,11 +522,11 @@ fun get_matching_source_attestations(state: BeaconState, epoch: Epoch): Sequence
 }
 
 fun get_matching_target_attestations(state: BeaconState, epoch: Epoch): Sequence<PendingAttestation> {
-  return get_matching_source_attestations(state, epoch).filter { a -> (a.data.target.root == get_block_root(state, epoch)) }.map { a -> a }.toMutableList()
+  return get_matching_source_attestations(state, epoch).filter { a -> (a.data.target.root == get_block_root(state, epoch)) }.map { a -> a }.toPyList()
 }
 
 fun get_matching_head_attestations(state: BeaconState, epoch: Epoch): Sequence<PendingAttestation> {
-  return get_matching_target_attestations(state, epoch).filter { a -> (a.data.beacon_block_root == get_block_root_at_slot(state, a.data.slot)) }.map { a -> a }.toMutableList()
+  return get_matching_target_attestations(state, epoch).filter { a -> (a.data.beacon_block_root == get_block_root_at_slot(state, a.data.slot)) }.map { a -> a }.toPyList()
 }
 
 fun get_unslashed_attesting_indices(state: BeaconState, attestations: Sequence<PendingAttestation>): Set<ValidatorIndex> {
@@ -600,15 +604,15 @@ fun get_eligible_validator_indices(state: BeaconState): Sequence<ValidatorIndex>
   var previous_epoch = get_previous_epoch(state)
   return enumerate(state.validators)
       .filter { (_, v) -> is_active_validator(v, previous_epoch) || v.slashed && ((previous_epoch + 1uL) < v.withdrawable_epoch) }
-      .map { (index, _) -> ValidatorIndex(index) }.toMutableList()
+      .map { (index, _) -> ValidatorIndex(index) }.toPyList()
 }
 
 /*
     Helper with shared logic for use by get source, target, and head deltas functions
     */
 fun get_attestation_component_deltas(state: BeaconState, attestations: Sequence<PendingAttestation>): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  var rewards = (mutableListOf(Gwei(0uL)) * len(state.validators))
-  var penalties = (mutableListOf(Gwei(0uL)) * len(state.validators))
+  var rewards = (PyList(Gwei(0uL)) * len(state.validators))
+  var penalties = (PyList(Gwei(0uL)) * len(state.validators))
   var total_balance = get_total_active_balance(state)
   var unslashed_attesting_indices = get_unslashed_attesting_indices(state, attestations)
   var attesting_balance = get_total_balance(state, unslashed_attesting_indices)
@@ -656,15 +660,15 @@ fun get_head_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
     Return proposer and inclusion delay micro-rewards/penalties for each validator.
     */
 fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  var rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
+  var rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
   var matching_source_attestations = get_matching_source_attestations(state, get_previous_epoch(state))
   for (index in get_unslashed_attesting_indices(state, matching_source_attestations)) {
-    var attestation = min(matching_source_attestations.filter { a -> (index in get_attesting_indices(state, a.data, a.aggregation_bits)) }.map { a -> a }.toMutableList(), key = { a -> a.inclusion_delay })
+    var attestation = min(matching_source_attestations.filter { a -> (index in get_attesting_indices(state, a.data, a.aggregation_bits)) }.map { a -> a }.toPyList(), key = { a -> a.inclusion_delay })
     rewards[attestation.proposer_index] += get_proposer_reward(state, index)
     var max_attester_reward = (get_base_reward(state, index) - get_proposer_reward(state, index))
     rewards[index] += Gwei((max_attester_reward / attestation.inclusion_delay))
   }
-  var penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
+  var penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
   return Pair(rewards, penalties)
 }
 
@@ -672,7 +676,7 @@ fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequenc
     Return inactivity reward/penalty deltas for each validator.
     */
 fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  var penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
+  var penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
   if (is_in_inactivity_leak(state)) {
     var matching_target_attestations = get_matching_target_attestations(state, get_previous_epoch(state))
     var matching_target_attesting_indices = get_unslashed_attesting_indices(state, matching_target_attestations)
@@ -685,7 +689,7 @@ fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequ
       }
     }
   }
-  var rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
+  var rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
   return Pair(rewards, penalties)
 }
 
@@ -698,8 +702,8 @@ fun get_attestation_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gw
   val (head_rewards, head_penalties) = get_head_deltas(state)
   val (inclusion_delay_rewards, _) = get_inclusion_delay_deltas(state)
   val (_, inactivity_penalties) = get_inactivity_penalty_deltas(state)
-  var rewards = range(len(state.validators)).map { i -> (((source_rewards[i] + target_rewards[i]) + head_rewards[i]) + inclusion_delay_rewards[i]) }.toMutableList()
-  var penalties = range(len(state.validators)).map { i -> (((source_penalties[i] + target_penalties[i]) + head_penalties[i]) + inactivity_penalties[i]) }.toMutableList()
+  var rewards = range(len(state.validators)).map { i -> (((source_rewards[i] + target_rewards[i]) + head_rewards[i]) + inclusion_delay_rewards[i]) }.toPyList()
+  var penalties = range(len(state.validators)).map { i -> (((source_penalties[i] + target_penalties[i]) + head_penalties[i]) + inactivity_penalties[i]) }.toPyList()
   return Pair(rewards, penalties)
 }
 
@@ -726,7 +730,7 @@ fun process_registry_updates(state: BeaconState): Unit {
   var activation_queue = sorted(
       enumerate(state.validators)
           .filter { (_, validator) -> is_eligible_for_activation(state, validator) }
-          .map { (index, _) -> index }.toMutableList(),
+          .map { (index, _) -> index }.toPyList(),
       key = { index -> Tuple2(state.validators[index].activation_eligibility_epoch, index) })
   for (index in activation_queue.slice(0uL, get_validator_churn_limit(state))) {
     var validator = state.validators[index]
@@ -751,7 +755,7 @@ fun process_final_updates(state: BeaconState): Unit {
   var current_epoch = get_current_epoch(state)
   var next_epoch = Epoch((current_epoch + 1uL))
   if (((next_epoch % EPOCHS_PER_ETH1_VOTING_PERIOD) == 0uL)) {
-    state.eth1_data_votes = mutableListOf<Eth1Data>()
+    state.eth1_data_votes = SSZList<Eth1Data>()
   }
   for ((index, validator) in enumerate(state.validators)) {
     var balance = state.balances[index]
@@ -769,7 +773,7 @@ fun process_final_updates(state: BeaconState): Unit {
     state.historical_roots.append(hash_tree_root(historical_batch))
   }
   state.previous_epoch_attestations = state.current_epoch_attestations
-  state.current_epoch_attestations = mutableListOf<PendingAttestation>()
+  state.current_epoch_attestations = SSZList<PendingAttestation>()
 }
 
 fun process_block(state: BeaconState, block: BeaconBlock): Unit {
@@ -876,7 +880,7 @@ fun process_deposit(state: BeaconState, deposit: Deposit): Unit {
   state.eth1_deposit_index += 1uL
   var pubkey = deposit.data.pubkey
   var amount = deposit.data.amount
-  var validator_pubkeys = state.validators.map { v -> v.pubkey }.toMutableList()
+  var validator_pubkeys = state.validators.map { v -> v.pubkey }.toPyList()
   if ((pubkey !in validator_pubkeys)) {
     var deposit_message = DepositMessage(pubkey = deposit.data.pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, amount = deposit.data.amount)
     var domain = compute_domain(DOMAIN_DEPOSIT)
@@ -920,9 +924,9 @@ fun get_forkchoice_store(anchor_state: BeaconState): Store {
       justified_checkpoint = justified_checkpoint,
       finalized_checkpoint = finalized_checkpoint,
       best_justified_checkpoint = justified_checkpoint,
-      blocks = mutableMapOf(anchor_root to anchor_block_header),
-      block_states = mutableMapOf(anchor_root to anchor_state.copy()),
-      checkpoint_states = mutableMapOf(justified_checkpoint to anchor_state.copy()))
+      blocks = PyDict(anchor_root to anchor_block_header),
+      block_states = PyDict(anchor_root to anchor_state.copy()),
+      checkpoint_states = PyDict(justified_checkpoint to anchor_state.copy()))
 }
 
 fun get_slots_since_genesis(store: Store): pyint {
@@ -956,11 +960,11 @@ fun get_latest_attesting_balance(store: Store, root: Root): Gwei {
   return Gwei(sum(active_indices.filter { i -> (i in store.latest_messages) && (get_ancestor(store, store.latest_messages[i]!!.root, store.blocks[root]!!.slot) == root) }.map { i -> state.validators[i].effective_balance }))
 }
 
-fun filter_block_tree(store: Store, block_root: Root, blocks: CDict<Root, BeaconBlockHeader>): pybool {
+fun filter_block_tree(store: Store, block_root: Root, blocks: SSZDict<Root, BeaconBlockHeader>): pybool {
   var block = store.blocks[block_root]!!
-  var children = store.blocks.keys().filter { root -> (store.blocks[root]!!.parent_root == block_root) }.map { root -> root }.toMutableList()
+  var children = store.blocks.keys().filter { root -> (store.blocks[root]!!.parent_root == block_root) }.map { root -> root }.toPyList()
   if (any(children)) {
-    var filter_block_tree_result = children.map { child -> filter_block_tree(store, child, blocks) }.toMutableList()
+    var filter_block_tree_result = children.map { child -> filter_block_tree(store, child, blocks) }.toPyList()
     if (any(filter_block_tree_result)) {
       blocks[block_root] = block
       return true
@@ -981,9 +985,9 @@ fun filter_block_tree(store: Store, block_root: Root, blocks: CDict<Root, Beacon
     Retrieve a filtered block tree from ``store``, only returning branches
     whose leaf state's justified/finalized info agrees with that in ``store``.
     */
-fun get_filtered_block_tree(store: Store): CDict<Root, BeaconBlockHeader> {
+fun get_filtered_block_tree(store: Store): SSZDict<Root, BeaconBlockHeader> {
   var base = store.justified_checkpoint.root
-  val blocks: CDict<Root, BeaconBlockHeader> = CDict()
+  val blocks: SSZDict<Root, BeaconBlockHeader> = PyDict()
   filter_block_tree(store, base, blocks)
   return blocks
 }
@@ -993,7 +997,7 @@ fun get_head(store: Store): Root {
   var head = store.justified_checkpoint.root
   var justified_slot = compute_start_slot_at_epoch(store.justified_checkpoint.epoch)
   while (true) {
-    var children = blocks.keys().filter { root -> (blocks[root]!!.parent_root == head) && (blocks[root]!!.slot > justified_slot) }.map { root -> root }.toMutableList()
+    var children = blocks.keys().filter { root -> (blocks[root]!!.parent_root == head) && (blocks[root]!!.slot > justified_slot) }.map { root -> root }.toPyList()
     if ((len(children) == 0uL)) {
       return head
     }
@@ -1023,7 +1027,7 @@ fun validate_on_attestation(store: Store, attestation: Attestation): Unit {
   var target = attestation.data.target
   var current_epoch = compute_epoch_at_slot(get_current_slot(store))
   var previous_epoch = if ((current_epoch > GENESIS_EPOCH)) (current_epoch - 1uL) else GENESIS_EPOCH
-  assert((target.epoch in mutableListOf(current_epoch, previous_epoch)))
+  assert((target.epoch in PyList(current_epoch, previous_epoch)))
   assert((target.epoch == compute_epoch_at_slot(attestation.data.slot)))
   assert((target.root in store.blocks))
   assert((attestation.data.beacon_block_root in store.blocks))
@@ -1165,8 +1169,8 @@ fun is_candidate_block(block: Eth1Block, period_start: uint64): pybool {
 
 fun get_eth1_vote(state: BeaconState, eth1_chain: Sequence<Eth1Block>): Eth1Data {
   var period_start = voting_period_start_time(state)
-  var votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) }.toMutableList()
-  var valid_votes = state.eth1_data_votes.filter { vote -> vote in votes_to_consider }.map { vote -> vote }.toMutableList()
+  var votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) }.toPyList()
+  var valid_votes = state.eth1_data_votes.filter { vote -> vote in votes_to_consider }.map { vote -> vote }.toPyList()
   var default_vote = if (any(votes_to_consider)) votes_to_consider[-(1uL)] else state.eth1_data
   return max(valid_votes, key = { v -> Tuple2(valid_votes.count(v), -(valid_votes.index(v))) }, default = default_vote)
 }
@@ -1213,7 +1217,7 @@ fun is_aggregator(state: BeaconState, slot: Slot, index: CommitteeIndex, slot_si
 }
 
 fun get_aggregate_signature(attestations: Sequence<Attestation>): BLSSignature {
-  var signatures = attestations.map { attestation -> attestation.signature }.toMutableList()
+  var signatures = attestations.map { attestation -> attestation.signature }.toPyList()
   return bls.Aggregate(signatures)
 }
 

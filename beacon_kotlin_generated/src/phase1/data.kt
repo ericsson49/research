@@ -4,12 +4,12 @@ import ssz.Bytes32
 import ssz.Bytes4
 import ssz.Bytes48
 import ssz.Bytes96
-import ssz.CBitlist
-import ssz.CBitvector
-import ssz.CByteList
-import ssz.CDict
-import ssz.CList
-import ssz.CVector
+import ssz.SSZBitlist
+import ssz.SSZBitvector
+import ssz.SSZByteList
+import ssz.SSZDict
+import ssz.SSZList
+import ssz.SSZVector
 import ssz.boolean
 import ssz.uint64
 import ssz.uint8
@@ -124,7 +124,7 @@ data class AttestationData(
 )
 
 data class PendingAttestation(
-    var aggregation_bits: CBitlist = CBitlist(),
+    var aggregation_bits: SSZBitlist = SSZBitlist(),
     var data: AttestationData = AttestationData(),
     var inclusion_delay: Slot = Slot(),
     var proposer_index: ValidatorIndex = ValidatorIndex(),
@@ -138,8 +138,8 @@ data class Eth1Data(
 )
 
 data class HistoricalBatch(
-    var block_roots: CVector<Root> = CVector<Root>(),
-    var state_roots: CVector<Root> = CVector<Root>()
+    var block_roots: SSZVector<Root> = SSZVector<Root>(),
+    var state_roots: SSZVector<Root> = SSZVector<Root>()
 )
 
 data class DepositMessage(
@@ -169,14 +169,14 @@ data class SigningData(
 )
 
 data class Attestation(
-    var aggregation_bits: CBitlist = CBitlist(),
+    var aggregation_bits: SSZBitlist = SSZBitlist(),
     var data: AttestationData = AttestationData(),
-    var custody_bits_blocks: CList<CBitlist> = CList<CBitlist>(),
+    var custody_bits_blocks: SSZList<SSZBitlist> = SSZList<SSZBitlist>(),
     var signature: BLSSignature = BLSSignature()
 )
 
 data class IndexedAttestation(
-    var committee: CList<ValidatorIndex> = CList<ValidatorIndex>(),
+    var committee: SSZList<ValidatorIndex> = SSZList<ValidatorIndex>(),
     var attestation: Attestation = Attestation()
 )
 
@@ -186,7 +186,7 @@ data class AttesterSlashing(
 )
 
 data class Deposit(
-    var proof: CVector<Bytes32> = CVector<Bytes32>(),
+    var proof: SSZVector<Bytes32> = SSZVector<Bytes32>(),
     var data: DepositData = DepositData()
 )
 
@@ -245,7 +245,7 @@ data class ShardBlock(
     var beacon_parent_root: Root = Root(),
     var slot: Slot = Slot(),
     var proposer_index: ValidatorIndex = ValidatorIndex(),
-    var body: CByteList = CByteList()
+    var body: SSZByteList = SSZByteList()
 )
 
 data class SignedShardBlock(
@@ -270,9 +270,9 @@ data class ShardState(
 
 data class ShardTransition(
     var start_slot: Slot = Slot(),
-    var shard_block_lengths: CList<uint64> = CList<uint64>(),
-    var shard_data_roots: CList<Bytes32> = CList<Bytes32>(),
-    var shard_states: CList<ShardState> = CList<ShardState>(),
+    var shard_block_lengths: SSZList<uint64> = SSZList<uint64>(),
+    var shard_data_roots: SSZList<Bytes32> = SSZList<Bytes32>(),
+    var shard_states: SSZList<ShardState> = SSZList<ShardState>(),
     var proposer_signature_aggregate: BLSSignature = BLSSignature()
 )
 
@@ -283,7 +283,7 @@ data class CustodySlashing(
     var whistleblower_index: ValidatorIndex = ValidatorIndex(),
     var shard_transition: ShardTransition = ShardTransition(),
     var attestation: Attestation = Attestation(),
-    var data: CByteList = CByteList()
+    var data: SSZByteList = SSZByteList()
 )
 
 data class SignedCustodySlashing(
@@ -295,16 +295,16 @@ data class BeaconBlockBody(
     var randao_reveal: BLSSignature = BLSSignature(),
     var eth1_data: Eth1Data = Eth1Data(),
     var graffiti: Bytes32 = Bytes32(),
-    var proposer_slashings: CList<ProposerSlashing> = CList<ProposerSlashing>(),
-    var attester_slashings: CList<AttesterSlashing> = CList<AttesterSlashing>(),
-    var attestations: CList<Attestation> = CList<Attestation>(),
-    var deposits: CList<Deposit> = CList<Deposit>(),
-    var voluntary_exits: CList<SignedVoluntaryExit> = CList<SignedVoluntaryExit>(),
-    var custody_slashings: CList<SignedCustodySlashing> = CList<SignedCustodySlashing>(),
-    var custody_key_reveals: CList<CustodyKeyReveal> = CList<CustodyKeyReveal>(),
-    var early_derived_secret_reveals: CList<EarlyDerivedSecretReveal> = CList<EarlyDerivedSecretReveal>(),
-    var shard_transitions: CVector<ShardTransition> = CVector<ShardTransition>(),
-    var light_client_signature_bitfield: CBitvector = CBitvector(),
+    var proposer_slashings: SSZList<ProposerSlashing> = SSZList<ProposerSlashing>(),
+    var attester_slashings: SSZList<AttesterSlashing> = SSZList<AttesterSlashing>(),
+    var attestations: SSZList<Attestation> = SSZList<Attestation>(),
+    var deposits: SSZList<Deposit> = SSZList<Deposit>(),
+    var voluntary_exits: SSZList<SignedVoluntaryExit> = SSZList<SignedVoluntaryExit>(),
+    var custody_slashings: SSZList<SignedCustodySlashing> = SSZList<SignedCustodySlashing>(),
+    var custody_key_reveals: SSZList<CustodyKeyReveal> = SSZList<CustodyKeyReveal>(),
+    var early_derived_secret_reveals: SSZList<EarlyDerivedSecretReveal> = SSZList<EarlyDerivedSecretReveal>(),
+    var shard_transitions: SSZVector<ShardTransition> = SSZVector<ShardTransition>(),
+    var light_client_signature_bitfield: SSZBitvector = SSZBitvector(),
     var light_client_signature: BLSSignature = BLSSignature()
 )
 
@@ -322,8 +322,8 @@ data class SignedBeaconBlock(
 )
 
 data class CompactCommittee(
-    var pubkeys: CList<BLSPubkey> = CList<BLSPubkey>(),
-    var compact_validators: CList<uint64> = CList<uint64>()
+    var pubkeys: SSZList<BLSPubkey> = SSZList<BLSPubkey>(),
+    var compact_validators: SSZList<uint64> = SSZList<uint64>()
 )
 
 data class BeaconState(
@@ -332,27 +332,27 @@ data class BeaconState(
     var slot: Slot = Slot(),
     var fork: Fork = Fork(),
     var latest_block_header: BeaconBlockHeader = BeaconBlockHeader(),
-    var block_roots: CVector<Root> = CVector<Root>(),
-    var state_roots: CVector<Root> = CVector<Root>(),
-    var historical_roots: CList<Root> = CList<Root>(),
+    var block_roots: SSZVector<Root> = SSZVector<Root>(),
+    var state_roots: SSZVector<Root> = SSZVector<Root>(),
+    var historical_roots: SSZList<Root> = SSZList<Root>(),
     var eth1_data: Eth1Data = Eth1Data(),
-    var eth1_data_votes: CList<Eth1Data> = CList<Eth1Data>(),
+    var eth1_data_votes: SSZList<Eth1Data> = SSZList<Eth1Data>(),
     var eth1_deposit_index: uint64 = 0uL,
-    var validators: CList<Validator> = CList<Validator>(),
-    var balances: CList<Gwei> = CList<Gwei>(),
-    var randao_mixes: CVector<Root> = CVector<Root>(),
-    var slashings: CVector<Gwei> = CVector<Gwei>(),
-    var previous_epoch_attestations: CList<PendingAttestation> = CList<PendingAttestation>(),
-    var current_epoch_attestations: CList<PendingAttestation> = CList<PendingAttestation>(),
-    var justification_bits: CBitvector = CBitvector(),
+    var validators: SSZList<Validator> = SSZList<Validator>(),
+    var balances: SSZList<Gwei> = SSZList<Gwei>(),
+    var randao_mixes: SSZVector<Root> = SSZVector<Root>(),
+    var slashings: SSZVector<Gwei> = SSZVector<Gwei>(),
+    var previous_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
+    var current_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
+    var justification_bits: SSZBitvector = SSZBitvector(),
     var previous_justified_checkpoint: Checkpoint = Checkpoint(),
     var current_justified_checkpoint: Checkpoint = Checkpoint(),
     var finalized_checkpoint: Checkpoint = Checkpoint(),
-    var shard_states: CList<ShardState> = CList<ShardState>(),
-    var online_countdown: CList<OnlineEpochs> = CList<OnlineEpochs>(),
+    var shard_states: SSZList<ShardState> = SSZList<ShardState>(),
+    var online_countdown: SSZList<OnlineEpochs> = SSZList<OnlineEpochs>(),
     var current_light_committee: CompactCommittee = CompactCommittee(),
     var next_light_committee: CompactCommittee = CompactCommittee(),
-    var exposed_derived_secrets: CVector<CList<ValidatorIndex>> = CVector<CList<ValidatorIndex>>()
+    var exposed_derived_secrets: SSZVector<SSZList<ValidatorIndex>> = SSZVector<SSZList<ValidatorIndex>>()
 )
 
 data class AttestationCustodyBitWrapper(
@@ -372,8 +372,8 @@ data class Store(
     var justified_checkpoint: Checkpoint = Checkpoint(),
     var finalized_checkpoint: Checkpoint = Checkpoint(),
     var best_justified_checkpoint: Checkpoint = Checkpoint(),
-    var blocks: CDict<Root, BeaconBlockHeader> = CDict<Root, BeaconBlockHeader>(),
-    var block_states: CDict<Root, BeaconState> = CDict<Root, BeaconState>(),
-    var checkpoint_states: CDict<Checkpoint, BeaconState> = CDict<Checkpoint, BeaconState>(),
-    var latest_messages: CDict<ValidatorIndex, LatestMessage> = CDict<ValidatorIndex, LatestMessage>()
+    var blocks: SSZDict<Root, BeaconBlockHeader> = SSZDict<Root, BeaconBlockHeader>(),
+    var block_states: SSZDict<Root, BeaconState> = SSZDict<Root, BeaconState>(),
+    var checkpoint_states: SSZDict<Checkpoint, BeaconState> = SSZDict<Checkpoint, BeaconState>(),
+    var latest_messages: SSZDict<ValidatorIndex, LatestMessage> = SSZDict<ValidatorIndex, LatestMessage>()
 )

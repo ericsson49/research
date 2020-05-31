@@ -464,7 +464,7 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
           deposit_count = len(deposits)),
       latest_block_header = BeaconBlockHeader(
           body_root = hash_tree_root(BeaconBlockBody())),
-      randao_mixes = MutableList(EPOCHS_PER_HISTORICAL_VECTOR.toInt()) { eth1_block_hash })
+      randao_mixes = (mutableListOf(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR))
   var leaves = list(map({ deposit -> deposit.data }, deposits))
   for ((index, deposit) in enumerate(deposits)) {
     var deposit_data_list = leaves.slice(0uL, (index.toULong() + 1uL))
@@ -1788,7 +1788,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
       online_countdown = (mutableListOf(ONLINE_PERIOD) * len(pre.validators)),
       current_light_committee = CompactCommittee(),
       next_light_committee = CompactCommittee(),
-      exposed_derived_secrets = range(EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS).map { CVector<CList<ValidatorIndex>>() }.flatten().toMutableList()
+      exposed_derived_secrets = (mutableListOf<CList<ValidatorIndex>>() * EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS)
   )
   var next_epoch = Epoch((epoch + 1uL))
   post.current_light_committee = committee_to_compact_committee(post, get_light_client_committee(post, epoch))

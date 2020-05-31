@@ -3,6 +3,7 @@ package phase1
 import deps.bls
 import deps.hash
 import deps.hash_tree_root
+import pylib.PyList
 import pylib.Tuple2
 import pylib.all
 import pylib.any
@@ -128,8 +129,8 @@ fun is_slashable_attestation_data(data_1: AttestationData, data_2: AttestationDa
     Check if ``indexed_attestation`` has valid indices and signature.
     */
 fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: IndexedAttestation): pybool {
-  var all_pubkeys = mutableListOf<BLSPubkey>()
-  var all_signing_roots = mutableListOf<Root>()
+  val all_pubkeys: PyList<BLSPubkey> = mutableListOf()
+  val all_signing_roots: PyList<Root> = mutableListOf()
   var attestation = indexed_attestation.attestation
   var domain = get_domain(state, DOMAIN_BEACON_ATTESTER, attestation.data.target.epoch)
   var aggregation_bits = attestation.aggregation_bits
@@ -211,7 +212,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
 }
 
 /*
-    Return the committee corresponding to ``indices``, ``seed``, ``index``, and committee ``pylib.count``.
+    Return the committee corresponding to ``indices``, ``seed``, ``index``, and committee ``count``.
     */
 fun compute_committee(indices: Sequence<ValidatorIndex>, seed: Bytes32, index: uint64, count: uint64): Sequence<ValidatorIndex> {
   var start = ((len(indices) * index) / count)
@@ -394,7 +395,7 @@ fun get_indexed_attestation(beacon_state: BeaconState, attestation: Attestation)
 }
 
 /*
-    Return the pylib.set of attesting indices corresponding to ``data`` and ``bits``.
+    Return the set of attesting indices corresponding to ``data`` and ``bits``.
     */
 fun get_attesting_indices(state: BeaconState, data: AttestationData, bits: CBitlist): Set<ValidatorIndex> {
   var committee = get_beacon_committee(state, data.slot, data.index)
@@ -557,7 +558,7 @@ fun get_matching_head_attestations(state: BeaconState, epoch: Epoch): Sequence<P
 }
 
 fun get_unslashed_attesting_indices(state: BeaconState, attestations: Sequence<PendingAttestation>): Set<ValidatorIndex> {
-  var output = set<ValidatorIndex>()
+  var output: Set<ValidatorIndex> = set()
   for (a in attestations) {
     output = output.union(get_attesting_indices(state, a.data, a.aggregation_bits))
   }
@@ -565,7 +566,7 @@ fun get_unslashed_attesting_indices(state: BeaconState, attestations: Sequence<P
 }
 
 /*
-    Return the combined effective balance of the pylib.set of unslashed validators participating in ``attestations``.
+    Return the combined effective balance of the set of unslashed validators participating in ``attestations``.
     Note: ``get_total_balance`` returns ``EFFECTIVE_BALANCE_INCREMENT`` Gwei minimum to avoid divisions by zero.
     */
 fun get_attesting_balance(state: BeaconState, attestations: Sequence<PendingAttestation>): Gwei {
@@ -623,7 +624,7 @@ fun get_eligible_validator_indices(state: BeaconState): Sequence<ValidatorIndex>
 }
 
 /*
-    Helper with shared logic for use by pylib.get source, target, and head deltas functions
+    Helper with shared logic for use by get source, target, and head deltas functions
     */
 fun get_attestation_component_deltas(state: BeaconState, attestations: Sequence<PendingAttestation>): Pair<Sequence<Gwei>, Sequence<Gwei>> {
   var rewards = MutableList(len(state.validators).toInt()) { Gwei(0uL) }
@@ -1455,8 +1456,8 @@ fun apply_shard_transition(state: BeaconState, shard: Shard, transition: ShardTr
   var offset_slots = get_offset_slots(state, shard)
   assert((len(transition.shard_data_roots) == len(transition.shard_states)) && (len(transition.shard_states) == len(transition.shard_block_lengths)) && (len(transition.shard_block_lengths) == len(offset_slots)))
   assert((transition.start_slot == offset_slots[0uL]))
-  var headers = mutableListOf<ShardBlockHeader>()
-  var proposers = mutableListOf<ValidatorIndex>()
+  val headers: PyList<ShardBlockHeader> = mutableListOf()
+  val proposers: PyList<ValidatorIndex> = mutableListOf()
   var prev_gasprice = state.shard_states[shard].gasprice
   var shard_parent_root = state.shard_states[shard].latest_block_root
   for (i in range(len(offset_slots))) {
@@ -1548,7 +1549,7 @@ fun verify_shard_transition_false_positives(state: BeaconState, block_body: Beac
 fun process_light_client_signatures(state: BeaconState, block_body: BeaconBlockBody): Unit {
   var committee = get_light_client_committee(state, get_current_epoch(state))
   var total_reward = Gwei(0uL)
-  var signer_pubkeys = mutableListOf<BLSPubkey>()
+  var signer_pubkeys: MutableList<BLSPubkey> = mutableListOf()
   for ((bit_index, participant_index) in enumerate(committee)) {
     if (block_body.light_client_signature_bitfield[bit_index]) {
       signer_pubkeys.append(state.validators[participant_index].pubkey)
@@ -1668,7 +1669,7 @@ fun compute_shard_body_roots(proposals: Sequence<SignedShardBlock>): Sequence<Ro
     Note that this function doesn't change the state.
     */
 fun get_proposal_choices_at_slot(beacon_state: BeaconState, shard_state: ShardState, slot: Slot, shard: Shard, shard_blocks: Sequence<SignedShardBlock>, validate_signature: pybool = true): Sequence<SignedShardBlock> {
-  var choices = mutableListOf<SignedShardBlock>()
+  var choices: MutableList<SignedShardBlock> = mutableListOf()
   var shard_blocks_at_slot = shard_blocks.filter { block -> (block.message.slot == slot) }.map { block -> block }.toMutableList()
   var shard_state_ = shard_state
   for (block in shard_blocks_at_slot) {
@@ -1710,8 +1711,8 @@ fun get_proposal_at_slot(beacon_state: BeaconState, shard_state: ShardState, slo
 }
 
 fun get_shard_state_transition_result(beacon_state: BeaconState, shard: Shard, shard_blocks: Sequence<SignedShardBlock>, validate_signature: pybool = true): Triple<Sequence<SignedShardBlock>, Sequence<ShardState>, Sequence<Root>> {
-  var proposals = mutableListOf<SignedShardBlock>()
-  var shard_states = mutableListOf<ShardState>()
+  val proposals: PyList<SignedShardBlock> = mutableListOf()
+  val shard_states: PyList<ShardState> = mutableListOf()
   var shard_state = beacon_state.shard_states[shard]
   for (slot in get_offset_slots(beacon_state, shard)) {
     val (proposal, shard_state_) = get_proposal_at_slot(beacon_state = beacon_state, shard_state = shard_state, slot = slot, shard = shard, shard_blocks = shard_blocks, validate_signature = validate_signature)
@@ -1728,8 +1729,8 @@ fun get_shard_transition(beacon_state: BeaconState, shard: Shard, shard_blocks: 
   val (proposals, shard_states, shard_data_roots) = get_shard_state_transition_result(beacon_state, shard, shard_blocks)
   assert((len(proposals) > 0uL))
   assert((len(shard_data_roots) > 0uL))
-  var shard_block_lengths = mutableListOf<uint64>()
-  var proposer_signatures = mutableListOf<BLSSignature>()
+  val shard_block_lengths: PyList<uint64> = mutableListOf()
+  val proposer_signatures: PyList<BLSSignature> = mutableListOf()
   for (proposal in proposals) {
     shard_block_lengths.append(len(proposal.message.body))
     if ((proposal.signature != BLSSignature())) {

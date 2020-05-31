@@ -10,6 +10,7 @@ import java.util.*
 
 typealias pybytes = Bytes
 typealias pybool = Boolean
+typealias PyList<T> = MutableList<T>
 
 inline class pyint(val value: BigInteger) {
   constructor(x: uint64) : this(x.toLong().toBigInteger())

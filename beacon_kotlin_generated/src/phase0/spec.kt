@@ -526,7 +526,7 @@ fun get_matching_head_attestations(state: BeaconState, epoch: Epoch): Sequence<P
 }
 
 fun get_unslashed_attesting_indices(state: BeaconState, attestations: Sequence<PendingAttestation>): Set<ValidatorIndex> {
-  var output = set<ValidatorIndex>()
+  var output: Set<ValidatorIndex> = set()
   for (a in attestations) {
     output = output.union(get_attesting_indices(state, a.data, a.aggregation_bits))
   }
@@ -796,7 +796,6 @@ fun process_operations(state: BeaconState, body: BeaconBlockBody): Unit {
       fn(state, operation)
     }
   }
-  kotlin.Unit
   for_ops(body.proposer_slashings, ::process_proposer_slashing)
   for_ops(body.attester_slashings, ::process_attester_slashing)
   for_ops(body.attestations, ::process_attestation)

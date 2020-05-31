@@ -33,6 +33,7 @@ import pylib.shr
 import pylib.slice
 import pylib.sorted
 import pylib.sum
+import pylib.times
 import pylib.to_bytes
 import pylib.unaryMinus
 import pylib.updateSlice
@@ -435,7 +436,7 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
       fork = fork,
       eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = len(deposits)),
       latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())),
-      randao_mixes = MutableList(EPOCHS_PER_HISTORICAL_VECTOR.toInt()) { eth1_block_hash })
+      randao_mixes = (mutableListOf(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR))
   var leaves = list(map({ deposit -> deposit.data }, deposits))
   for ((index, deposit) in enumerate(deposits)) {
     var deposit_data_list = leaves.slice(0uL, (index.toULong() + 1uL))
@@ -595,8 +596,8 @@ fun get_eligible_validator_indices(state: BeaconState): Sequence<ValidatorIndex>
     Helper with shared logic for use by get source, target, and head deltas functions
     */
 fun get_attestation_component_deltas(state: BeaconState, attestations: Sequence<PendingAttestation>): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  var rewards = MutableList(len(state.validators).toInt()) { Gwei(0uL) }
-  var penalties = MutableList(len(state.validators).toInt()) { Gwei(0uL) }
+  var rewards = (mutableListOf(Gwei(0uL)) * len(state.validators))
+  var penalties = (mutableListOf(Gwei(0uL)) * len(state.validators))
   var total_balance = get_total_active_balance(state)
   var unslashed_attesting_indices = get_unslashed_attesting_indices(state, attestations)
   var attesting_balance = get_total_balance(state, unslashed_attesting_indices)
@@ -736,7 +737,7 @@ fun process_final_updates(state: BeaconState): Unit {
   var current_epoch = get_current_epoch(state)
   var next_epoch = Epoch((current_epoch + 1uL))
   if (((next_epoch % EPOCHS_PER_ETH1_VOTING_PERIOD) == 0uL)) {
-    state.eth1_data_votes = mutableListOf()
+    state.eth1_data_votes = mutableListOf<Eth1Data>()
   }
   for ((index, validator) in enumerate(state.validators)) {
     var balance = state.balances[index]
@@ -754,7 +755,7 @@ fun process_final_updates(state: BeaconState): Unit {
     state.historical_roots.append(hash_tree_root(historical_batch))
   }
   state.previous_epoch_attestations = state.current_epoch_attestations
-  state.current_epoch_attestations = mutableListOf()
+  state.current_epoch_attestations = mutableListOf<PendingAttestation>()
 }
 
 fun process_block(state: BeaconState, block: BeaconBlock): Unit {

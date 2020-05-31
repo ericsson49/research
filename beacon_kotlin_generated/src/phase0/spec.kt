@@ -42,6 +42,7 @@ import ssz.CBitlist
 import ssz.CDict
 import ssz.SSZObject
 import ssz.Sequence
+import ssz.uint64
 import kotlin.experimental.xor
 
 fun ceillog2(x: uint64): pyint {

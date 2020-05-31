@@ -35,6 +35,7 @@ import pylib.shr
 import pylib.slice
 import pylib.sorted
 import pylib.sum
+import pylib.times
 import pylib.to_bytes
 import pylib.unaryMinus
 import pylib.updateSlice
@@ -627,8 +628,8 @@ fun get_eligible_validator_indices(state: BeaconState): Sequence<ValidatorIndex>
     Helper with shared logic for use by get source, target, and head deltas functions
     */
 fun get_attestation_component_deltas(state: BeaconState, attestations: Sequence<PendingAttestation>): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  var rewards = MutableList(len(state.validators).toInt()) { Gwei(0uL) }
-  var penalties = MutableList(len(state.validators).toInt()) { Gwei(0uL) }
+  var rewards = (mutableListOf(Gwei(0uL)) * len(state.validators))
+  var penalties = (mutableListOf(Gwei(0uL)) * len(state.validators))
   var total_balance = get_total_active_balance(state)
   var unslashed_attesting_indices = get_unslashed_attesting_indices(state, attestations)
   var attesting_balance = get_total_balance(state, unslashed_attesting_indices)
@@ -768,7 +769,7 @@ fun process_final_updates(state: BeaconState): Unit {
   var current_epoch = get_current_epoch(state)
   var next_epoch = Epoch((current_epoch + 1uL))
   if (((next_epoch % EPOCHS_PER_ETH1_VOTING_PERIOD) == 0uL)) {
-    state.eth1_data_votes = mutableListOf()
+    state.eth1_data_votes = mutableListOf<Eth1Data>()
   }
   for ((index, validator) in enumerate(state.validators)) {
     var balance = state.balances[index]
@@ -786,7 +787,7 @@ fun process_final_updates(state: BeaconState): Unit {
     state.historical_roots.append(hash_tree_root(historical_batch))
   }
   state.previous_epoch_attestations = state.current_epoch_attestations
-  state.current_epoch_attestations = mutableListOf()
+  state.current_epoch_attestations = mutableListOf<PendingAttestation>()
 }
 
 fun process_block(state: BeaconState, block: BeaconBlock): Unit {
@@ -1784,7 +1785,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
       current_justified_checkpoint = pre.current_justified_checkpoint.toPhase1(),
       finalized_checkpoint = pre.finalized_checkpoint.toPhase1(),
       shard_states = range(INITIAL_ACTIVE_SHARDS).map { ShardState(slot = pre.slot, gasprice = MIN_GASPRICE, transition_digest = Root(), latest_block_root = Root()) }.toMutableList(),
-      online_countdown = List(len(pre.validators).toInt()) { mutableListOf(ONLINE_PERIOD) }.flatten().toMutableList(),
+      online_countdown = (mutableListOf(ONLINE_PERIOD) * len(pre.validators)),
       current_light_committee = CompactCommittee(),
       next_light_committee = CompactCommittee(),
       exposed_derived_secrets = range(EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS).map { CVector<CList<ValidatorIndex>>() }.flatten().toMutableList()

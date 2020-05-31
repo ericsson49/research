@@ -137,6 +137,8 @@ fun <T> MutableList<T>.append(a: T) {
   this.add(a)
 }
 
+operator fun <T> PyList<T>.times(dup: uint64): PyList<T> = List(dup.toInt()) { this }.flatten().toMutableList()
+
 fun <T> List<T>.index(a: T) = this.indexOf(a)
 
 fun <K, V> Map<K, V>.keys() = this.keys

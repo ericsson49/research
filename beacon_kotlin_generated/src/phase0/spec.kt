@@ -125,7 +125,6 @@ fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: Indexe
   var indices = indexed_attestation.attesting_indices
   if (!((indices == sorted(set(indices))))) {
     return false
-  } else {
   }
   var pubkeys = indices.map { i -> state.validators[i].pubkey }.toMutableList()
   var domain = get_domain(state, DOMAIN_BEACON_ATTESTER, indexed_attestation.data.target.epoch)
@@ -179,7 +178,6 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
     var effective_balance = state.validators[candidate_index].effective_balance
     if (((effective_balance * MAX_RANDOM_BYTE) >= (MAX_EFFECTIVE_BALANCE * random_byte.toUInt()))) {
       return ValidatorIndex(candidate_index)
-    } else {
     }
     i += 1uL
   }
@@ -400,14 +398,12 @@ fun initiate_validator_exit(state: BeaconState, index: ValidatorIndex): Unit {
   var validator = state.validators[index]
   if ((validator.exit_epoch != FAR_FUTURE_EPOCH)) {
     return
-  } else {
   }
   var exit_epochs = state.validators.filter { v -> (v.exit_epoch != FAR_FUTURE_EPOCH) }.map { v -> v.exit_epoch }.toMutableList()
   var exit_queue_epoch = max((exit_epochs + mutableListOf(compute_activation_exit_epoch(get_current_epoch(state)))))
   var exit_queue_churn = len(state.validators.filter { v -> (v.exit_epoch == exit_queue_epoch) }.map { v -> v }.toMutableList())
   if ((exit_queue_churn >= get_validator_churn_limit(state))) {
     exit_queue_epoch += Epoch(1uL)
-  } else {
   }
   validator.exit_epoch = exit_queue_epoch
   validator.withdrawable_epoch = Epoch((validator.exit_epoch + MIN_VALIDATOR_WITHDRAWABILITY_DELAY))
@@ -452,7 +448,6 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
     if ((validator.effective_balance == MAX_EFFECTIVE_BALANCE)) {
       validator.activation_eligibility_epoch = GENESIS_EPOCH
       validator.activation_epoch = GENESIS_EPOCH
-    } else {
     }
   }
   state.genesis_validators_root = hash_tree_root(state.validators)
@@ -462,11 +457,9 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
 fun is_valid_genesis_state(state: BeaconState): pybool {
   if ((state.genesis_time < MIN_GENESIS_TIME)) {
     return false
-  } else {
   }
   if ((len(get_active_validator_indices(state, GENESIS_EPOCH)) < MIN_GENESIS_ACTIVE_VALIDATOR_COUNT)) {
     return false
-  } else {
   }
   return true
 }
@@ -476,12 +469,10 @@ fun state_transition(state: BeaconState, signed_block: SignedBeaconBlock, valida
   process_slots(state, block.slot)
   if (validate_result) {
     assert(verify_block_signature(state, signed_block))
-  } else {
   }
   process_block(state, block)
   if (validate_result) {
     assert((block.state_root == hash_tree_root(state)))
-  } else {
   }
   return state
 }
@@ -498,7 +489,6 @@ fun process_slots(state: BeaconState, slot: Slot): Unit {
     process_slot(state)
     if ((((state.slot + 1uL) % SLOTS_PER_EPOCH) == 0uL)) {
       process_epoch(state)
-    } else {
     }
     state.slot += Slot(1uL)
   }
@@ -509,7 +499,6 @@ fun process_slot(state: BeaconState): Unit {
   state.state_roots[(state.slot % SLOTS_PER_HISTORICAL_ROOT)] = previous_state_root
   if ((state.latest_block_header.state_root == Bytes32())) {
     state.latest_block_header.state_root = previous_state_root
-  } else {
   }
   var previous_block_root = hash_tree_root(state.latest_block_header)
   state.block_roots[(state.slot % SLOTS_PER_HISTORICAL_ROOT)] = previous_block_root
@@ -555,7 +544,6 @@ fun get_attesting_balance(state: BeaconState, attestations: Sequence<PendingAtte
 fun process_justification_and_finalization(state: BeaconState): Unit {
   if ((get_current_epoch(state) <= (GENESIS_EPOCH + 1uL))) {
     return
-  } else {
   }
   var previous_epoch = get_previous_epoch(state)
   var current_epoch = get_current_epoch(state)
@@ -569,30 +557,24 @@ fun process_justification_and_finalization(state: BeaconState): Unit {
   if (((get_attesting_balance(state, matching_target_attestations) * 3uL) >= (get_total_active_balance(state) * 2uL))) {
     state.current_justified_checkpoint = Checkpoint(epoch = previous_epoch, root = get_block_root(state, previous_epoch))
     state.justification_bits[1uL] = 1uL
-  } else {
   }
   matching_target_attestations = get_matching_target_attestations(state, current_epoch)
   if (((get_attesting_balance(state, matching_target_attestations) * 3uL) >= (get_total_active_balance(state) * 2uL))) {
     state.current_justified_checkpoint = Checkpoint(epoch = current_epoch, root = get_block_root(state, current_epoch))
     state.justification_bits[0uL] = 1uL
-  } else {
   }
   var bits = state.justification_bits
   if (all(bits.slice(1uL, 4uL)) && ((old_previous_justified_checkpoint.epoch + 3uL) == current_epoch)) {
     state.finalized_checkpoint = old_previous_justified_checkpoint
-  } else {
   }
   if (all(bits.slice(1uL, 3uL)) && ((old_previous_justified_checkpoint.epoch + 2uL) == current_epoch)) {
     state.finalized_checkpoint = old_previous_justified_checkpoint
-  } else {
   }
   if (all(bits.slice(0uL, 3uL)) && ((old_current_justified_checkpoint.epoch + 2uL) == current_epoch)) {
     state.finalized_checkpoint = old_current_justified_checkpoint
-  } else {
   }
   if (all(bits.slice(0uL, 2uL)) && ((old_current_justified_checkpoint.epoch + 1uL) == current_epoch)) {
     state.finalized_checkpoint = old_current_justified_checkpoint
-  } else {
   }
 }
 
@@ -685,10 +667,8 @@ fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequ
       if ((index !in matching_target_attesting_indices)) {
         var effective_balance = state.validators[index].effective_balance
         penalties[index] += Gwei(((effective_balance * finality_delay) / INACTIVITY_PENALTY_QUOTIENT))
-      } else {
       }
     }
-  } else {
   }
   var rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
   return Pair(rewards, penalties)
@@ -711,7 +691,6 @@ fun get_attestation_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gw
 fun process_rewards_and_penalties(state: BeaconState): Unit {
   if ((get_current_epoch(state) == GENESIS_EPOCH)) {
     return
-  } else {
   }
   val (rewards, penalties) = get_attestation_deltas(state)
   for (index in range(len(state.validators))) {
@@ -724,11 +703,9 @@ fun process_registry_updates(state: BeaconState): Unit {
   for ((index, validator) in enumerate(state.validators)) {
     if (is_eligible_for_activation_queue(validator)) {
       validator.activation_eligibility_epoch = (get_current_epoch(state) + 1uL)
-    } else {
     }
     if (is_active_validator(validator, get_current_epoch(state)) && (validator.effective_balance <= EJECTION_BALANCE)) {
       initiate_validator_exit(state, ValidatorIndex(index))
-    } else {
     }
   }
   var activation_queue = sorted(
@@ -751,7 +728,6 @@ fun process_slashings(state: BeaconState): Unit {
       var penalty_numerator = ((validator.effective_balance / increment) * min((sum(state.slashings) * 3uL), total_balance))
       var penalty = ((penalty_numerator / total_balance) * increment)
       decrease_balance(state, ValidatorIndex(index), penalty)
-    } else {
     }
   }
 }
@@ -761,7 +737,6 @@ fun process_final_updates(state: BeaconState): Unit {
   var next_epoch = Epoch((current_epoch + 1uL))
   if (((next_epoch % EPOCHS_PER_ETH1_VOTING_PERIOD) == 0uL)) {
     state.eth1_data_votes = mutableListOf()
-  } else {
   }
   for ((index, validator) in enumerate(state.validators)) {
     var balance = state.balances[index]
@@ -770,7 +745,6 @@ fun process_final_updates(state: BeaconState): Unit {
     var UPWARD_THRESHOLD = (HYSTERESIS_INCREMENT * HYSTERESIS_UPWARD_MULTIPLIER)
     if (((balance + DOWNWARD_THRESHOLD) < validator.effective_balance) || ((validator.effective_balance + UPWARD_THRESHOLD) < balance)) {
       validator.effective_balance = min((balance - (balance % EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE)
-    } else {
     }
   }
   state.slashings[(next_epoch % EPOCHS_PER_SLASHINGS_VECTOR)] = Gwei(0uL)
@@ -778,7 +752,6 @@ fun process_final_updates(state: BeaconState): Unit {
   if (((next_epoch % (SLOTS_PER_HISTORICAL_ROOT / SLOTS_PER_EPOCH)) == 0uL)) {
     var historical_batch = HistoricalBatch(block_roots = state.block_roots, state_roots = state.state_roots)
     state.historical_roots.append(hash_tree_root(historical_batch))
-  } else {
   }
   state.previous_epoch_attestations = state.current_epoch_attestations
   state.current_epoch_attestations = mutableListOf()
@@ -813,7 +786,6 @@ fun process_eth1_data(state: BeaconState, body: BeaconBlockBody): Unit {
   state.eth1_data_votes.append(body.eth1_data)
   if (((state.eth1_data_votes.count(body.eth1_data) * 2uL) > (EPOCHS_PER_ETH1_VOTING_PERIOD * SLOTS_PER_EPOCH))) {
     state.eth1_data = body.eth1_data
-  } else {
   }
 }
 
@@ -860,7 +832,6 @@ fun process_attester_slashing(state: BeaconState, attester_slashing: AttesterSla
     if (is_slashable_validator(state.validators[index], get_current_epoch(state))) {
       slash_validator(state, index)
       slashed_any = true
-    } else {
     }
   }
   assert(slashed_any)
@@ -897,7 +868,6 @@ fun process_deposit(state: BeaconState, deposit: Deposit): Unit {
     var signing_root = compute_signing_root(deposit_message, domain)
     if (!(bls.Verify(pubkey, signing_root, deposit.data.signature))) {
       return
-    } else {
     }
     state.validators.append(Validator(pubkey = pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, activation_eligibility_epoch = FAR_FUTURE_EPOCH, activation_epoch = FAR_FUTURE_EPOCH, exit_epoch = FAR_FUTURE_EPOCH, withdrawable_epoch = FAR_FUTURE_EPOCH, effective_balance = min((amount - (amount % EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE)))
     state.balances.append(amount)
@@ -924,7 +894,6 @@ fun get_forkchoice_store(anchor_state: BeaconState): Store {
   var anchor_block_header = anchor_state.latest_block_header.copy()
   if ((anchor_block_header.state_root == Bytes32())) {
     anchor_block_header.state_root = hash_tree_root(anchor_state)
-  } else {
   }
   var anchor_root = hash_tree_root(anchor_block_header)
   var anchor_epoch = get_current_epoch(anchor_state)
@@ -980,10 +949,8 @@ fun filter_block_tree(store: Store, block_root: Root, blocks: CDict<Root, Beacon
     if (any(filter_block_tree_result)) {
       blocks[block_root] = block
       return true
-    } else {
     }
     return false
-  } else {
   }
   var head_state = store.block_states[block_root]!!
   var correct_justified = (store.justified_checkpoint.epoch == GENESIS_EPOCH) || (head_state.current_justified_checkpoint == store.justified_checkpoint)
@@ -991,7 +958,6 @@ fun filter_block_tree(store: Store, block_root: Root, blocks: CDict<Root, Beacon
   if (correct_justified && correct_finalized) {
     blocks[block_root] = block
     return true
-  } else {
   }
   return false
 }
@@ -1015,7 +981,6 @@ fun get_head(store: Store): Root {
     var children = blocks.keys().filter { root -> (blocks[root]!!.parent_root == head) && (blocks[root]!!.slot > justified_slot) }.map { root -> root }.toMutableList()
     if ((len(children) == 0uL)) {
       return head
-    } else {
     }
     head = max(children, key = { root -> Tuple2(get_latest_attesting_balance(store, root), root) })
   }
@@ -1031,12 +996,10 @@ fun get_head(store: Store): Root {
 fun should_update_justified_checkpoint(store: Store, new_justified_checkpoint: Checkpoint): pybool {
   if ((compute_slots_since_epoch_start(get_current_slot(store)) < SAFE_SLOTS_TO_UPDATE_JUSTIFIED)) {
     return true
-  } else {
   }
   var justified_slot = compute_start_slot_at_epoch(store.justified_checkpoint.epoch)
   if (!((get_ancestor(store, new_justified_checkpoint.root, justified_slot) == store.justified_checkpoint.root))) {
     return false
-  } else {
   }
   return true
 }
@@ -1058,7 +1021,6 @@ fun store_target_checkpoint_state(store: Store, target: Checkpoint): Unit {
     var base_state = store.block_states[target.root]!!.copy()
     process_slots(base_state, compute_start_slot_at_epoch(target.epoch))
     store.checkpoint_states[target] = base_state
-  } else {
   }
 }
 
@@ -1068,7 +1030,6 @@ fun update_latest_messages(store: Store, attesting_indices: Sequence<ValidatorIn
   for (i in attesting_indices) {
     if ((i !in store.latest_messages) || (target.epoch > store.latest_messages[i]!!.epoch)) {
       store.latest_messages[i] = LatestMessage(epoch = target.epoch, root = beacon_block_root)
-    } else {
     }
   }
 }
@@ -1079,11 +1040,9 @@ fun on_tick(store: Store, time: uint64): Unit {
   var current_slot = get_current_slot(store)
   if (!((current_slot > previous_slot) && (compute_slots_since_epoch_start(current_slot) == pyint(0uL)))) {
     return
-  } else {
   }
   if ((store.best_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
     store.justified_checkpoint = store.best_justified_checkpoint
-  } else {
   }
 }
 
@@ -1107,22 +1066,17 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
     if ((state.current_justified_checkpoint.epoch > store.best_justified_checkpoint.epoch)) {
       store.best_justified_checkpoint = state.current_justified_checkpoint
-    } else {
     }
     if (should_update_justified_checkpoint(store, state.current_justified_checkpoint)) {
       store.justified_checkpoint = state.current_justified_checkpoint
-    } else {
     }
-  } else {
   }
   if ((state.finalized_checkpoint.epoch > store.finalized_checkpoint.epoch)) {
     store.finalized_checkpoint = state.finalized_checkpoint
     finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
     if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch) || (get_ancestor(store, store.justified_checkpoint.root, finalized_slot) != store.finalized_checkpoint.root)) {
       store.justified_checkpoint = state.current_justified_checkpoint
-    } else {
     }
-  } else {
   }
 }
 
@@ -1163,7 +1117,6 @@ fun get_committee_assignment(state: BeaconState, epoch: Epoch, validator_index: 
       var committee = get_beacon_committee(state, Slot(slot), CommitteeIndex(index))
       if ((validator_index in committee)) {
         return Triple(committee, CommitteeIndex(index), Slot(slot))
-      } else {
       }
     }
   }

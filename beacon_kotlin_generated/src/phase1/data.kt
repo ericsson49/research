@@ -163,7 +163,7 @@ data class BeaconBlockHeader(
     var body_root: Root = Root()
 )
 
-data class SigningRoot(
+data class SigningData(
     var object_root: Root = Root(),
     var domain: Domain = Domain()
 )
@@ -208,6 +208,23 @@ data class SignedBeaconBlockHeader(
 data class ProposerSlashing(
     var signed_header_1: SignedBeaconBlockHeader = SignedBeaconBlockHeader(),
     var signed_header_2: SignedBeaconBlockHeader = SignedBeaconBlockHeader()
+)
+
+data class Eth1Block(
+    var timestamp: uint64 = 0uL,
+    var deposit_root: Root = Root(),
+    var deposit_count: uint64 = 0uL
+)
+
+data class AggregateAndProof(
+    var aggregator_index: ValidatorIndex = ValidatorIndex(),
+    var aggregate: Attestation = Attestation(),
+    var selection_proof: BLSSignature = BLSSignature()
+)
+
+data class SignedAggregateAndProof(
+    var message: AggregateAndProof = AggregateAndProof(),
+    var signature: BLSSignature = BLSSignature()
 )
 
 data class CustodyKeyReveal(

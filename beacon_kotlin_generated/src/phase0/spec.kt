@@ -120,11 +120,11 @@ fun is_slashable_attestation_data(data_1: AttestationData, data_2: AttestationDa
 }
 
 /*
-    Check if ``indexed_attestation`` has sorted and unique indices and a valid aggregate signature.
+    Check if ``indexed_attestation`` is not empty, has sorted and unique indices and has a valid aggregate signature.
     */
 fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: IndexedAttestation): pybool {
   var indices = indexed_attestation.attesting_indices
-  if (!((indices == sorted(set(indices))))) {
+  if ((len(indices) == 0uL) || !((indices == sorted(set(indices))))) {
     return false
   }
   var pubkeys = indices.map { i -> state.validators[i].pubkey }.toMutableList()
@@ -149,21 +149,21 @@ fun is_valid_merkle_branch(leaf: Bytes32, branch: Sequence<Bytes32>, depth: uint
 }
 
 /*
-    Return the shuffled validator index corresponding to ``seed`` (and ``index_count``).
+    Return the shuffled index corresponding to ``seed`` (and ``index_count``).
     */
-fun compute_shuffled_index(index: ValidatorIndex, index_count: uint64, seed: Bytes32): ValidatorIndex {
+fun compute_shuffled_index(index: uint64, index_count: uint64, seed: Bytes32): uint64 {
   assert((index < index_count))
   var index_ = index
   for (current_round in range(SHUFFLE_ROUND_COUNT)) {
     var pivot = (bytes_to_int(hash((seed + int_to_bytes(current_round, length = 1uL))).slice(0uL, 8uL)) % index_count)
-    var flip = ValidatorIndex((((pivot + index_count) - index_) % index_count))
+    var flip = (((pivot + index_count) - index_) % index_count)
     var position = max(index_, flip)
     var source = hash(((seed + int_to_bytes(current_round, length = 1uL)) + int_to_bytes((position / 256uL), length = 4uL)))
     var byte = source[((position % 256uL) / 8uL)]
     var bit = ((byte shr (position % 8uL)) % 2uL)
     index_ = if (pybool(bit)) flip else index_
   }
-  return ValidatorIndex(index_)
+  return index_
 }
 
 /*
@@ -174,11 +174,11 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
   var MAX_RANDOM_BYTE = ((2uL.pow(8uL)) - 1uL)
   var i = 0uL
   while (true) {
-    var candidate_index = indices[compute_shuffled_index(ValidatorIndex((i % len(indices))), len(indices), seed)]
+    var candidate_index = indices[compute_shuffled_index((i % len(indices)), len(indices), seed)]
     var random_byte = hash((seed + int_to_bytes((i / 32uL), length = 8uL)))[(i % 32uL)]
     var effective_balance = state.validators[candidate_index].effective_balance
     if (((effective_balance * MAX_RANDOM_BYTE) >= (MAX_EFFECTIVE_BALANCE * random_byte.toUInt()))) {
-      return ValidatorIndex(candidate_index)
+      return candidate_index
     }
     i += 1uL
   }
@@ -190,7 +190,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
 fun compute_committee(indices: Sequence<ValidatorIndex>, seed: Bytes32, index: uint64, count: uint64): Sequence<ValidatorIndex> {
   var start = ((len(indices) * index) / count)
   var end = ((len(indices) * (index + 1uL)) / count)
-  return range(start, end).map { i -> indices[compute_shuffled_index(ValidatorIndex(i), len(indices), seed)] }.toMutableList()
+  return range(start, end).map { i -> indices[compute_shuffled_index(i, len(indices), seed)] }.toMutableList()
 }
 
 /*
@@ -242,11 +242,10 @@ fun compute_domain(domain_type: DomainType, fork_version: Version? = null, genes
 }
 
 /*
-    Return the signing root of an object by calculating the root of the object-domain tree.
+    Return the signing root for the corresponding signing data.
     */
 fun compute_signing_root(ssz_object: SSZObject, domain: Domain): Root {
-  var domain_wrapped_object = SigningRoot(object_root = hash_tree_root(ssz_object), domain = domain)
-  return hash_tree_root(domain_wrapped_object)
+  return hash_tree_root(SigningData(object_root = hash_tree_root(ssz_object), domain = domain))
 }
 
 /*
@@ -426,7 +425,7 @@ fun slash_validator(state: BeaconState, slashed_index: ValidatorIndex, whistlebl
   var whistleblower_reward = Gwei((validator.effective_balance / WHISTLEBLOWER_REWARD_QUOTIENT))
   var proposer_reward = Gwei((whistleblower_reward / PROPOSER_REWARD_QUOTIENT))
   increase_balance(state, proposer_index, proposer_reward)
-  increase_balance(state, whistleblower_index_, (whistleblower_reward - proposer_reward))
+  increase_balance(state, whistleblower_index_, Gwei((whistleblower_reward - proposer_reward)))
 }
 
 fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: uint64, deposits: Sequence<Deposit>): BeaconState {
@@ -485,13 +484,13 @@ fun verify_block_signature(state: BeaconState, signed_block: SignedBeaconBlock):
 }
 
 fun process_slots(state: BeaconState, slot: Slot): Unit {
-  assert((state.slot <= slot))
+  assert((state.slot < slot))
   while ((state.slot < slot)) {
     process_slot(state)
     if ((((state.slot + 1uL) % SLOTS_PER_EPOCH) == 0uL)) {
       process_epoch(state)
     }
-    state.slot += Slot(1uL)
+    state.slot = Slot((state.slot + 1uL))
   }
 }
 
@@ -585,6 +584,18 @@ fun get_base_reward(state: BeaconState, index: ValidatorIndex): Gwei {
   return Gwei((((effective_balance * BASE_REWARD_FACTOR) / integer_squareroot(total_balance)) / BASE_REWARDS_PER_EPOCH))
 }
 
+fun get_proposer_reward(state: BeaconState, attesting_index: ValidatorIndex): Gwei {
+  return Gwei((get_base_reward(state, attesting_index) / PROPOSER_REWARD_QUOTIENT))
+}
+
+fun get_finality_delay(state: BeaconState): uint64 {
+  return (get_previous_epoch(state) - state.finalized_checkpoint.epoch)
+}
+
+fun is_in_inactivity_leak(state: BeaconState): pybool {
+  return (get_finality_delay(state) > MIN_EPOCHS_TO_INACTIVITY_PENALTY)
+}
+
 fun get_eligible_validator_indices(state: BeaconState): Sequence<ValidatorIndex> {
   var previous_epoch = get_previous_epoch(state)
   return enumerate(state.validators)
@@ -604,8 +615,12 @@ fun get_attestation_component_deltas(state: BeaconState, attestations: Sequence<
   for (index in get_eligible_validator_indices(state)) {
     if ((index in unslashed_attesting_indices)) {
       var increment = EFFECTIVE_BALANCE_INCREMENT
-      var reward_numerator = (get_base_reward(state, index) * (attesting_balance / increment))
-      rewards[index] += (reward_numerator / (total_balance / increment))
+      if (is_in_inactivity_leak(state)) {
+        rewards[index] += get_base_reward(state, index)
+      } else {
+        var reward_numerator = (get_base_reward(state, index) * (attesting_balance / increment))
+        rewards[index] += (reward_numerator / (total_balance / increment))
+      }
     } else {
       penalties[index] += get_base_reward(state, index)
     }
@@ -645,9 +660,8 @@ fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequenc
   var matching_source_attestations = get_matching_source_attestations(state, get_previous_epoch(state))
   for (index in get_unslashed_attesting_indices(state, matching_source_attestations)) {
     var attestation = min(matching_source_attestations.filter { a -> (index in get_attesting_indices(state, a.data, a.aggregation_bits)) }.map { a -> a }.toMutableList(), key = { a -> a.inclusion_delay })
-    var proposer_reward = Gwei((get_base_reward(state, index) / PROPOSER_REWARD_QUOTIENT))
-    rewards[attestation.proposer_index] += proposer_reward
-    var max_attester_reward = (get_base_reward(state, index) - proposer_reward)
+    rewards[attestation.proposer_index] += get_proposer_reward(state, index)
+    var max_attester_reward = (get_base_reward(state, index) - get_proposer_reward(state, index))
     rewards[index] += Gwei((max_attester_reward / attestation.inclusion_delay))
   }
   var penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
@@ -659,15 +673,15 @@ fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequenc
     */
 fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
   var penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toMutableList()
-  var finality_delay = (get_previous_epoch(state) - state.finalized_checkpoint.epoch)
-  if ((finality_delay > MIN_EPOCHS_TO_INACTIVITY_PENALTY)) {
+  if (is_in_inactivity_leak(state)) {
     var matching_target_attestations = get_matching_target_attestations(state, get_previous_epoch(state))
     var matching_target_attesting_indices = get_unslashed_attesting_indices(state, matching_target_attestations)
     for (index in get_eligible_validator_indices(state)) {
-      penalties[index] += Gwei((BASE_REWARDS_PER_EPOCH * get_base_reward(state, index)))
+      var base_reward = get_base_reward(state, index)
+      penalties[index] += Gwei(((BASE_REWARDS_PER_EPOCH * base_reward) - get_proposer_reward(state, index)))
       if ((index !in matching_target_attesting_indices)) {
         var effective_balance = state.validators[index].effective_balance
-        penalties[index] += Gwei(((effective_balance * finality_delay) / INACTIVITY_PENALTY_QUOTIENT))
+        penalties[index] += Gwei(((effective_balance * get_finality_delay(state)) / INACTIVITY_PENALTY_QUOTIENT))
       }
     }
   }
@@ -767,6 +781,7 @@ fun process_block(state: BeaconState, block: BeaconBlock): Unit {
 
 fun process_block_header(state: BeaconState, block: BeaconBlock): Unit {
   assert((block.slot == state.slot))
+  assert((block.slot > state.latest_block_header.slot))
   assert((block.proposer_index == get_beacon_proposer_index(state)))
   assert((block.parent_root == hash_tree_root(state.latest_block_header)))
   state.latest_block_header = BeaconBlockHeader(slot = block.slot, proposer_index = block.proposer_index, parent_root = block.parent_root, state_root = Bytes32(), body_root = hash_tree_root(block.body))
@@ -883,7 +898,7 @@ fun process_voluntary_exit(state: BeaconState, signed_voluntary_exit: SignedVolu
   assert(is_active_validator(validator, get_current_epoch(state)))
   assert((validator.exit_epoch == FAR_FUTURE_EPOCH))
   assert((get_current_epoch(state) >= voluntary_exit.epoch))
-  assert((get_current_epoch(state) >= (validator.activation_epoch + PERSISTENT_COMMITTEE_PERIOD)))
+  assert((get_current_epoch(state) >= (validator.activation_epoch + SHARD_COMMITTEE_PERIOD)))
   var domain = get_domain(state, DOMAIN_VOLUNTARY_EXIT, voluntary_exit.epoch)
   var signing_root = compute_signing_root(voluntary_exit, domain)
   assert(bls.Verify(validator.pubkey, signing_root, signed_voluntary_exit.signature))
@@ -1013,6 +1028,8 @@ fun validate_on_attestation(store: Store, attestation: Attestation): Unit {
   assert((target.root in store.blocks))
   assert((attestation.data.beacon_block_root in store.blocks))
   assert((store.blocks[attestation.data.beacon_block_root]!!.slot <= attestation.data.slot))
+  var target_slot = compute_start_slot_at_epoch(target.epoch)
+  assert((target.root == get_ancestor(store, attestation.data.beacon_block_root, target_slot)))
   assert((get_current_slot(store) >= (attestation.data.slot + 1uL)))
 }
 
@@ -1143,26 +1160,27 @@ fun voting_period_start_time(state: BeaconState): uint64 {
 }
 
 fun is_candidate_block(block: Eth1Block, period_start: uint64): pybool {
-  return (block.timestamp <= (period_start - (SECONDS_PER_ETH1_BLOCK * ETH1_FOLLOW_DISTANCE))) && (block.timestamp >= (period_start - ((SECONDS_PER_ETH1_BLOCK * ETH1_FOLLOW_DISTANCE) * 2uL)))
+  return ((block.timestamp + (SECONDS_PER_ETH1_BLOCK * ETH1_FOLLOW_DISTANCE)) <= period_start) && ((block.timestamp + ((SECONDS_PER_ETH1_BLOCK * ETH1_FOLLOW_DISTANCE) * 2uL)) >= period_start)
 }
 
 fun get_eth1_vote(state: BeaconState, eth1_chain: Sequence<Eth1Block>): Eth1Data {
   var period_start = voting_period_start_time(state)
-  var votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) }.map { block -> get_eth1_data(block) }.toMutableList()
+  var votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) }.toMutableList()
   var valid_votes = state.eth1_data_votes.filter { vote -> vote in votes_to_consider }.map { vote -> vote }.toMutableList()
   var default_vote = if (any(votes_to_consider)) votes_to_consider[-(1uL)] else state.eth1_data
   return max(valid_votes, key = { v -> Tuple2(valid_votes.count(v), -(valid_votes.index(v))) }, default = default_vote)
 }
 
 fun compute_new_state_root(state: BeaconState, block: BeaconBlock): Root {
-  process_slots(state, block.slot)
-  process_block(state, block)
-  return hash_tree_root(state)
+  var temp_state: BeaconState = state.copy()
+  var signed_block = SignedBeaconBlock(message = block)
+  temp_state = state_transition(temp_state, signed_block, validate_result = false)
+  return hash_tree_root(temp_state)
 }
 
-fun get_block_signature(state: BeaconState, header: BeaconBlockHeader, privkey: pyint): BLSSignature {
-  var domain = get_domain(state, DOMAIN_BEACON_PROPOSER, compute_epoch_at_slot(header.slot))
-  var signing_root = compute_signing_root(header, domain)
+fun get_block_signature(state: BeaconState, block: BeaconBlock, privkey: pyint): BLSSignature {
+  var domain = get_domain(state, DOMAIN_BEACON_PROPOSER, compute_epoch_at_slot(block.slot))
+  var signing_root = compute_signing_root(block, domain)
   return bls.Sign(privkey, signing_root)
 }
 
@@ -1170,6 +1188,16 @@ fun get_attestation_signature(state: BeaconState, attestation_data: AttestationD
   var domain = get_domain(state, DOMAIN_BEACON_ATTESTER, attestation_data.target.epoch)
   var signing_root = compute_signing_root(attestation_data, domain)
   return bls.Sign(privkey, signing_root)
+}
+
+/*
+    Compute the correct subnet for an attestation for Phase 0.
+    Note, this mimics expected Phase 1 behavior where attestations will be mapped to their shard subnet.
+    */
+fun compute_subnet_for_attestation(state: BeaconState, attestation: Attestation): uint64 {
+  var slots_since_epoch_start = (attestation.data.slot % SLOTS_PER_EPOCH)
+  var committees_since_epoch_start = (get_committee_count_at_slot(state, attestation.data.slot) * slots_since_epoch_start)
+  return ((committees_since_epoch_start + attestation.data.index) % ATTESTATION_SUBNET_COUNT)
 }
 
 fun get_slot_signature(state: BeaconState, slot: Slot, privkey: pyint): BLSSignature {
@@ -1200,4 +1228,9 @@ fun get_aggregate_and_proof_signature(state: BeaconState, aggregate_and_proof: A
   return bls.Sign(privkey, signing_root)
 }
 
-fun get_eth1_data(block: Eth1Block): Eth1Data = TODO()
+/*
+    A stub function return mocking Eth1Data.
+    */
+fun get_eth1_data(block: Eth1Block): Eth1Data {
+  return Eth1Data(deposit_root = block.deposit_root, deposit_count = block.deposit_count, block_hash = hash_tree_root(block))
+}

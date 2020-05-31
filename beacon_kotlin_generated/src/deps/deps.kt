@@ -29,7 +29,7 @@ object bls {
     TODO("Not yet implemented")
   }
 
-  fun AggregateVerify(pairs: List<Pair<Bytes48, Bytes>>, signature: Bytes96): boolean {
+  fun AggregateVerify(pubkyes: List<Bytes48>, messages: List<Bytes>, signature: Bytes96): boolean {
     TODO("Not yet implemented")
   }
 

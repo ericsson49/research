@@ -435,7 +435,7 @@ fun slash_validator(state: BeaconState, slashed_index: ValidatorIndex, whistlebl
 fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: uint64, deposits: Sequence<Deposit>): BeaconState {
   val fork = Fork(previous_version = GENESIS_FORK_VERSION, current_version = GENESIS_FORK_VERSION, epoch = GENESIS_EPOCH)
   val state = BeaconState(
-      genesis_time = ((eth1_timestamp - (eth1_timestamp % MIN_GENESIS_DELAY)) + (2uL * MIN_GENESIS_DELAY)),
+      genesis_time = (eth1_timestamp + GENESIS_DELAY),
       fork = fork,
       eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = len(deposits)),
       latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())),
@@ -1072,6 +1072,10 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   assert((block.parent_root in store.block_states))
   val pre_state = store.block_states[block.parent_root]!!.copy()
   assert((get_current_slot(store) >= block.slot))
+  val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
+  assert((block.slot > finalized_slot))
+  assert((get_ancestor(store, block.parent_root, finalized_slot) == store.finalized_checkpoint.root))
+  val state = state_transition(pre_state, signed_block, true)
   store.blocks[hash_tree_root(block)] = BeaconBlockHeader(
       slot = block.slot,
       proposer_index = block.proposer_index,
@@ -1079,10 +1083,6 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
       state_root = block.state_root,
       body_root = hash_tree_root(block.body)
   )
-  val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
-  assert((block.slot > finalized_slot))
-  assert((get_ancestor(store, hash_tree_root(block), finalized_slot) == store.finalized_checkpoint.root))
-  val state = state_transition(pre_state, signed_block, true)
   store.block_states[hash_tree_root(block)] = state
   if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
     if ((state.current_justified_checkpoint.epoch > store.best_justified_checkpoint.epoch)) {
@@ -1094,9 +1094,16 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   }
   if ((state.finalized_checkpoint.epoch > store.finalized_checkpoint.epoch)) {
     store.finalized_checkpoint = state.finalized_checkpoint
-    val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
-    if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch) || (get_ancestor(store, store.justified_checkpoint.root, finalized_slot) != store.finalized_checkpoint.root)) {
-      store.justified_checkpoint = state.current_justified_checkpoint
+    if ((store.justified_checkpoint != state.current_justified_checkpoint)) {
+      if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
+        store.justified_checkpoint = state.current_justified_checkpoint
+        return
+      }
+      val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
+      val ancestor_at_finalized_slot = get_ancestor(store, store.justified_checkpoint.root, finalized_slot)
+      if ((ancestor_at_finalized_slot != store.finalized_checkpoint.root)) {
+        store.justified_checkpoint = state.current_justified_checkpoint
+      }
     }
   }
 }
@@ -1198,10 +1205,10 @@ fun get_attestation_signature(state: BeaconState, attestation_data: AttestationD
     Compute the correct subnet for an attestation for Phase 0.
     Note, this mimics expected Phase 1 behavior where attestations will be mapped to their shard subnet.
     */
-fun compute_subnet_for_attestation(state: BeaconState, attestation: Attestation): uint64 {
-  val slots_since_epoch_start = (attestation.data.slot % SLOTS_PER_EPOCH)
-  val committees_since_epoch_start = (get_committee_count_at_slot(state, attestation.data.slot) * slots_since_epoch_start)
-  return ((committees_since_epoch_start + attestation.data.index) % ATTESTATION_SUBNET_COUNT)
+fun compute_subnet_for_attestation(state: BeaconState, slot: Slot, committee_index: CommitteeIndex): uint64 {
+  val slots_since_epoch_start = (slot % SLOTS_PER_EPOCH)
+  val committees_since_epoch_start = (get_committee_count_at_slot(state, slot) * slots_since_epoch_start)
+  return ((committees_since_epoch_start + committee_index) % ATTESTATION_SUBNET_COUNT)
 }
 
 fun get_slot_signature(state: BeaconState, slot: Slot, privkey: pyint): BLSSignature {

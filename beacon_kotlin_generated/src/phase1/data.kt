@@ -119,7 +119,7 @@ data class AttestationData(
     var beacon_block_root: Root = Root(),
     var source: Checkpoint = Checkpoint(),
     var target: Checkpoint = Checkpoint(),
-    var head_shard_root: Root = Root(),
+    var shard_head_root: Root = Root(),
     var shard_transition_root: Root = Root()
 )
 
@@ -244,6 +244,7 @@ data class ShardBlock(
     var shard_parent_root: Root = Root(),
     var beacon_parent_root: Root = Root(),
     var slot: Slot = Slot(),
+    var shard: Shard = Shard(),
     var proposer_index: ValidatorIndex = ValidatorIndex(),
     var body: SSZByteList = SSZByteList()
 )
@@ -257,6 +258,7 @@ data class ShardBlockHeader(
     var shard_parent_root: Root = Root(),
     var beacon_parent_root: Root = Root(),
     var slot: Slot = Slot(),
+    var shard: Shard = Shard(),
     var proposer_index: ValidatorIndex = ValidatorIndex(),
     var body_root: Root = Root()
 )
@@ -348,6 +350,7 @@ data class BeaconState(
     var previous_justified_checkpoint: Checkpoint = Checkpoint(),
     var current_justified_checkpoint: Checkpoint = Checkpoint(),
     var finalized_checkpoint: Checkpoint = Checkpoint(),
+    var current_epoch_start_shard: Shard = Shard(),
     var shard_states: SSZList<ShardState> = SSZList<ShardState>(),
     var online_countdown: SSZList<OnlineEpochs> = SSZList<OnlineEpochs>(),
     var current_light_committee: CompactCommittee = CompactCommittee(),
@@ -363,7 +366,9 @@ data class AttestationCustodyBitWrapper(
 
 data class LatestMessage(
     var epoch: Epoch = Epoch(),
-    var root: Root = Root()
+    var root: Root = Root(),
+    var shard: Shard = Shard(),
+    var shard_root: Root = Root()
 )
 
 data class Store(
@@ -376,4 +381,10 @@ data class Store(
     var block_states: SSZDict<Root, BeaconState> = SSZDict<Root, BeaconState>(),
     var checkpoint_states: SSZDict<Checkpoint, BeaconState> = SSZDict<Checkpoint, BeaconState>(),
     var latest_messages: SSZDict<ValidatorIndex, LatestMessage> = SSZDict<ValidatorIndex, LatestMessage>()
+)
+
+data class ShardStore(
+    var shard: Shard = Shard(),
+    var blocks: SSZDict<Root, ShardBlock> = SSZDict<Root, ShardBlock>(),
+    var block_states: SSZDict<Root, ShardState> = SSZDict<Root, ShardState>()
 )

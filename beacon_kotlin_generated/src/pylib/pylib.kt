@@ -146,11 +146,12 @@ fun <T> List<T>.toPyList(): PyList<T> = this.toMutableList()
 fun <T> PyList() = mutableListOf<T>()
 fun <T> PyList(vararg elts: T) = mutableListOf(*elts)
 
+fun <K,V> List<Pair<K,V>>.toPyDict(): PyDict<K,V> = this.toMap().toMutableMap()
 fun <K,V> PyDict() = mutableMapOf<K,V>()
 fun <K,V> PyDict(vararg pairs: Pair<K, V>) = mutableMapOf(*pairs)
 
 fun <K, V> Map<K, V>.keys() = this.keys
-
+fun <K, V> Map<K, V>.items() = this.entries
 
 fun uint64.pow(b: uint64): uint64 = Math.pow(this.toDouble(), b.toDouble()).toULong()
 fun uint64.bit_length(): pyint {

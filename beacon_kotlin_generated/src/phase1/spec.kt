@@ -19,6 +19,7 @@ import pylib.from_bytes
 import pylib.get
 import pylib.index
 import pylib.intersection
+import pylib.items
 import pylib.keys
 import pylib.len
 import pylib.list
@@ -37,6 +38,7 @@ import pylib.slice
 import pylib.sorted
 import pylib.sum
 import pylib.times
+import pylib.toPyDict
 import pylib.toPyList
 import pylib.to_bytes
 import pylib.unaryMinus
@@ -131,36 +133,23 @@ fun is_slashable_attestation_data(data_1: AttestationData, data_2: AttestationDa
     Check if ``indexed_attestation`` has valid indices and signature.
     */
 fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: IndexedAttestation): pybool {
-  val all_pubkeys: PyList<BLSPubkey> = PyList()
-  val all_signing_roots: PyList<Root> = PyList()
   val attestation = indexed_attestation.attestation
-  val domain = get_domain(state, DOMAIN_BEACON_ATTESTER, attestation.data.target.epoch)
   val aggregation_bits = attestation.aggregation_bits
   if (!(any(aggregation_bits)) || (len(aggregation_bits) != len(indexed_attestation.committee))) {
     return false
   }
   if ((len(attestation.custody_bits_blocks) == 0uL)) {
-    for ((participant, abit) in zip(indexed_attestation.committee, aggregation_bits)) {
-      if (abit) {
+    val domain = get_domain(state, DOMAIN_BEACON_ATTESTER, attestation.data.target.epoch)
+    val all_pubkeys: PyList<BLSPubkey> = PyList()
+    for ((participant, aggregation_bit) in zip(indexed_attestation.committee, aggregation_bits)) {
+      if (aggregation_bit) {
         all_pubkeys.append(state.validators[participant].pubkey)
       }
     }
     val signing_root = compute_signing_root(indexed_attestation.attestation.data, domain)
     return bls.FastAggregateVerify(all_pubkeys, signing_root, signature = attestation.signature)
   } else {
-    for ((i, custody_bits) in enumerate(attestation.custody_bits_blocks)) {
-      assert((len(custody_bits) == len(indexed_attestation.committee)))
-      for ((participant, abit, cbit) in zip(indexed_attestation.committee, aggregation_bits, custody_bits)) {
-        if (abit) {
-          all_pubkeys.append(state.validators[participant].pubkey)
-          val attestation_wrapper = AttestationCustodyBitWrapper(attestation_data_root = hash_tree_root(attestation.data), block_index = i.toULong(), bit = cbit)
-          all_signing_roots.append(compute_signing_root(attestation_wrapper, domain))
-        } else {
-          assert(!(cbit))
-        }
-      }
-    }
-    return bls.AggregateVerify(all_pubkeys, all_signing_roots, signature = attestation.signature)
+    return verify_attestation_custody(state, indexed_attestation)
   }
 }
 
@@ -266,8 +255,8 @@ fun compute_fork_digest(current_version: Version, genesis_validators_root: Root)
     Return the domain for the ``domain_type`` and ``fork_version``.
     */
 fun compute_domain(domain_type: DomainType, fork_version: Version? = null, genesis_validators_root: Root? = null): Domain {
-  val fork_version_ = fork_version ?: phase0.GENESIS_FORK_VERSION
-  val genesis_validators_root_ = genesis_validators_root ?: phase0.Root()
+  val fork_version_ = fork_version ?: GENESIS_FORK_VERSION
+  val genesis_validators_root_ = genesis_validators_root ?: Root()
   val fork_data_root = compute_fork_data_root(fork_version_, genesis_validators_root_)
   return Domain((domain_type + fork_data_root.slice(0uL, 28uL)))
 }
@@ -459,7 +448,7 @@ fun slash_validator(state: BeaconState, slashed_index: ValidatorIndex, whistlebl
 fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: uint64, deposits: Sequence<Deposit>): BeaconState {
   val fork = Fork(previous_version = GENESIS_FORK_VERSION, current_version = GENESIS_FORK_VERSION, epoch = GENESIS_EPOCH)
   val state = BeaconState(
-      genesis_time = ((eth1_timestamp - (eth1_timestamp % MIN_GENESIS_DELAY)) + (2uL * MIN_GENESIS_DELAY)),
+      genesis_time = (eth1_timestamp + GENESIS_DELAY),
       fork = fork,
       eth1_data = Eth1Data(
           block_hash = eth1_block_hash,
@@ -542,9 +531,7 @@ fun process_epoch(state: BeaconState): Unit {
   process_reveal_deadlines(state)
   process_slashings(state)
   process_final_updates(state)
-  process_custody_final_updates(state)
-  process_online_tracking(state)
-  process_light_client_committee_updates(state)
+  process_phase_1_final_updates(state)
 }
 
 fun get_matching_source_attestations(state: BeaconState, epoch: Epoch): Sequence<PendingAttestation> {
@@ -813,7 +800,6 @@ fun process_block(state: BeaconState, block: BeaconBlock): Unit {
   process_eth1_data(state, block.body)
   process_light_client_signatures(state, block.body)
   process_operations(state, block.body)
-  verify_shard_transition_false_positives(state, block.body)
 }
 
 fun process_block_header(state: BeaconState, block: BeaconBlock): Unit {
@@ -855,7 +841,7 @@ fun process_operations(state: BeaconState, body: BeaconBlockBody): Unit {
   for_ops(body.deposits, ::process_deposit)
   for_ops(body.voluntary_exits, ::process_voluntary_exit)
   process_custody_game_operations(state, body)
-  process_crosslinks(state, body.shard_transitions, body.attestations)
+  process_shard_transitions(state, body.shard_transitions, body.attestations)
 }
 
 fun process_proposer_slashing(state: BeaconState, proposer_slashing: ProposerSlashing): Unit {
@@ -1076,9 +1062,10 @@ fun store_target_checkpoint_state(store: Store, target: Checkpoint): Unit {
 fun update_latest_messages(store: Store, attesting_indices: Sequence<ValidatorIndex>, attestation: Attestation): Unit {
   val target = attestation.data.target
   val beacon_block_root = attestation.data.beacon_block_root
+  val shard = get_shard(store.block_states[beacon_block_root]!!, attestation)
   for (i in attesting_indices) {
     if ((i !in store.latest_messages) || (target.epoch > store.latest_messages[i]!!.epoch)) {
-      store.latest_messages[i] = LatestMessage(epoch = target.epoch, root = beacon_block_root)
+      store.latest_messages[i] = LatestMessage(epoch = target.epoch, root = beacon_block_root, shard = shard, shard_root = attestation.data.shard_head_root)
     }
   }
 }
@@ -1100,11 +1087,11 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   assert((block.parent_root in store.block_states))
   val pre_state = store.block_states[block.parent_root]!!.copy()
   assert((get_current_slot(store) >= block.slot))
-  store.blocks[hash_tree_root(block)] = BeaconBlockHeader(slot = block.slot, proposer_index = block.proposer_index, parent_root = block.parent_root, state_root = block.state_root, body_root = hash_tree_root(block.body))
   val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
   assert((block.slot > finalized_slot))
-  assert((get_ancestor(store, hash_tree_root(block), finalized_slot) == store.finalized_checkpoint.root))
+  assert((get_ancestor(store, block.parent_root, finalized_slot) == store.finalized_checkpoint.root))
   val state = state_transition(pre_state, signed_block, true)
+  store.blocks[hash_tree_root(block)] = BeaconBlockHeader(slot = block.slot, proposer_index = block.proposer_index, parent_root = block.parent_root, state_root = block.state_root, body_root = hash_tree_root(block.body))
   store.block_states[hash_tree_root(block)] = state
   if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
     if ((state.current_justified_checkpoint.epoch > store.best_justified_checkpoint.epoch)) {
@@ -1116,9 +1103,16 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   }
   if ((state.finalized_checkpoint.epoch > store.finalized_checkpoint.epoch)) {
     store.finalized_checkpoint = state.finalized_checkpoint
-    val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
-    if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch) || (get_ancestor(store, store.justified_checkpoint.root, finalized_slot) != store.finalized_checkpoint.root)) {
-      store.justified_checkpoint = state.current_justified_checkpoint
+    if ((store.justified_checkpoint != state.current_justified_checkpoint)) {
+      if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
+        store.justified_checkpoint = state.current_justified_checkpoint
+        return
+      }
+      val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
+      val ancestor_at_finalized_slot = get_ancestor(store, store.justified_checkpoint.root, finalized_slot)
+      if ((ancestor_at_finalized_slot != store.finalized_checkpoint.root)) {
+        store.justified_checkpoint = state.current_justified_checkpoint
+      }
     }
   }
 }
@@ -1135,9 +1129,7 @@ fun on_attestation(store: Store, attestation: Attestation): Unit {
   val target_state = store.checkpoint_states[attestation.data.target]!!
   val indexed_attestation = get_indexed_attestation(target_state, attestation)
   assert(is_valid_indexed_attestation(target_state, indexed_attestation))
-  val attesting_indices = enumerate(indexed_attestation.committee)
-      .filter { (i, _) -> attestation.aggregation_bits[i] }
-      .map { (_, index) -> index }.toPyList()
+  val attesting_indices = enumerate(indexed_attestation.committee).filter { (i, index) -> attestation.aggregation_bits[i] }.map { (i, index) -> index }.toPyList()
   update_latest_messages(store, attesting_indices, attestation)
 }
 
@@ -1223,10 +1215,10 @@ fun get_attestation_signature(state: BeaconState, attestation_data: AttestationD
     Compute the correct subnet for an attestation for Phase 0.
     Note, this mimics expected Phase 1 behavior where attestations will be mapped to their shard subnet.
     */
-fun compute_subnet_for_attestation(state: BeaconState, attestation: Attestation): uint64 {
-  val slots_since_epoch_start = (attestation.data.slot % SLOTS_PER_EPOCH)
-  val committees_since_epoch_start = (get_committee_count_at_slot(state, attestation.data.slot) * slots_since_epoch_start)
-  return ((committees_since_epoch_start + attestation.data.index) % ATTESTATION_SUBNET_COUNT)
+fun compute_subnet_for_attestation(state: BeaconState, slot: Slot, committee_index: CommitteeIndex): uint64 {
+  val slots_since_epoch_start = (slot % SLOTS_PER_EPOCH)
+  val committees_since_epoch_start = (get_committee_count_at_slot(state, slot) * slots_since_epoch_start)
+  return ((committees_since_epoch_start + committee_index) % ATTESTATION_SUBNET_COUNT)
 }
 
 fun get_slot_signature(state: BeaconState, slot: Slot, privkey: pyint): BLSSignature {
@@ -1464,7 +1456,7 @@ fun unpack_compact_validator(compact_validator: uint64): Triple<ValidatorIndex, 
 }
 
 /*
-    Given a state and a list of validator indices, outputs the CompactCommittee representing them.
+    Given a state and a list of validator indices, outputs the ``CompactCommittee`` representing them.
     */
 fun committee_to_compact_committee(state: BeaconState, committee: Sequence<ValidatorIndex>): CompactCommittee {
   val validators = committee.map { i -> state.validators[i] }.toPyList()
@@ -1485,14 +1477,25 @@ fun compute_offset_slots(start_slot: Slot, end_slot: Slot): Sequence<Slot> {
   return SHARD_BLOCK_OFFSETS.filter { x -> ((start_slot + x) < end_slot) }.map { x -> Slot((start_slot + x)) }.toPyList()
 }
 
-fun compute_updated_gasprice(prev_gasprice: Gwei, length: uint8): Gwei {
-  if ((length > TARGET_SHARD_BLOCK_SIZE)) {
-    val delta = (((prev_gasprice * (length - TARGET_SHARD_BLOCK_SIZE)) / TARGET_SHARD_BLOCK_SIZE) / GASPRICE_ADJUSTMENT_COEFFICIENT)
+fun compute_updated_gasprice(prev_gasprice: Gwei, shard_block_length: uint8): Gwei {
+  if ((shard_block_length > TARGET_SHARD_BLOCK_SIZE)) {
+    val delta = (((prev_gasprice * (shard_block_length - TARGET_SHARD_BLOCK_SIZE)) / TARGET_SHARD_BLOCK_SIZE) / GASPRICE_ADJUSTMENT_COEFFICIENT)
     return min((prev_gasprice + delta), MAX_GASPRICE)
   } else {
-    val delta = (((prev_gasprice * (TARGET_SHARD_BLOCK_SIZE - length)) / TARGET_SHARD_BLOCK_SIZE) / GASPRICE_ADJUSTMENT_COEFFICIENT)
+    val delta = (((prev_gasprice * (TARGET_SHARD_BLOCK_SIZE - shard_block_length)) / TARGET_SHARD_BLOCK_SIZE) / GASPRICE_ADJUSTMENT_COEFFICIENT)
     return (max(prev_gasprice, (MIN_GASPRICE + delta)) - delta)
   }
+}
+
+/*
+    Return the source epoch for computing the committee.
+    */
+fun compute_committee_source_epoch(epoch: Epoch, period: uint64): Epoch {
+  var source_epoch = (epoch - (epoch % period))
+  if ((source_epoch >= period)) {
+    source_epoch -= period
+  }
+  return source_epoch
 }
 
 fun get_active_shard_count(state: BeaconState): uint64 {
@@ -1504,54 +1507,116 @@ fun get_online_validator_indices(state: BeaconState): Set<ValidatorIndex> {
   return set(active_validators.filter { i -> (state.online_countdown[i] != 0uL.toUByte()) }.map { i -> i }.toPyList())
 }
 
+/*
+    Return the shard committee of the given ``epoch`` of the given ``shard``.
+    */
 fun get_shard_committee(beacon_state: BeaconState, epoch: Epoch, shard: Shard): Sequence<ValidatorIndex> {
-  var source_epoch = (epoch - (epoch % SHARD_COMMITTEE_PERIOD))
-  if ((source_epoch >= SHARD_COMMITTEE_PERIOD)) {
-    source_epoch -= SHARD_COMMITTEE_PERIOD
-  }
+  val source_epoch = compute_committee_source_epoch(epoch, SHARD_COMMITTEE_PERIOD)
   val active_validator_indices = get_active_validator_indices(beacon_state, source_epoch)
   val seed = get_seed(beacon_state, source_epoch, DOMAIN_SHARD_COMMITTEE)
   val active_shard_count = get_active_shard_count(beacon_state)
   return compute_committee(indices = active_validator_indices, seed = seed, index = shard, count = active_shard_count)
 }
 
+/*
+    Return the light client committee of no more than ``TARGET_COMMITTEE_SIZE`` validators.
+    */
 fun get_light_client_committee(beacon_state: BeaconState, epoch: Epoch): Sequence<ValidatorIndex> {
-  var source_epoch = (epoch - (epoch % LIGHT_CLIENT_COMMITTEE_PERIOD))
-  if ((source_epoch >= LIGHT_CLIENT_COMMITTEE_PERIOD)) {
-    source_epoch -= LIGHT_CLIENT_COMMITTEE_PERIOD
-  }
+  val source_epoch = compute_committee_source_epoch(epoch, LIGHT_CLIENT_COMMITTEE_PERIOD)
   val active_validator_indices = get_active_validator_indices(beacon_state, source_epoch)
   val seed = get_seed(beacon_state, source_epoch, DOMAIN_LIGHT_CLIENT)
   return compute_committee(indices = active_validator_indices, seed = seed, index = 0uL, count = get_active_shard_count(beacon_state)).slice(0uL, TARGET_COMMITTEE_SIZE)
 }
 
+/*
+    Return the proposer's index of shard block at ``slot``.
+    */
 fun get_shard_proposer_index(beacon_state: BeaconState, slot: Slot, shard: Shard): ValidatorIndex {
-  val committee = get_shard_committee(beacon_state, compute_epoch_at_slot(slot), shard)
-  val r = bytes_to_int(get_seed(beacon_state, get_current_epoch(beacon_state), DOMAIN_SHARD_COMMITTEE).slice(0uL, 8uL))
+  val epoch = compute_epoch_at_slot(slot)
+  val committee = get_shard_committee(beacon_state, epoch, shard)
+  val seed = hash((get_seed(beacon_state, epoch, DOMAIN_SHARD_COMMITTEE) + int_to_bytes(slot, length = 8uL)))
+  val r = bytes_to_int(seed.slice(0uL, 8uL))
   return committee[(r % len(committee))]
 }
 
-fun get_start_shard(state: BeaconState, slot: Slot): Shard {
-  return Shard(0uL)
+/*
+    Return the sum of committee counts in range ``listOf(start_slot, stop_slot)``.
+    */
+fun get_committee_count_delta(state: BeaconState, start_slot: Slot, stop_slot: Slot): uint64 {
+  return sum(range(start_slot, stop_slot).map { slot -> get_committee_count_at_slot(state, Slot(slot)) })
 }
 
+/*
+    Return the start shard at ``slot``.
+    */
+fun get_start_shard(state: BeaconState, slot: Slot): Shard {
+  val current_epoch_start_slot = compute_start_slot_at_epoch(get_current_epoch(state))
+  val active_shard_count = get_active_shard_count(state)
+  if ((current_epoch_start_slot == slot)) {
+    return state.current_epoch_start_shard
+  } else {
+    if ((slot > current_epoch_start_slot)) {
+      val shard_delta = get_committee_count_delta(state, start_slot = current_epoch_start_slot, stop_slot = slot)
+      return Shard(((state.current_epoch_start_shard + shard_delta) % active_shard_count))
+    } else {
+      val shard_delta = get_committee_count_delta(state, start_slot = slot, stop_slot = current_epoch_start_slot)
+      val max_committees_per_epoch = (MAX_COMMITTEES_PER_SLOT * SLOTS_PER_EPOCH)
+      return Shard((((state.current_epoch_start_shard + (max_committees_per_epoch * active_shard_count)) - shard_delta) % active_shard_count))
+    }
+  }
+}
+
+/*
+    Return the shard that the given ``attestation`` is attesting.
+    */
 fun get_shard(state: BeaconState, attestation: Attestation): Shard {
   return compute_shard_from_committee_index(state, attestation.data.index, attestation.data.slot)
 }
 
+/*
+    Return the latest slot number of the given ``shard``.
+    */
 fun get_latest_slot_for_shard(state: BeaconState, shard: Shard): Slot {
   return state.shard_states[shard].slot
 }
 
+/*
+    Return the offset slots of the given ``shard``.
+    The offset slot are after the latest slot and before current slot.
+    */
 fun get_offset_slots(state: BeaconState, shard: Shard): Sequence<Slot> {
-  return compute_offset_slots(state.shard_states[shard].slot, state.slot)
+  return compute_offset_slots(get_latest_slot_for_shard(state, shard), state.slot)
 }
 
-fun is_shard_attestation(state: BeaconState, attestation: Attestation, committee_index: CommitteeIndex): pybool {
-  if (!((attestation.data.index == committee_index) && ((attestation.data.slot + MIN_ATTESTATION_INCLUSION_DELAY) == state.slot))) {
-    return false
+/*
+    Check if ``indexed_attestation`` has valid signature against non-empty custody bits.
+    */
+fun verify_attestation_custody(state: BeaconState, indexed_attestation: IndexedAttestation): pybool {
+  val attestation = indexed_attestation.attestation
+  val aggregation_bits = attestation.aggregation_bits
+  val domain = get_domain(state, DOMAIN_BEACON_ATTESTER, attestation.data.target.epoch)
+  val all_pubkeys: PyList<BLSPubkey> = PyList()
+  val all_signing_roots: PyList<Root> = PyList()
+  for ((block_index, custody_bits) in enumerate(attestation.custody_bits_blocks)) {
+    assert((len(custody_bits) == len(indexed_attestation.committee)))
+    for ((participant, aggregation_bit, custody_bit) in zip(indexed_attestation.committee, aggregation_bits, custody_bits)) {
+      if (aggregation_bit) {
+        all_pubkeys.append(state.validators[participant].pubkey)
+        val attestation_wrapper = AttestationCustodyBitWrapper(attestation_data_root = hash_tree_root(attestation.data), block_index = block_index.toULong(), bit = custody_bit)
+        all_signing_roots.append(compute_signing_root(attestation_wrapper, domain))
+      } else {
+        assert(!(custody_bit))
+      }
+    }
   }
-  return true
+  return bls.AggregateVerify(all_pubkeys, all_signing_roots, signature = attestation.signature)
+}
+
+/*
+    Check if the given attestation is on-time.
+    */
+fun is_on_time_attestation(state: BeaconState, attestation: Attestation): pybool {
+  return (attestation.data.slot == compute_previous_slot(state.slot))
 }
 
 /*
@@ -1600,13 +1665,13 @@ fun validate_attestation(state: BeaconState, attestation: Attestation): Unit {
   } else {
     assert((attestation.data.source == state.previous_justified_checkpoint))
   }
-  val shard = get_shard(state, attestation)
   if ((attestation.custody_bits_blocks != PyList<SSZBitlist>())) {
-    assert(((data.slot + MIN_ATTESTATION_INCLUSION_DELAY) == state.slot))
+    assert(is_on_time_attestation(state, attestation))
+    val shard = get_shard(state, attestation)
     assert((len(attestation.custody_bits_blocks) == len(get_offset_slots(state, shard))))
     assert((data.beacon_block_root == get_block_root_at_slot(state, compute_previous_slot(state.slot))))
   } else {
-    assert(((data.slot + MIN_ATTESTATION_INCLUSION_DELAY) < state.slot))
+    assert((data.slot < compute_previous_slot(state.slot)))
     assert((data.shard_transition_root == Root()))
   }
   assert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)))
@@ -1621,15 +1686,15 @@ fun apply_shard_transition(state: BeaconState, shard: Shard, transition: ShardTr
   val proposers: PyList<ValidatorIndex> = PyList()
   var prev_gasprice = state.shard_states[shard].gasprice
   var shard_parent_root = state.shard_states[shard].latest_block_root
-  for (i in range(len(offset_slots))) {
+  for ((i, offset_slot) in enumerate(offset_slots)) {
     val shard_block_length = transition.shard_block_lengths[i]
     val shard_state = transition.shard_states[i]
     assert((shard_state.gasprice == compute_updated_gasprice(prev_gasprice, shard_block_length.toUByte())))
-    assert((shard_state.slot == offset_slots[i]))
+    assert((shard_state.slot == offset_slot))
     val is_empty_proposal = (shard_block_length == 0uL)
     if (!(is_empty_proposal)) {
-      val proposal_index = get_shard_proposer_index(state, offset_slots[i], shard)
-      val header = ShardBlockHeader(shard_parent_root = shard_parent_root, beacon_parent_root = get_block_root_at_slot(state, offset_slots[i]), proposer_index = proposal_index, slot = offset_slots[i], body_root = transition.shard_data_roots[i])
+      val proposal_index = get_shard_proposer_index(state, offset_slot, shard)
+      val header = ShardBlockHeader(shard_parent_root = shard_parent_root, beacon_parent_root = get_block_root_at_slot(state, offset_slot), slot = offset_slot, shard = shard, proposer_index = proposal_index, body_root = transition.shard_data_roots[i])
       shard_parent_root = hash_tree_root(header)
       headers.append(header)
       proposers.append(proposal_index)
@@ -1640,13 +1705,14 @@ fun apply_shard_transition(state: BeaconState, shard: Shard, transition: ShardTr
   val signing_roots = headers.map { header -> compute_signing_root(header, get_domain(state, DOMAIN_SHARD_PROPOSAL, compute_epoch_at_slot(header.slot))) }.toPyList()
   assert(optional_aggregate_verify(pubkeys, signing_roots, transition.proposer_signature_aggregate))
   state.shard_states[shard] = transition.shard_states[(len(transition.shard_states) - 1uL)]
-  state.shard_states[shard].slot = (state.slot - 1uL)
+  state.shard_states[shard].slot = compute_previous_slot(state.slot)
 }
 
 fun process_crosslink_for_shard(state: BeaconState, committee_index: CommitteeIndex, shard_transition: ShardTransition, attestations: Sequence<Attestation>): Root {
-  val committee = get_beacon_committee(state, state.slot, committee_index)
+  val on_time_attestation_slot = compute_previous_slot(state.slot)
+  val committee = get_beacon_committee(state, on_time_attestation_slot, committee_index)
   val online_indices = get_online_validator_indices(state)
-  val shard = compute_shard_from_committee_index(state, committee_index, state.slot)
+  val shard = compute_shard_from_committee_index(state, committee_index, on_time_attestation_slot)
   val shard_transition_roots = set(attestations.map { a -> a.data.shard_transition_root }.toPyList())
   for (shard_transition_root in sorted(shard_transition_roots)) {
     val transition_attestations = attestations.filter { a -> (a.data.shard_transition_root == shard_transition_root) }.map { a -> a }.toPyList()
@@ -1654,7 +1720,7 @@ fun process_crosslink_for_shard(state: BeaconState, committee_index: CommitteeIn
     for (attestation in transition_attestations) {
       val participants = get_attesting_indices(state, attestation.data, attestation.aggregation_bits)
       transition_participants = transition_participants.union(participants)
-      assert((attestation.data.head_shard_root == shard_transition.shard_data_roots[(len(shard_transition.shard_data_roots) - 1uL)]))
+      assert((attestation.data.shard_head_root == shard_transition.shard_data_roots[(len(shard_transition.shard_data_roots) - 1uL)]))
     }
     val enough_online_stake = ((get_total_balance(state, online_indices.intersection(transition_participants)) * 3uL) >= (get_total_balance(state, online_indices.intersection(committee)) * 2uL))
     if (!(enough_online_stake)) {
@@ -1678,12 +1744,12 @@ fun process_crosslink_for_shard(state: BeaconState, committee_index: CommitteeIn
 }
 
 fun process_crosslinks(state: BeaconState, shard_transitions: Sequence<ShardTransition>, attestations: Sequence<Attestation>): Unit {
-  val committee_count = get_committee_count_at_slot(state, state.slot)
+  val on_time_attestation_slot = compute_previous_slot(state.slot)
+  val committee_count = get_committee_count_at_slot(state, on_time_attestation_slot)
   for (committee_index in map({ index -> CommitteeIndex(index) }, range(committee_count))) {
-    val shard = compute_shard_from_committee_index(state, committee_index, state.slot)
-    val shard_transition = shard_transitions[shard]
-    val shard_attestations = attestations.filter { attestation -> is_shard_attestation(state, attestation, committee_index) }.map { attestation -> attestation }.toPyList()
-    val winning_root = process_crosslink_for_shard(state, committee_index, shard_transition, shard_attestations)
+    val shard_attestations = attestations.filter { attestation -> is_on_time_attestation(state, attestation) && (attestation.data.index == committee_index) }.map { attestation -> attestation }.toPyList()
+    val shard = compute_shard_from_committee_index(state, committee_index, on_time_attestation_slot)
+    val winning_root = process_crosslink_for_shard(state, committee_index, shard_transitions[shard], shard_attestations)
     if ((winning_root != Root())) {
       for (pending_attestation in state.current_epoch_attestations) {
         if (is_winning_attestation(state, pending_attestation, committee_index, winning_root)) {
@@ -1694,17 +1760,28 @@ fun process_crosslinks(state: BeaconState, shard_transitions: Sequence<ShardTran
   }
 }
 
-fun get_indices_from_committee(committee: SSZList<ValidatorIndex>, bits: SSZBitlist): SSZList<ValidatorIndex> {
-  assert((len(bits) == len(committee)))
-  return SSZList<ValidatorIndex>(enumerate(committee).filter { (i, _) -> bits[i] }.map { (_, validator_index) -> validator_index }.toPyList())
-}
-
-fun verify_shard_transition_false_positives(state: BeaconState, block_body: BeaconBlockBody): Unit {
+/*
+    Verify that a `shard_transition` in a block is empty if an attestation was not processed for it.
+    */
+fun verify_empty_shard_transition(state: BeaconState, shard_transitions: Sequence<ShardTransition>): pybool {
   for (shard in range(get_active_shard_count(state))) {
-    if ((state.shard_states[shard].slot != (state.slot - 1uL))) {
-      assert((block_body.shard_transitions[shard] == ShardTransition()))
+    if ((state.shard_states[shard].slot != compute_previous_slot(state.slot))) {
+      if ((shard_transitions[shard] != ShardTransition())) {
+        return false
+      }
     }
   }
+  return true
+}
+
+fun process_shard_transitions(state: BeaconState, shard_transitions: Sequence<ShardTransition>, attestations: Sequence<Attestation>): Unit {
+  process_crosslinks(state, shard_transitions, attestations)
+  assert(verify_empty_shard_transition(state, shard_transitions))
+}
+
+fun get_indices_from_committee(committee: SSZList<ValidatorIndex>, bits: SSZBitlist): Sequence<ValidatorIndex> {
+  assert((len(bits) == len(committee)))
+  return enumerate(committee).filter { (i, _) -> bits[i] }.map { (_, validator_index) -> validator_index }.toPyList()
 }
 
 fun process_light_client_signatures(state: BeaconState, block_body: BeaconBlockBody): Unit {
@@ -1724,6 +1801,13 @@ fun process_light_client_signatures(state: BeaconState, block_body: BeaconBlockB
   assert(optional_fast_aggregate_verify(signer_pubkeys, signing_root, block_body.light_client_signature))
 }
 
+fun process_phase_1_final_updates(state: BeaconState): Unit {
+  process_custody_final_updates(state)
+  process_online_tracking(state)
+  process_light_client_committee_updates(state)
+  state.current_epoch_start_shard = get_start_shard(state, Slot((state.slot + 1uL)))
+}
+
 fun process_online_tracking(state: BeaconState): Unit {
   for (index in range(len(state.validators))) {
     if ((state.online_countdown[index] != 0uL.toUByte())) {
@@ -1737,6 +1821,9 @@ fun process_online_tracking(state: BeaconState): Unit {
   }
 }
 
+/*
+    Update light client committees.
+    */
 fun process_light_client_committee_updates(state: BeaconState): Unit {
   if (((get_current_epoch(state) % LIGHT_CLIENT_COMMITTEE_PERIOD) == 0uL)) {
     state.current_light_committee = state.next_light_committee
@@ -1745,14 +1832,24 @@ fun process_light_client_committee_updates(state: BeaconState): Unit {
   }
 }
 
-fun compute_shard_transition_digest(beacon_state: BeaconState, shard_state: ShardState, beacon_parent_root: Root, shard_body_root: Root): Bytes32 {
+fun compute_shard_transition_digest(beacon_parent_state: BeaconState, shard_state: ShardState, beacon_parent_root: Root, shard_body_root: Root): Bytes32 {
   return hash(((hash_tree_root(shard_state) + beacon_parent_root) + shard_body_root))
 }
 
-fun verify_shard_block_message(beacon_state: BeaconState, shard_state: ShardState, block: ShardBlock, slot: Slot, shard: Shard): pybool {
-  assert((block.shard_parent_root == shard_state.latest_block_root))
-  assert((block.slot == slot))
-  assert((block.proposer_index == get_shard_proposer_index(beacon_state, slot, shard)))
+fun verify_shard_block_message(beacon_parent_state: BeaconState, shard_parent_state: ShardState, block: ShardBlock): pybool {
+  assert((block.shard_parent_root == shard_parent_state.latest_block_root))
+  val beacon_parent_block_header = beacon_parent_state.latest_block_header.copy()
+  if ((beacon_parent_block_header.state_root == Root())) {
+    beacon_parent_block_header.state_root = hash_tree_root(beacon_parent_state)
+  }
+  val beacon_parent_root = hash_tree_root(beacon_parent_block_header)
+  assert((block.beacon_parent_root == beacon_parent_root))
+  val shard = block.shard
+  val next_slot = Slot((block.slot + 1uL))
+  val offset_slots = compute_offset_slots(get_latest_slot_for_shard(beacon_parent_state, shard), next_slot)
+  assert((block.slot in offset_slots))
+  assert((block.shard == shard))
+  assert((block.proposer_index == get_shard_proposer_index(beacon_parent_state, block.slot, shard)))
   assert((0uL < len(block.body)) && (len(block.body) <= MAX_SHARD_BLOCK_SIZE))
   return true
 }
@@ -1764,18 +1861,21 @@ fun verify_shard_block_signature(beacon_state: BeaconState, signed_block: Signed
   return bls.Verify(proposer.pubkey, signing_root, signed_block.signature)
 }
 
+/*
+    Update ``shard_state`` with shard ``block`` and ``beacon_state`.
+    */
 fun shard_state_transition(beacon_state: BeaconState, shard_state: ShardState, block: ShardBlock): Unit {
+  shard_state.slot = block.slot
   val prev_gasprice = shard_state.gasprice
+  shard_state.gasprice = compute_updated_gasprice(prev_gasprice, len(block.body).toUByte())
   val latest_block_root: Root
   if ((len(block.body) == 0uL)) {
     latest_block_root = shard_state.latest_block_root
   } else {
     latest_block_root = hash_tree_root(block)
   }
-  shard_state.transition_digest = compute_shard_transition_digest(beacon_state, shard_state, block.beacon_parent_root, hash_tree_root(block.body))
-  shard_state.gasprice = compute_updated_gasprice(prev_gasprice, len(block.body).toUByte())
-  shard_state.slot = block.slot
   shard_state.latest_block_root = latest_block_root
+  shard_state.transition_digest = compute_shard_transition_digest(beacon_state, shard_state, block.beacon_parent_root, hash_tree_root(block.body))
 }
 
 /*
@@ -1822,58 +1922,35 @@ fun compute_shard_body_roots(proposals: Sequence<SignedShardBlock>): Sequence<Ro
 }
 
 /*
-    Return the valid shard blocks at the given ``slot``.
-    Note that this function doesn't change the state.
-    */
-fun get_proposal_choices_at_slot(beacon_state: BeaconState, shard_state: ShardState, slot: Slot, shard: Shard, shard_blocks: Sequence<SignedShardBlock>, validate_signature: pybool = true): Sequence<SignedShardBlock> {
-  val choices: PyList<SignedShardBlock> = PyList()
-  val shard_blocks_at_slot = shard_blocks.filter { block -> (block.message.slot == slot) }.map { block -> block }.toPyList()
-  var shard_state_ = shard_state
-  for (block in shard_blocks_at_slot) {
-    try {
-      assert(verify_shard_block_message(beacon_state, shard_state, block.message, slot, shard))
-      if (validate_signature) {
-        assert(verify_shard_block_signature(beacon_state, block))
-      }
-      shard_state_ = get_post_shard_state(beacon_state, shard_state_, block.message)
-    } catch (_: Exception) {
-      // pass
-    }
-    run { // else
-      choices.append(block)
-    }
-  }
-  return choices
-}
-
-/*
     Return ``proposal``, ``shard_state`` of the given ``slot``.
     Note that this function doesn't change the state.
     */
-fun get_proposal_at_slot(beacon_state: BeaconState, shard_state: ShardState, slot: Shard, shard: Shard, shard_blocks: Sequence<SignedShardBlock>, validate_signature: pybool = true): Pair<SignedShardBlock, ShardState> {
-  val choices = get_proposal_choices_at_slot(beacon_state = beacon_state, shard_state = shard_state, slot = slot, shard = shard, shard_blocks = shard_blocks, validate_signature = validate_signature)
+fun get_proposal_at_slot(beacon_state: BeaconState, shard_parent_state: ShardState, slot: Shard, shard: Shard, shard_blocks: Sequence<SignedShardBlock>, validate_signature: pybool = true): Pair<SignedShardBlock, ShardState> {
+  val shard_blocks_ = shard_blocks.filter { block -> (block.message.slot == slot) }.map { block -> block }.toPyList()
   val proposal: SignedShardBlock
-  if ((len(choices) == 0uL)) {
-    val block = ShardBlock(slot = slot)
+  if ((len(shard_blocks_) == 0uL)) {
+    val block = ShardBlock(slot = slot, shard = shard)
     proposal = SignedShardBlock(message = block)
   } else {
-    if ((len(choices) == 1uL)) {
-      proposal = choices[0uL]
+    if ((len(shard_blocks_) == 1uL)) {
+      proposal = shard_blocks_[0uL]
     } else {
-      proposal = get_winning_proposal(beacon_state, choices)
+      proposal = get_winning_proposal(beacon_state, shard_blocks_)
     }
   }
-  val shard_state_ = get_post_shard_state(beacon_state, shard_state, proposal.message)
-  return Pair(proposal, shard_state_)
+  val shard_state = get_post_shard_state(beacon_state, shard_parent_state, proposal.message)
+  return Pair(proposal, shard_state)
 }
 
 fun get_shard_state_transition_result(beacon_state: BeaconState, shard: Shard, shard_blocks: Sequence<SignedShardBlock>, validate_signature: pybool = true): Triple<Sequence<SignedShardBlock>, Sequence<ShardState>, Sequence<Root>> {
   val proposals: PyList<SignedShardBlock> = PyList()
   val shard_states: PyList<ShardState> = PyList()
   var shard_state = beacon_state.shard_states[shard]
-  for (slot in get_offset_slots(beacon_state, shard)) {
-    val (proposal, shard_state_) = get_proposal_at_slot(beacon_state = beacon_state, shard_state = shard_state, slot = slot, shard = shard, shard_blocks = shard_blocks, validate_signature = validate_signature)
-    shard_states.append(shard_state_)
+  val offset_slots = compute_offset_slots(get_latest_slot_for_shard(beacon_state, shard), Slot((beacon_state.slot + 1uL)))
+  for (slot in offset_slots) {
+    val (proposal, shard_state_) = get_proposal_at_slot(beacon_state = beacon_state, shard_parent_state = shard_state, slot = slot, shard = shard, shard_blocks = shard_blocks, validate_signature = validate_signature)
+    shard_state = shard_state_
+    shard_states.append(shard_state)
     proposals.append(proposal)
   }
   val shard_data_roots = compute_shard_body_roots(proposals)
@@ -1881,11 +1958,8 @@ fun get_shard_state_transition_result(beacon_state: BeaconState, shard: Shard, s
 }
 
 fun get_shard_transition(beacon_state: BeaconState, shard: Shard, shard_blocks: Sequence<SignedShardBlock>): ShardTransition {
-  val offset_slots = get_offset_slots(beacon_state, shard)
-  val start_slot = offset_slots[0uL]
+  val offset_slots = compute_offset_slots(get_latest_slot_for_shard(beacon_state, shard), Slot((beacon_state.slot + 1uL)))
   val (proposals, shard_states, shard_data_roots) = get_shard_state_transition_result(beacon_state, shard, shard_blocks)
-  assert((len(proposals) > 0uL))
-  assert((len(shard_data_roots) > 0uL))
   val shard_block_lengths: PyList<uint64> = PyList()
   val proposer_signatures: PyList<BLSSignature> = PyList()
   for (proposal in proposals) {
@@ -1900,7 +1974,7 @@ fun get_shard_transition(beacon_state: BeaconState, shard: Shard, shard_blocks: 
   } else {
     proposer_signature_aggregate = NO_SIGNATURE
   }
-  return ShardTransition(start_slot = start_slot, shard_block_lengths = shard_block_lengths, shard_data_roots = shard_data_roots.toPyList(), shard_states = shard_states.toPyList(), proposer_signature_aggregate = proposer_signature_aggregate)
+  return ShardTransition(start_slot = offset_slots[0uL], shard_block_lengths = shard_block_lengths, shard_data_roots = shard_data_roots.toPyList(), shard_states = shard_states.toPyList(), proposer_signature_aggregate = proposer_signature_aggregate)
 }
 
 fun phase0.BeaconBlockHeader.toPhase1() = BeaconBlockHeader(slot = this.slot, proposer_index = this.proposer_index, parent_root = this.parent_root, state_root = this.state_root, body_root = this.body_root)
@@ -1945,6 +2019,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
       previous_justified_checkpoint = pre.previous_justified_checkpoint.toPhase1(),
       current_justified_checkpoint = pre.current_justified_checkpoint.toPhase1(),
       finalized_checkpoint = pre.finalized_checkpoint.toPhase1(),
+      current_epoch_start_shard = Shard(0uL),
       shard_states = SSZList<ShardState>(range(INITIAL_ACTIVE_SHARDS).map { ShardState(slot = pre.slot, gasprice = MIN_GASPRICE, transition_digest = Root(), latest_block_root = Root()) }.toPyList()),
       online_countdown = (PyList(ONLINE_PERIOD) * len(pre.validators)),
       current_light_committee = CompactCommittee(),
@@ -1955,6 +2030,83 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
   post.current_light_committee = committee_to_compact_committee(post, get_light_client_committee(post, epoch))
   post.next_light_committee = committee_to_compact_committee(post, get_light_client_committee(post, next_epoch))
   return post
+}
+
+fun get_forkchoice_shard_store(anchor_state: BeaconState, shard: Shard): ShardStore {
+  return ShardStore(shard = shard, blocks = PyDict(anchor_state.shard_states[shard].latest_block_root to ShardBlock(slot = anchor_state.slot, shard = shard)), block_states = PyDict(anchor_state.shard_states[shard].latest_block_root to anchor_state.copy().shard_states[shard]))
+}
+
+fun get_shard_latest_attesting_balance(store: Store, shard_store: ShardStore, root: Root): Gwei {
+  val state = store.checkpoint_states[store.justified_checkpoint]!!
+  val active_indices = get_active_validator_indices(state, get_current_epoch(state))
+  return Gwei(sum(active_indices.filter { i -> (i in store.latest_messages) && (store.latest_messages[i]!!.shard == shard_store.shard) && (get_shard_ancestor(store, shard_store, store.latest_messages[i]!!.shard_root, shard_store.blocks[root]!!.slot) == root) }.map { i -> state.validators[i].effective_balance }))
+}
+
+fun get_shard_head(store: Store, shard_store: ShardStore): Root {
+  val beacon_head_root = get_head(store)
+  val shard_head_state = store.block_states[beacon_head_root]!!.shard_states[shard_store.shard]
+  var shard_head_root = shard_head_state.latest_block_root
+  val shard_blocks = shard_store.blocks.items().filter { (_, shard_block) -> (shard_block.slot > shard_head_state.slot) }.map { (root, shard_block) -> Pair(root, shard_block) }.toPyDict()
+  while (true) {
+    val children = shard_blocks.items().filter { (_, shard_block) -> (shard_block.shard_parent_root == shard_head_root) }.map { (root, _) -> root }.toPyList()
+    if ((len(children) == 0uL)) {
+      return shard_head_root
+    }
+    shard_head_root = max(children, key = { root -> Tuple2(get_shard_latest_attesting_balance(store, shard_store, root), root) })
+  }
+}
+
+fun get_shard_ancestor(store: Store, shard_store: ShardStore, root: Root, slot: Slot): Root {
+  val block = shard_store.blocks[root]!!
+  if ((block.slot > slot)) {
+    return get_shard_ancestor(store, shard_store, block.shard_parent_root, slot)
+  } else {
+    if ((block.slot == slot)) {
+      return root
+    } else {
+      return root
+    }
+  }
+}
+
+/*
+    Return the canonical shard block branch that has not yet been crosslinked.
+    */
+fun get_pending_shard_blocks(store: Store, shard_store: ShardStore): Sequence<ShardBlock> {
+  val shard = shard_store.shard
+  val beacon_head_root = get_head(store)
+  val beacon_head_state = store.block_states[beacon_head_root]!!
+  val latest_shard_block_root = beacon_head_state.shard_states[shard].latest_block_root
+  val shard_head_root = get_shard_head(store, shard_store)
+  var root = shard_head_root
+  val shard_blocks: PyList<ShardBlock> = PyList()
+  while ((root != latest_shard_block_root)) {
+    val shard_block = shard_store.blocks[root]!!
+    shard_blocks.append(shard_block)
+    root = shard_block.shard_parent_root
+  }
+  shard_blocks.reverse()
+  return shard_blocks
+}
+
+fun on_shard_block(store: Store, shard_store: ShardStore, signed_shard_block: SignedShardBlock): Unit {
+  val shard_block = signed_shard_block.message
+  val shard = shard_store.shard
+  assert((shard_block.shard == shard))
+  assert((shard_block.shard_parent_root in shard_store.block_states))
+  val shard_parent_state = shard_store.block_states[shard_block.shard_parent_root]!!
+  assert((shard_block.beacon_parent_root in store.block_states))
+  val beacon_parent_state = store.block_states[shard_block.beacon_parent_root]!!
+  val finalized_beacon_state = store.block_states[store.finalized_checkpoint.root]!!
+  val finalized_shard_state = finalized_beacon_state.shard_states[shard]
+  assert((shard_block.slot > finalized_shard_state.slot))
+  val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
+  assert((get_ancestor(store, shard_block.beacon_parent_root, finalized_slot) == store.finalized_checkpoint.root))
+  assert(verify_shard_block_message(beacon_parent_state, shard_parent_state, shard_block))
+  assert(verify_shard_block_signature(beacon_parent_state, signed_shard_block))
+  val post_state = get_post_shard_state(beacon_parent_state, shard_parent_state, shard_block)
+  shard_store.blocks[hash_tree_root(shard_block)] = shard_block
+  shard_store.block_states[hash_tree_root(shard_block)] = post_state
 }
 
 /*

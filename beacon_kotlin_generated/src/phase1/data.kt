@@ -7,6 +7,7 @@ import ssz.Bytes96
 import ssz.SSZBitlist
 import ssz.SSZBitvector
 import ssz.SSZByteList
+import ssz.SSZByteVector
 import ssz.SSZDict
 import ssz.SSZList
 import ssz.SSZVector
@@ -110,7 +111,7 @@ data class Validator(
     var exit_epoch: Epoch = Epoch(),
     var withdrawable_epoch: Epoch = Epoch(),
     var next_custody_secret_to_reveal: uint64 = 0uL,
-    var max_reveal_lateness: Epoch = Epoch()
+    var all_custody_secrets_revealed_epoch: Epoch = Epoch()
 )
 
 data class AttestationData(
@@ -176,8 +177,9 @@ data class Attestation(
 )
 
 data class IndexedAttestation(
-    var committee: SSZList<ValidatorIndex> = SSZList<ValidatorIndex>(),
-    var attestation: Attestation = Attestation()
+    var attesting_indices: SSZList<ValidatorIndex> = SSZList<ValidatorIndex>(),
+    var data: AttestationData = AttestationData(),
+    var signature: BLSSignature = BLSSignature()
 )
 
 data class AttesterSlashing(
@@ -227,6 +229,22 @@ data class SignedAggregateAndProof(
     var signature: BLSSignature = BLSSignature()
 )
 
+data class CustodyChunkChallengeRecord(
+    var challenge_index: uint64 = 0uL,
+    var challenger_index: ValidatorIndex = ValidatorIndex(),
+    var responder_index: ValidatorIndex = ValidatorIndex(),
+    var inclusion_epoch: Epoch = Epoch(),
+    var data_root: Root = Root(),
+    var chunk_index: uint64 = 0uL
+)
+
+data class CustodyChunkResponse(
+    var challenge_index: uint64 = 0uL,
+    var chunk_index: uint64 = 0uL,
+    var chunk: SSZByteVector = SSZByteVector(),
+    var branch: SSZVector<Root> = SSZVector<Root>()
+)
+
 data class CustodyKeyReveal(
     var revealer_index: ValidatorIndex = ValidatorIndex(),
     var reveal: BLSSignature = BLSSignature()
@@ -266,7 +284,6 @@ data class ShardBlockHeader(
 data class ShardState(
     var slot: Slot = Slot(),
     var gasprice: Gwei = Gwei(),
-    var transition_digest: Bytes32 = Bytes32(),
     var latest_block_root: Root = Root()
 )
 
@@ -293,6 +310,14 @@ data class SignedCustodySlashing(
     var signature: BLSSignature = BLSSignature()
 )
 
+data class CustodyChunkChallenge(
+    var responder_index: ValidatorIndex = ValidatorIndex(),
+    var shard_transition: ShardTransition = ShardTransition(),
+    var attestation: Attestation = Attestation(),
+    var data_index: uint64 = 0uL,
+    var chunk_index: uint64 = 0uL
+)
+
 data class BeaconBlockBody(
     var randao_reveal: BLSSignature = BLSSignature(),
     var eth1_data: Eth1Data = Eth1Data(),
@@ -302,11 +327,13 @@ data class BeaconBlockBody(
     var attestations: SSZList<Attestation> = SSZList<Attestation>(),
     var deposits: SSZList<Deposit> = SSZList<Deposit>(),
     var voluntary_exits: SSZList<SignedVoluntaryExit> = SSZList<SignedVoluntaryExit>(),
-    var custody_slashings: SSZList<SignedCustodySlashing> = SSZList<SignedCustodySlashing>(),
+    var chunk_challenges: SSZList<CustodyChunkChallenge> = SSZList<CustodyChunkChallenge>(),
+    var chunk_challenge_responses: SSZList<CustodyChunkChallenge> = SSZList<CustodyChunkChallenge>(),
     var custody_key_reveals: SSZList<CustodyKeyReveal> = SSZList<CustodyKeyReveal>(),
     var early_derived_secret_reveals: SSZList<EarlyDerivedSecretReveal> = SSZList<EarlyDerivedSecretReveal>(),
+    var custody_slashings: SSZList<SignedCustodySlashing> = SSZList<SignedCustodySlashing>(),
     var shard_transitions: SSZVector<ShardTransition> = SSZVector<ShardTransition>(),
-    var light_client_signature_bitfield: SSZBitvector = SSZBitvector(),
+    var light_client_bits: SSZBitvector = SSZBitvector(),
     var light_client_signature: BLSSignature = BLSSignature()
 )
 
@@ -355,13 +382,53 @@ data class BeaconState(
     var online_countdown: SSZList<OnlineEpochs> = SSZList<OnlineEpochs>(),
     var current_light_committee: CompactCommittee = CompactCommittee(),
     var next_light_committee: CompactCommittee = CompactCommittee(),
-    var exposed_derived_secrets: SSZVector<SSZList<ValidatorIndex>> = SSZVector<SSZList<ValidatorIndex>>()
+    var exposed_derived_secrets: SSZVector<SSZList<ValidatorIndex>> = SSZVector<SSZList<ValidatorIndex>>(),
+    var custody_chunk_challenge_records: SSZList<CustodyChunkChallengeRecord> = SSZList<CustodyChunkChallengeRecord>(),
+    var custody_chunk_challenge_index: uint64 = 0uL
 )
 
 data class AttestationCustodyBitWrapper(
     var attestation_data_root: Root = Root(),
     var block_index: uint64 = 0uL,
     var bit: boolean = false
+)
+
+data class FullAttestationData(
+    var slot: Slot = Slot(),
+    var index: CommitteeIndex = CommitteeIndex(),
+    var beacon_block_root: Root = Root(),
+    var source: Checkpoint = Checkpoint(),
+    var target: Checkpoint = Checkpoint(),
+    var shard_head_root: Root = Root(),
+    var shard_transition: ShardTransition = ShardTransition()
+)
+
+data class FullAttestation(
+    var aggregation_bits: SSZBitlist = SSZBitlist(),
+    var data: FullAttestationData = FullAttestationData(),
+    var signature: BLSSignature = BLSSignature()
+)
+
+data class LightClientVoteData(
+    var slot: Slot = Slot(),
+    var beacon_block_root: Root = Root()
+)
+
+data class LightClientVote(
+    var data: LightClientVoteData = LightClientVoteData(),
+    var aggregation_bits: SSZBitvector = SSZBitvector(),
+    var signature: BLSSignature = BLSSignature()
+)
+
+data class LightAggregateAndProof(
+    var aggregator_index: ValidatorIndex = ValidatorIndex(),
+    var aggregate: LightClientVote = LightClientVote(),
+    var selection_proof: BLSSignature = BLSSignature()
+)
+
+data class SignedLightAggregateAndProof(
+    var message: LightAggregateAndProof = LightAggregateAndProof(),
+    var signature: BLSSignature = BLSSignature()
 )
 
 data class LatestMessage(

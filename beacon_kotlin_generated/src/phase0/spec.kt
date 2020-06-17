@@ -875,6 +875,12 @@ fun process_attestation(state: BeaconState, attestation: Attestation): Unit {
   assert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)))
 }
 
+fun get_validator_from_deposit(state: BeaconState, deposit: Deposit): Validator {
+  val amount = deposit.data.amount
+  val effective_balance = min((amount - (amount % EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE)
+  return Validator(pubkey = deposit.data.pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, activation_eligibility_epoch = FAR_FUTURE_EPOCH, activation_epoch = FAR_FUTURE_EPOCH, exit_epoch = FAR_FUTURE_EPOCH, withdrawable_epoch = FAR_FUTURE_EPOCH, effective_balance = effective_balance)
+}
+
 fun process_deposit(state: BeaconState, deposit: Deposit): Unit {
   assert(is_valid_merkle_branch(leaf = hash_tree_root(deposit.data), branch = deposit.proof, depth = (DEPOSIT_CONTRACT_TREE_DEPTH + 1uL), index = state.eth1_deposit_index, root = state.eth1_data.deposit_root))
   state.eth1_deposit_index += 1uL
@@ -888,7 +894,7 @@ fun process_deposit(state: BeaconState, deposit: Deposit): Unit {
     if (!(bls.Verify(pubkey, signing_root, deposit.data.signature))) {
       return
     }
-    state.validators.append(Validator(pubkey = pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, activation_eligibility_epoch = FAR_FUTURE_EPOCH, activation_epoch = FAR_FUTURE_EPOCH, exit_epoch = FAR_FUTURE_EPOCH, withdrawable_epoch = FAR_FUTURE_EPOCH, effective_balance = min((amount - (amount % EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE)))
+    state.validators.append(get_validator_from_deposit(state, deposit))
     state.balances.append(amount)
   } else {
     val index = ValidatorIndex(validator_pubkeys.index(pubkey))

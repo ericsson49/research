@@ -28,6 +28,8 @@ inline class pyint(val value: BigInteger) {
   operator fun times(b: uint64) = pyint(value.times(b.toLong().toBigInteger()))
   operator fun plus(b: pyint) = pyint(value.plus(b.value))
   operator fun plus(b: uint64) = pyint(value.plus(b.toLong().toBigInteger()))
+  operator fun minus(b: pyint) = pyint(value.minus(b.value))
+  operator fun minus(b: uint64) = pyint(value.minus(b.toLong().toBigInteger()))
 }
 
 data class Tuple2<A : Comparable<A>, B : Comparable<B>>(val a: A, val b: B) : Comparable<Tuple2<A, B>> {
@@ -161,4 +163,10 @@ fun uint64.bit_length(): pyint {
 fun uint64.to_bytes(length: uint64, endiannes: String): pybytes = TODO()
 fun from_bytes(data: pybytes, endiannes: String): uint64 = TODO()
 
+fun pyint.to_bytes(length: uint64, endiannes: String): pybytes = TODO()
+
 operator fun <T> Pair<T, T>.contains(a: T) = this.first == a || this.second == a
+fun <T,U> Pair<T,T>.map(f: (T) -> U): List<U> = listOf(f(first), f(second))
+
+fun pybytes(s: String): pybytes = Bytes.fromHexString("0x" + s)
+fun pybytes.join(c: Iterable<pybytes>): pybytes = TODO()

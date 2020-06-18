@@ -328,7 +328,7 @@ data class BeaconBlockBody(
     var deposits: SSZList<Deposit> = SSZList<Deposit>(),
     var voluntary_exits: SSZList<SignedVoluntaryExit> = SSZList<SignedVoluntaryExit>(),
     var chunk_challenges: SSZList<CustodyChunkChallenge> = SSZList<CustodyChunkChallenge>(),
-    var chunk_challenge_responses: SSZList<CustodyChunkChallenge> = SSZList<CustodyChunkChallenge>(),
+    var chunk_challenge_responses: SSZList<CustodyChunkResponse> = SSZList<CustodyChunkResponse>(),
     var custody_key_reveals: SSZList<CustodyKeyReveal> = SSZList<CustodyKeyReveal>(),
     var early_derived_secret_reveals: SSZList<EarlyDerivedSecretReveal> = SSZList<EarlyDerivedSecretReveal>(),
     var custody_slashings: SSZList<SignedCustodySlashing> = SSZList<SignedCustodySlashing>(),

@@ -52,6 +52,7 @@ import ssz.SSZByteList
 import ssz.SSZDict
 import ssz.SSZList
 import ssz.SSZObject
+import ssz.SSZVector
 import ssz.Sequence
 import ssz.bit
 import ssz.boolean
@@ -2013,7 +2014,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
       online_countdown = (PyList(ONLINE_PERIOD) * len(pre.validators)),
       current_light_committee = CompactCommittee(),
       next_light_committee = CompactCommittee(),
-      exposed_derived_secrets = (PyList<SSZList<ValidatorIndex>>() * EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS)
+      exposed_derived_secrets = (PyList(SSZList<ValidatorIndex>()) * EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS)
   )
   val next_epoch = Epoch((epoch + 1uL))
   post.current_light_committee = committee_to_compact_committee(post, get_light_client_committee(post, epoch))

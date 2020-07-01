@@ -939,7 +939,7 @@ fun get_slots_since_genesis(store: Store): pyint {
 }
 
 fun get_current_slot(store: Store): Slot {
-  return Slot((GENESIS_SLOT + get_slots_since_genesis(store).value.toLong().toUInt()))
+  return Slot((GENESIS_SLOT + uint64(get_slots_since_genesis(store))))
 }
 
 fun compute_slots_since_epoch_start(slot: Slot): pyint {

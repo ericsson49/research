@@ -313,10 +313,9 @@ fun get_seed(state: BeaconState, epoch: Epoch, domain_type: DomainType): Bytes32
 }
 
 /*
-    Return the number of committees at ``slot``.
+    Return the number of committees in each slot for the given ``epoch``.
     */
-fun get_committee_count_at_slot(state: BeaconState, slot: Slot): uint64 {
-  val epoch = compute_epoch_at_slot(slot)
+fun get_committee_count_per_slot(state: BeaconState, epoch: Epoch): uint64 {
   return max(1uL, min(MAX_COMMITTEES_PER_SLOT, ((len(get_active_validator_indices(state, epoch)) / SLOTS_PER_EPOCH) / TARGET_COMMITTEE_SIZE)))
 }
 
@@ -325,7 +324,7 @@ fun get_committee_count_at_slot(state: BeaconState, slot: Slot): uint64 {
     */
 fun get_beacon_committee(state: BeaconState, slot: Slot, index: CommitteeIndex): Sequence<ValidatorIndex> {
   val epoch = compute_epoch_at_slot(slot)
-  val committees_per_slot = get_committee_count_at_slot(state, slot)
+  val committees_per_slot = get_committee_count_per_slot(state, epoch)
   return compute_committee(indices = get_active_validator_indices(state, epoch), seed = get_seed(state, epoch, DOMAIN_BEACON_ATTESTER), index = (((slot % SLOTS_PER_EPOCH) * committees_per_slot) + index), count = (committees_per_slot * SLOTS_PER_EPOCH))
 }
 
@@ -858,7 +857,7 @@ fun process_attester_slashing(state: BeaconState, attester_slashing: AttesterSla
 
 fun process_attestation(state: BeaconState, attestation: Attestation): Unit {
   val data = attestation.data
-  assert((data.index < get_committee_count_at_slot(state, data.slot)))
+  assert((data.index < get_committee_count_per_slot(state, data.target.epoch)))
   assert((data.target.epoch in Pair(get_previous_epoch(state), get_current_epoch(state))))
   assert((data.target.epoch == compute_epoch_at_slot(data.slot)))
   assert(((data.slot + MIN_ATTESTATION_INCLUSION_DELAY) <= state.slot) && (state.slot <= (data.slot + SLOTS_PER_EPOCH)))
@@ -1046,7 +1045,9 @@ fun validate_on_attestation(store: Store, attestation: Attestation): Unit {
 fun store_target_checkpoint_state(store: Store, target: Checkpoint): Unit {
   if ((target !in store.checkpoint_states)) {
     val base_state = store.block_states[target.root]!!.copy()
-    process_slots(base_state, compute_start_slot_at_epoch(target.epoch))
+    if ((base_state.slot < compute_start_slot_at_epoch(target.epoch))) {
+      process_slots(base_state, compute_start_slot_at_epoch(target.epoch))
+    }
     store.checkpoint_states[target] = base_state
   }
 }
@@ -1146,8 +1147,9 @@ fun get_committee_assignment(state: BeaconState, epoch: Epoch, validator_index: 
   val next_epoch = (get_current_epoch(state) + 1uL)
   assert((epoch <= next_epoch))
   val start_slot = compute_start_slot_at_epoch(epoch)
+  val committee_count_per_slot = get_committee_count_per_slot(state, epoch)
   for (slot in range(start_slot, (start_slot + SLOTS_PER_EPOCH))) {
-    for (index in range(get_committee_count_at_slot(state, Slot(slot)))) {
+    for (index in range(committee_count_per_slot)) {
       val committee = get_beacon_committee(state, Slot(slot), CommitteeIndex(index))
       if ((validator_index in committee)) {
         return Triple(committee, CommitteeIndex(index), Slot(slot))
@@ -1211,9 +1213,9 @@ fun get_attestation_signature(state: BeaconState, attestation_data: AttestationD
     Compute the correct subnet for an attestation for Phase 0.
     Note, this mimics expected Phase 1 behavior where attestations will be mapped to their shard subnet.
     */
-fun compute_subnet_for_attestation(state: BeaconState, slot: Slot, committee_index: CommitteeIndex): uint64 {
+fun compute_subnet_for_attestation(committees_per_slot: uint64, slot: Slot, committee_index: CommitteeIndex): uint64 {
   val slots_since_epoch_start = (slot % SLOTS_PER_EPOCH)
-  val committees_since_epoch_start = (get_committee_count_at_slot(state, slot) * slots_since_epoch_start)
+  val committees_since_epoch_start = (committees_per_slot * slots_since_epoch_start)
   return ((committees_since_epoch_start + committee_index) % ATTESTATION_SUBNET_COUNT)
 }
 

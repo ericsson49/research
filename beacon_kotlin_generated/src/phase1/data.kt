@@ -120,6 +120,7 @@ data class AttestationData(
     var beacon_block_root: Root = Root(),
     var source: Checkpoint = Checkpoint(),
     var target: Checkpoint = Checkpoint(),
+    var shard: Shard = Shard(),
     var shard_head_root: Root = Root(),
     var shard_transition_root: Root = Root()
 )
@@ -452,6 +453,6 @@ data class Store(
 
 data class ShardStore(
     var shard: Shard = Shard(),
-    var blocks: SSZDict<Root, ShardBlock> = SSZDict<Root, ShardBlock>(),
+    var signed_blocks: SSZDict<Root, SignedShardBlock> = SSZDict<Root, SignedShardBlock>(),
     var block_states: SSZDict<Root, ShardState> = SSZDict<Root, ShardState>()
 )

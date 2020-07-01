@@ -950,7 +950,7 @@ fun get_slots_since_genesis(store: Store): pyint {
 }
 
 fun get_current_slot(store: Store): Slot {
-  return Slot((GENESIS_SLOT + get_slots_since_genesis(store).value.toLong().toULong()))
+  return Slot((GENESIS_SLOT + uint64(get_slots_since_genesis(store))))
 }
 
 fun compute_slots_since_epoch_start(slot: Slot): pyint {
@@ -1394,9 +1394,9 @@ fun process_custody_key_reveal(state: BeaconState, reveal: CustodyKeyReveal): Un
   val revealer = state.validators[reveal.revealer_index]
   val epoch_to_sign = get_randao_epoch_for_custody_period(revealer.next_custody_secret_to_reveal, reveal.revealer_index)
   val custody_reveal_period = get_custody_period_for_validator(reveal.revealer_index, get_current_epoch(state))
-  val is_past_reveal = (revealer.next_custody_secret_to_reveal < custody_reveal_period.value.toLong().toULong())
+  val is_past_reveal = (revealer.next_custody_secret_to_reveal < uint64(custody_reveal_period))
   val is_exited = (revealer.exit_epoch <= get_current_epoch(state))
-  val is_exit_period_reveal = (revealer.next_custody_secret_to_reveal == get_custody_period_for_validator(reveal.revealer_index, (revealer.exit_epoch - 1uL)).value.toLong().toULong())
+  val is_exit_period_reveal = (revealer.next_custody_secret_to_reveal == uint64(get_custody_period_for_validator(reveal.revealer_index, (revealer.exit_epoch - 1uL))))
   assert(is_past_reveal || is_exited && is_exit_period_reveal)
   assert(is_slashable_validator(revealer, get_current_epoch(state)))
   val domain = get_domain(state, DOMAIN_RANDAO, epoch_to_sign)
@@ -1992,7 +1992,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
             activation_epoch = phase0_validator.activation_eligibility_epoch,
             exit_epoch = phase0_validator.exit_epoch,
             withdrawable_epoch = phase0_validator.withdrawable_epoch,
-            next_custody_secret_to_reveal = get_custody_period_for_validator(ValidatorIndex(i), epoch).value.toLong().toULong(),
+            next_custody_secret_to_reveal = uint64(get_custody_period_for_validator(ValidatorIndex(i), epoch)),
             all_custody_secrets_revealed_epoch = FAR_FUTURE_EPOCH)
       }.toPyList()),
       balances = pre.balances,

@@ -1,12 +1,14 @@
 package pylib
 
-import org.apache.tuweni.bytes.Bytes
 import ssz.Bitlist
 import ssz.Bytes32
 import ssz.uint64
 import java.lang.Long
 import java.math.BigInteger
+import java.nio.ByteOrder
 import java.util.*
+import java.util.stream.StreamSupport
+import kotlin.streams.toList
 
 typealias pybytes = Bytes
 typealias pybool = Boolean
@@ -87,11 +89,11 @@ fun <T> enumerate(c: Collection<T>) = c.mapIndexed { a, b -> Pair(a, b) }
 fun <T> Iterable<T>.intersection(b: Iterable<T>) = this.intersect(b)
 
 fun BitSet.slice(from: Int, to: Int) = (from until to).map { this[it] }
-fun Bytes.slice(a: uint64, b: uint64) = this.slice(a.toInt(), b.toInt())
-fun <T> List<T>.slice(a: uint64, b: uint64) = this.subList(a.toInt(), b.toInt())
+fun Bytes.slice(a: uint64, b: uint64) = this.slice(a.toInt(), Math.min(b.toInt(), this.size()) - a.toInt())
+fun <T> List<T>.slice(a: uint64, b: uint64) = this.subList(a.toInt(), Math.min(b.toInt(), this.size))
 fun <T> MutableList<T>.updateSlice(f: uint64, t: uint64, x: List<T>) {
   for (i in f until t) {
-    this[i] = x[i]
+    this[i] = x[i - f]
   }
 }
 
@@ -103,20 +105,19 @@ operator fun <T> MutableList<T>.set(index: uint64, value: T) = set(index.toInt()
 operator fun MutableList<Boolean>.set(i: uint64, v: uint64) = this.set(i, pybool(v))
 
 fun <T> Iterable<T>.count(x: T): uint64 {
-  fun pred(a: T): Boolean = a == x
-  return this.count(::pred)
+  return this.filter { it == x }.count().toULong()
 }
 
 operator fun Bytes.plus(b: Bytes) = Bytes.concatenate(this, b)
 
 operator fun uint64.unaryMinus(): Int = -this.toInt()
 
-infix fun uint64.shl(a: uint64): uint64 = this.shl(a)
-infix fun Byte.shl(a: uint64): uint64 = this.shl(a)
+infix fun uint64.shl(a: uint64): uint64 = this.shl(a.toInt())
+infix fun Byte.shl(a: uint64): uint64 = this.toULong().and(0xFFuL).shl(a.toInt())
 infix fun pybool.shl(a: uint64): uint64 = if (this) 1uL.shl(a) else 0uL
 
-infix fun uint64.shr(a: uint64): uint64 = this.shr(a)
-infix fun Byte.shr(a: uint64): uint64 = this.shr(a)
+infix fun uint64.shr(a: uint64): uint64 = this.shr(a.toInt())
+infix fun Byte.shr(a: uint64): uint64 = this.toULong().and(0xFFuL).shr(a.toInt())
 infix fun pybool.shr(a: uint64): uint64 = if (this) 1uL.shr(a) else 0uL
 
 fun pybool(a: uint64) = a != 0uL
@@ -160,13 +161,28 @@ fun uint64.bit_length(): pyint {
   return pyint((64 - Long.numberOfLeadingZeros(this.toLong())).toBigInteger())
 }
 
-fun uint64.to_bytes(length: uint64, endiannes: String): pybytes = TODO()
-fun from_bytes(data: pybytes, endiannes: String): uint64 = TODO()
+fun uint64.to_bytes(length: uint64, endiannes: String): pybytes {
+  return Bytes.ofUnsignedLong(
+    this.toLong(), if (endiannes == "little") ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN
+  ).slice(0, length.toInt())
+}
 
-fun pyint.to_bytes(length: uint64, endiannes: String): pybytes = TODO()
+fun from_bytes(data: pybytes, endiannes: String): uint64 {
+  return data.toLong(if (endiannes == "little") ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN)
+    .toULong()
+}
+
+fun pyint.to_bytes(length: uint64, endiannes: String): pybytes = {
+  val bytes = Bytes.wrap(this.value.toByteArray())
+  return if (endiannes == "little") {
+    bytes.reverse().slice(0, length.toInt())
+  } else {
+    bytes.slice(0, length.toInt())
+  }
+}
 
 operator fun <T> Pair<T, T>.contains(a: T) = this.first == a || this.second == a
 fun <T,U> Pair<T,T>.map(f: (T) -> U): List<U> = listOf(f(first), f(second))
 
 fun pybytes(s: String): pybytes = Bytes.fromHexString("0x" + s)
-fun pybytes.join(c: Iterable<pybytes>): pybytes = TODO()
+fun pybytes.join(c: Iterable<pybytes>): pybytes = Bytes.concatenate(*Streams.stream(c).toList().toTypedArray())

@@ -42,7 +42,6 @@ import pylib.times
 import pylib.toPyDict
 import pylib.toPyList
 import pylib.to_bytes
-import pylib.unaryMinus
 import pylib.updateSlice
 import pylib.zip
 import ssz.Bytes
@@ -888,7 +887,7 @@ fun get_validator_from_deposit(state: BeaconState, deposit: Deposit): Validator 
   val amount = deposit.data.amount
   val effective_balance = min((amount - (amount % EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE)
   val next_custody_secret_to_reveal = get_custody_period_for_validator(ValidatorIndex(len(state.validators)), get_current_epoch(state))
-  return Validator(pubkey = deposit.data.pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, activation_eligibility_epoch = FAR_FUTURE_EPOCH, activation_epoch = FAR_FUTURE_EPOCH, exit_epoch = FAR_FUTURE_EPOCH, withdrawable_epoch = FAR_FUTURE_EPOCH, effective_balance = effective_balance, next_custody_secret_to_reveal = uint64(next_custody_secret_to_reveal), all_custody_secrets_revealed_epoch = FAR_FUTURE_EPOCH)
+  return Validator(pubkey = deposit.data.pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, activation_eligibility_epoch = FAR_FUTURE_EPOCH, activation_epoch = FAR_FUTURE_EPOCH, exit_epoch = FAR_FUTURE_EPOCH, withdrawable_epoch = FAR_FUTURE_EPOCH, effective_balance = effective_balance, next_custody_secret_to_reveal = next_custody_secret_to_reveal, all_custody_secrets_revealed_epoch = FAR_FUTURE_EPOCH)
 }
 
 fun process_deposit(state: BeaconState, deposit: Deposit): Unit {
@@ -1333,8 +1332,8 @@ fun get_randao_epoch_for_custody_period(period: uint64, validator_index: Validat
 /*
     Return the reveal period for a given validator.
     */
-fun get_custody_period_for_validator(validator_index: ValidatorIndex, epoch: Epoch): pyint {
-  return pyint((epoch + (validator_index % EPOCHS_PER_CUSTODY_PERIOD)) / EPOCHS_PER_CUSTODY_PERIOD)
+fun get_custody_period_for_validator(validator_index: ValidatorIndex, epoch: Epoch): uint64 {
+  return (epoch + (validator_index % EPOCHS_PER_CUSTODY_PERIOD)) / EPOCHS_PER_CUSTODY_PERIOD
 }
 
 fun process_custody_game_operations(state: BeaconState, body: BeaconBlockBody): Unit {
@@ -1395,9 +1394,9 @@ fun process_custody_key_reveal(state: BeaconState, reveal: CustodyKeyReveal): Un
   val revealer = state.validators[reveal.revealer_index]
   val epoch_to_sign = get_randao_epoch_for_custody_period(revealer.next_custody_secret_to_reveal, reveal.revealer_index)
   val custody_reveal_period = get_custody_period_for_validator(reveal.revealer_index, get_current_epoch(state))
-  val is_past_reveal = (revealer.next_custody_secret_to_reveal < uint64(custody_reveal_period))
+  val is_past_reveal = (revealer.next_custody_secret_to_reveal < custody_reveal_period)
   val is_exited = (revealer.exit_epoch <= get_current_epoch(state))
-  val is_exit_period_reveal = (revealer.next_custody_secret_to_reveal == uint64(get_custody_period_for_validator(reveal.revealer_index, (revealer.exit_epoch - 1uL))))
+  val is_exit_period_reveal = (revealer.next_custody_secret_to_reveal == get_custody_period_for_validator(reveal.revealer_index, (revealer.exit_epoch - 1uL)))
   assert(is_past_reveal || is_exited && is_exit_period_reveal)
   assert(is_slashable_validator(revealer, get_current_epoch(state)))
   val domain = get_domain(state, DOMAIN_RANDAO, epoch_to_sign)
@@ -1460,7 +1459,7 @@ fun process_custody_slashing(state: BeaconState, signed_custody_slashing: Signed
   assert((len(custody_slashing.data) == shard_transition.shard_block_lengths[custody_slashing.data_index]))
   val attesters = get_attesting_indices(state, attestation.data, attestation.aggregation_bits)
   assert((custody_slashing.malefactor_index in attesters))
-  val epoch_to_sign = get_randao_epoch_for_custody_period(uint64(get_custody_period_for_validator(custody_slashing.malefactor_index, attestation.data.target.epoch)), custody_slashing.malefactor_index)
+  val epoch_to_sign = get_randao_epoch_for_custody_period(get_custody_period_for_validator(custody_slashing.malefactor_index, attestation.data.target.epoch), custody_slashing.malefactor_index)
   domain = get_domain(state, DOMAIN_RANDAO, epoch_to_sign)
   signing_root = compute_signing_root(epoch_to_sign, domain)
   assert(bls.Verify(malefactor.pubkey, signing_root, custody_slashing.malefactor_secret))
@@ -1994,7 +1993,7 @@ fun upgrade_to_phase1(pre: phase0.BeaconState): BeaconState {
             activation_epoch = phase0_validator.activation_eligibility_epoch,
             exit_epoch = phase0_validator.exit_epoch,
             withdrawable_epoch = phase0_validator.withdrawable_epoch,
-            next_custody_secret_to_reveal = uint64(get_custody_period_for_validator(ValidatorIndex(i), epoch)),
+            next_custody_secret_to_reveal = get_custody_period_for_validator(ValidatorIndex(i), epoch),
             all_custody_secrets_revealed_epoch = FAR_FUTURE_EPOCH)
       }.toPyList()),
       balances = pre.balances,
@@ -2213,7 +2212,7 @@ fun get_custody_secret(state: BeaconState, validator_index: ValidatorIndex, priv
     epoch_ = epoch
   }
   val period = get_custody_period_for_validator(validator_index, epoch_)
-  val epoch_to_sign = get_randao_epoch_for_custody_period(uint64(period), validator_index)
+  val epoch_to_sign = get_randao_epoch_for_custody_period(period, validator_index)
   val domain = get_domain(state, DOMAIN_RANDAO, epoch_to_sign)
   val signing_root = compute_signing_root(Epoch(epoch_to_sign), domain)
   return bls.Sign(privkey, signing_root)

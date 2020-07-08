@@ -34,6 +34,7 @@ typealias Sequence<T> = List<T>
 typealias Vector<T> = MutableList<T>
 
 fun uint64(v: pyint): uint64 = v.value.toLong().toULong()
+fun uint64(v: ULong): uint64 = v
 fun Bytes4(): Bytes4 = TuweniBytes.fromHexString("0x00000000")
 fun Bytes32(): Bytes32 = Bytes32.ZERO
 fun Bytes32(x: List<Byte>): Bytes32 = Bytes32.wrap(x.toByteArray())

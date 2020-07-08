@@ -1192,7 +1192,7 @@ fun get_eth1_vote(state: BeaconState, eth1_chain: Sequence<Eth1Block>): Eth1Data
   val period_start = voting_period_start_time(state)
   val votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) }.toPyList()
   val valid_votes = state.eth1_data_votes.filter { vote -> (vote in votes_to_consider) }.map { vote -> vote }.toPyList()
-  val default_vote = if (any(votes_to_consider)) votes_to_consider[-(1uL)] else state.eth1_data
+  val default_vote = if (any(votes_to_consider)) votes_to_consider[(len(votes_to_consider) - 1uL)] else state.eth1_data
   return max(valid_votes, key = { v -> Tuple2(valid_votes.count(v), -(valid_votes.index(v))) }, default = default_vote)
 }
 
@@ -1299,7 +1299,8 @@ fun legendre_bit(a: pyint, q: pyint): boolean {
 }
 
 fun get_custody_atoms(bytez: pybytes): Sequence<pybytes> {
-  val bytez_ = bytez + Bytes.fromHexString("0x" + List((BYTES_PER_CUSTODY_ATOM - (bytez.size().toUInt() % BYTES_PER_CUSTODY_ATOM)).toInt()) { "00" })
+  val length_remainder = (bytez.size().toULong() % BYTES_PER_CUSTODY_ATOM)
+  val bytez_ = bytez + Bytes.fromHexString("0x" + List(((BYTES_PER_CUSTODY_ATOM - length_remainder) % BYTES_PER_CUSTODY_ATOM).toInt()) { "00" })
   return range(0uL, bytez_.size().toULong(), BYTES_PER_CUSTODY_ATOM).map { i -> bytez_.slice(i, (i + BYTES_PER_CUSTODY_ATOM)) }.toPyList()
 }
 
@@ -1455,7 +1456,7 @@ fun process_custody_slashing(state: BeaconState, signed_custody_slashing: Signed
   assert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)))
   val shard_transition = custody_slashing.shard_transition
   assert((hash_tree_root(shard_transition) == attestation.data.shard_transition_root))
-  assert((custody_slashing.data.get_backing().get_left().merkle_root() == shard_transition.shard_data_roots[custody_slashing.data_index]))
+  assert((get_block_data_merkle_root(custody_slashing.data) == shard_transition.shard_data_roots[custody_slashing.data_index]))
   assert((len(custody_slashing.data) == shard_transition.shard_block_lengths[custody_slashing.data_index]))
   val attesters = get_attesting_indices(state, attestation.data, attestation.aggregation_bits)
   assert((custody_slashing.malefactor_index in attesters))
@@ -1605,7 +1606,7 @@ fun get_shard_committee(beacon_state: BeaconState, epoch: Epoch, shard: Shard): 
 }
 
 /*
-    Return the light client committee of no more than ``TARGET_COMMITTEE_SIZE`` validators.
+    Return the light client committee of no more than ``LIGHT_CLIENT_COMMITTEE_SIZE`` validators.
     */
 fun get_light_client_committee(beacon_state: BeaconState, epoch: Epoch): Sequence<ValidatorIndex> {
   val source_epoch = compute_committee_source_epoch(epoch, LIGHT_CLIENT_COMMITTEE_PERIOD)
@@ -1884,9 +1885,10 @@ fun process_online_tracking(state: BeaconState): Unit {
     Update light client committees.
     */
 fun process_light_client_committee_updates(state: BeaconState): Unit {
-  if (((get_current_epoch(state) % LIGHT_CLIENT_COMMITTEE_PERIOD) == 0uL)) {
+  val next_epoch = compute_epoch_at_slot(Slot((state.slot + 1uL)))
+  if (((next_epoch % LIGHT_CLIENT_COMMITTEE_PERIOD) == 0uL)) {
     state.current_light_committee = state.next_light_committee
-    val new_committee = get_light_client_committee(state, (get_current_epoch(state) + LIGHT_CLIENT_COMMITTEE_PERIOD))
+    val new_committee = get_light_client_committee(state, (next_epoch + LIGHT_CLIENT_COMMITTEE_PERIOD))
     state.next_light_committee = committee_to_compact_committee(state, new_committee)
   }
 }
@@ -1931,7 +1933,7 @@ fun process_shard_block(shard_state: ShardState, block: ShardBlock): Unit {
   shard_state.slot = block.slot
   val prev_gasprice = shard_state.gasprice
   val shard_block_length = len(block.body)
-  shard_state.gasprice = compute_updated_gasprice(prev_gasprice, shard_block_length)
+  shard_state.gasprice = compute_updated_gasprice(prev_gasprice, uint64(shard_block_length))
   if ((shard_block_length != 0uL)) {
     shard_state.latest_block_root = hash_tree_root(block)
   }
@@ -2138,7 +2140,7 @@ fun get_shard_transition_fields(beacon_state: BeaconState, shard: Shard, shard_b
     val shard_block: SignedShardBlock
     if ((slot in shard_block_slots)) {
       shard_block = shard_blocks[shard_block_slots.index(slot)]
-      shard_data_roots.append(hash_tree_root(shard_block.message.body))
+      shard_data_roots.append(get_block_data_merkle_root(shard_block.message.body))
     } else {
       shard_block = SignedShardBlock(message = ShardBlock(slot = slot, shard = shard))
       shard_data_roots.append(Root())
@@ -2222,4 +2224,8 @@ fun get_custody_secret(state: BeaconState, validator_index: ValidatorIndex, priv
     */
 fun get_eth1_data(block: Eth1Block): Eth1Data {
   return Eth1Data(deposit_root = block.deposit_root, deposit_count = block.deposit_count, block_hash = hash_tree_root(block))
+}
+
+fun get_block_data_merkle_root(data: SSZByteList): Root {
+  return Root(data.get_backing().get_left().merkle_root())
 }

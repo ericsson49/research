@@ -1186,7 +1186,7 @@ fun get_eth1_vote(state: BeaconState, eth1_chain: Sequence<Eth1Block>): Eth1Data
   val period_start = voting_period_start_time(state)
   val votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) }.toPyList()
   val valid_votes = state.eth1_data_votes.filter { vote -> vote in votes_to_consider }.map { vote -> vote }.toPyList()
-  val default_vote = if (any(votes_to_consider)) votes_to_consider[-(1uL)] else state.eth1_data
+  val default_vote = if (any(votes_to_consider)) votes_to_consider[(len(votes_to_consider) - 1uL)] else state.eth1_data
   return max(valid_votes, key = { v -> Tuple2(valid_votes.count(v), -(valid_votes.index(v))) }, default = default_vote)
 }
 

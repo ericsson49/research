@@ -1,6 +1,7 @@
 package pylib
 
 import ssz.Bitlist
+import ssz.Bytes
 import ssz.Bytes32
 import ssz.uint64
 import java.lang.Long
@@ -173,7 +174,7 @@ fun from_bytes(data: pybytes, endiannes: String): uint64 {
     .toULong()
 }
 
-fun pyint.to_bytes(length: uint64, endiannes: String): pybytes = {
+fun pyint.to_bytes(length: uint64, endiannes: String): pybytes = run {
   val bytes = Bytes.wrap(this.value.toByteArray())
   return if (endiannes == "little") {
     bytes.reverse().slice(0, length.toInt())
@@ -186,4 +187,4 @@ operator fun <T> Pair<T, T>.contains(a: T) = this.first == a || this.second == a
 fun <T,U> Pair<T,T>.map(f: (T) -> U): List<U> = listOf(f(first), f(second))
 
 fun pybytes(s: String): pybytes = Bytes.fromHexString("0x" + s)
-fun pybytes.join(c: Iterable<pybytes>): pybytes = Bytes.concatenate(*Streams.stream(c).toList().toTypedArray())
+fun pybytes.join(c: Iterable<pybytes>): pybytes = Bytes.concatenate(*c.toList().toTypedArray())

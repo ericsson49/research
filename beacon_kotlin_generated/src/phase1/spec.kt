@@ -1503,7 +1503,7 @@ fun process_challenge_deadlines(state: BeaconState): Unit {
 fun process_custody_final_updates(state: BeaconState): Unit {
   state.exposed_derived_secrets[(get_current_epoch(state) % EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS)] = PyList()
   val records = state.custody_chunk_challenge_records
-  val validator_indices_in_records = set(records.map { record -> record.responder_index }.toPyList())
+  val validator_indices_in_records = set(records.map { record -> record.responder_index })
   for ((index, validator) in enumerate(state.validators)) {
     if ((validator.exit_epoch != FAR_FUTURE_EPOCH)) {
       val not_all_secrets_are_revealed = (validator.all_custody_secrets_revealed_epoch == FAR_FUTURE_EPOCH)
@@ -1591,7 +1591,7 @@ fun get_active_shard_count(state: BeaconState): uint64 {
 
 fun get_online_validator_indices(state: BeaconState): Set<ValidatorIndex> {
   val active_validators = get_active_validator_indices(state, get_current_epoch(state))
-  return set(active_validators.filter { i -> (state.online_countdown[i] != 0uL.toUByte()) }.map { i -> i }.toPyList())
+  return set(active_validators.filter { i -> (state.online_countdown[i] != 0uL.toUByte()) }.map { i -> i })
 }
 
 /*
@@ -1771,7 +1771,7 @@ fun process_crosslink_for_shard(state: BeaconState, committee_index: CommitteeIn
   val committee = get_beacon_committee(state, on_time_attestation_slot, committee_index)
   val online_indices = get_online_validator_indices(state)
   val shard = compute_shard_from_committee_index(state, committee_index, on_time_attestation_slot)
-  val shard_transition_roots = set(attestations.map { a -> a.data.shard_transition_root }.toPyList())
+  val shard_transition_roots = set(attestations.map { a -> a.data.shard_transition_root })
   for (shard_transition_root in sorted(shard_transition_roots)) {
     val transition_attestations = attestations.filter { a -> (a.data.shard_transition_root == shard_transition_root) }.map { a -> a }.toPyList()
     var transition_participants: Set<ValidatorIndex> = set()
@@ -2105,7 +2105,7 @@ fun get_shard_winning_roots(state: BeaconState, attestations: Sequence<Attestati
     val shard = compute_shard_from_committee_index(state, committee_index, on_time_attestation_slot)
     val shard_attestations = attestations.filter { attestation -> is_on_time_attestation(state, attestation.data) && (attestation.data.index == committee_index) }.map { attestation -> attestation }.toPyList()
     val committee = get_beacon_committee(state, on_time_attestation_slot, committee_index)
-    val shard_transition_roots = set(shard_attestations.map { a -> a.data.shard_transition_root }.toPyList())
+    val shard_transition_roots = set(shard_attestations.map { a -> a.data.shard_transition_root })
     for (shard_transition_root in sorted(shard_transition_roots)) {
       val transition_attestations = shard_attestations.filter { a -> (a.data.shard_transition_root == shard_transition_root) }.map { a -> a }.toPyList()
       var transition_participants: Set<ValidatorIndex> = set()

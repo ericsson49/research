@@ -48,6 +48,7 @@ data class Tuple2<A : Comparable<A>, B : Comparable<B>>(val a: A, val b: B) : Co
 fun <T> len(c: Collection<T>) = c.size.toULong()
 fun len(c: BitSet) = c.size().toLong()
 fun len(c: Bitlist) = c.size
+fun len(c: pybytes) = c.size().toULong()
 
 fun <T> any(c: Collection<T>) = c.any()
 fun all(c: Collection<Boolean>) = c.all { it }

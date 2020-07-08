@@ -1299,16 +1299,16 @@ fun legendre_bit(a: pyint, q: pyint): boolean {
 }
 
 fun get_custody_atoms(bytez: pybytes): Sequence<pybytes> {
-  val length_remainder = (bytez.size().toULong() % BYTES_PER_CUSTODY_ATOM)
+  val length_remainder = (len(bytez) % BYTES_PER_CUSTODY_ATOM)
   val bytez_ = bytez + Bytes.fromHexString("0x" + List(((BYTES_PER_CUSTODY_ATOM - length_remainder) % BYTES_PER_CUSTODY_ATOM).toInt()) { "00" })
-  return range(0uL, bytez_.size().toULong(), BYTES_PER_CUSTODY_ATOM).map { i -> bytez_.slice(i, (i + BYTES_PER_CUSTODY_ATOM)) }.toPyList()
+  return range(0uL, len(bytez_), BYTES_PER_CUSTODY_ATOM).map { i -> bytez_.slice(i, (i + BYTES_PER_CUSTODY_ATOM)) }.toPyList()
 }
 
 fun get_custody_secrets(key: BLSSignature): Sequence<pyint> {
   val full_G2_element = bls.signature_to_G2(key)
   val signature = full_G2_element.first.coeffs
   val signature_bytes = pybytes("").join(signature.map { x -> x.to_bytes(48uL, "little") })
-  val secrets = range(0uL, signature_bytes.size().toULong(), 32uL).map { i -> pyint(from_bytes(signature_bytes.slice(i, (i + BYTES_PER_CUSTODY_ATOM)), "little")) }.toPyList()
+  val secrets = range(0uL, len(signature_bytes), 32uL).map { i -> pyint(from_bytes(signature_bytes.slice(i, (i + BYTES_PER_CUSTODY_ATOM)), "little")) }.toPyList()
   return secrets
 }
 

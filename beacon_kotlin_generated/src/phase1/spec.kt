@@ -1741,7 +1741,7 @@ fun apply_shard_transition(state: BeaconState, shard: Shard, transition: ShardTr
   val headers: PyList<ShardBlockHeader> = PyList()
   val proposers: PyList<ValidatorIndex> = PyList()
   var prev_gasprice = state.shard_states[shard].gasprice
-  val shard_parent_root = state.shard_states[shard].latest_block_root
+  var shard_parent_root = state.shard_states[shard].latest_block_root
   for ((i, offset_slot) in enumerate(offset_slots)) {
     val shard_block_length = transition.shard_block_lengths[i]
     val shard_state = transition.shard_states[i]
@@ -1751,7 +1751,7 @@ fun apply_shard_transition(state: BeaconState, shard: Shard, transition: ShardTr
     if (!(is_empty_proposal)) {
       val proposal_index = get_shard_proposer_index(state, offset_slot, shard)
       val header = ShardBlockHeader(shard_parent_root = shard_parent_root, beacon_parent_root = get_block_root_at_slot(state, offset_slot), slot = offset_slot, shard = shard, proposer_index = proposal_index, body_root = transition.shard_data_roots[i])
-      val shard_parent_root = hash_tree_root(header)
+      shard_parent_root = hash_tree_root(header)
       headers.append(header)
       proposers.append(proposal_index)
     } else {

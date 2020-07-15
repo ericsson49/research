@@ -4,6 +4,7 @@ import ssz.Bitlist
 import ssz.Bytes
 import ssz.Bytes32
 import ssz.uint64
+import ssz.uint8
 import java.lang.Long
 import java.math.BigInteger
 import java.nio.ByteOrder
@@ -17,6 +18,7 @@ typealias PyList<T> = MutableList<T>
 typealias PyDict<K,V> = MutableMap<K,V>
 
 inline class pyint(val value: BigInteger) {
+  constructor(x: uint8) : this(x.toLong().toBigInteger())
   constructor(x: uint64) : this(x.toLong().toBigInteger())
 
   operator fun compareTo(b: pyint) = value.compareTo(b.value)
@@ -101,7 +103,7 @@ fun <T> MutableList<T>.updateSlice(f: uint64, t: uint64, x: List<T>) {
 
 operator fun <T> List<T>.get(index: uint64) = get(index.toInt())
 operator fun <A> Pair<A, A>.get(i: uint64) = if (i == 0uL) first else if (i == 1uL) second else throw IllegalArgumentException("bad index " + i)
-operator fun pybytes.get(index: uint64) = get(index.toInt())
+operator fun pybytes.get(index: uint64) = pyint(get(index.toInt()).toUByte())
 
 operator fun <T> MutableList<T>.set(index: uint64, value: T) = set(index.toInt(), value)
 operator fun MutableList<Boolean>.set(i: uint64, v: uint64) = this.set(i, pybool(v))
@@ -119,6 +121,7 @@ infix fun Byte.shl(a: uint64): uint64 = this.toULong().and(0xFFuL).shl(a.toInt()
 infix fun pybool.shl(a: uint64): uint64 = if (this) 1uL.shl(a) else 0uL
 
 infix fun uint64.shr(a: uint64): uint64 = this.shr(a.toInt())
+infix fun uint8.shr(a: uint64):uint8 = uint8(a.toByte().shr(a))
 infix fun Byte.shr(a: uint64): uint64 = this.toULong().and(0xFFuL).shr(a.toInt())
 infix fun pybool.shr(a: uint64): uint64 = if (this) 1uL.shr(a) else 0uL
 
@@ -163,10 +166,10 @@ fun uint64.bit_length(): pyint {
   return pyint((64 - Long.numberOfLeadingZeros(this.toLong())).toBigInteger())
 }
 
-fun uint64.to_bytes(length: uint64, endiannes: String): pybytes {
+fun uint64.to_bytes(length: pyint, endiannes: String): pybytes {
   return Bytes.ofUnsignedLong(
     this.toLong(), if (endiannes == "little") ByteOrder.LITTLE_ENDIAN else ByteOrder.BIG_ENDIAN
-  ).slice(0, length.toInt())
+  ).slice(0, uint64(length).toInt())
 }
 
 fun from_bytes(data: pybytes, endiannes: String): uint64 {

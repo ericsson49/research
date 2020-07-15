@@ -33,6 +33,8 @@ typealias SSZDict<K, V> = MutableMap<K, V>
 typealias Sequence<T> = List<T>
 typealias Vector<T> = MutableList<T>
 
+fun uint8(v: pyint): uint8 = v.value.toByte().toUByte()
+fun uint8(v: uint64): uint8 = v.toUByte()
 fun uint64(v: pyint): uint64 = v.value.toLong().toULong()
 fun uint64(v: ULong): uint64 = v
 fun Bytes4(): Bytes4 = TuweniBytes.fromHexString("0x00000000")

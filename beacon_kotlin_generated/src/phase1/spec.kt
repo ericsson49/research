@@ -57,6 +57,7 @@ import ssz.boolean
 import ssz.get_backing
 import ssz.toPyBytes
 import ssz.uint64
+import ssz.uint8
 import kotlin.experimental.xor
 
 fun ceillog2(x: uint64): pyint {
@@ -87,7 +88,7 @@ fun xor(bytes_1: Bytes32, bytes_2: Bytes32): Bytes32 {
     Return the ``length``-byte serialization of ``n`` in ``ENDIANNESS``-endian.
     */
 fun int_to_bytes(n: uint64, length: uint64): pybytes {
-  return n.to_bytes(length, ENDIANNESS)
+  return n.to_bytes(pyint(length), ENDIANNESS)
 }
 
 /*
@@ -172,7 +173,7 @@ fun compute_shuffled_index(index: uint64, index_count: uint64, seed: Bytes32): u
     val flip = (((pivot + index_count) - index_) % index_count)
     val position = max(index_, flip)
     val source = hash(((seed + int_to_bytes(current_round, length = 1uL)) + int_to_bytes((position / 256uL), length = 4uL)))
-    val byte = source[((position % 256uL) / 8uL)]
+    val byte = uint8(source[((position % 256uL) / 8uL)])
     val bit = ((byte shr (position % 8uL)) % 2uL)
     index_ = if (pybool(bit)) flip else index_
   }
@@ -190,7 +191,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
     val candidate_index = indices[compute_shuffled_index((i % len(indices)), len(indices), seed)]
     val random_byte = hash((seed + int_to_bytes((i / 32uL), length = 8uL)))[(i % 32uL)]
     val effective_balance = state.validators[candidate_index].effective_balance
-    if (((effective_balance * MAX_RANDOM_BYTE) >= (MAX_EFFECTIVE_BALANCE * random_byte.toUInt()))) {
+    if (((effective_balance * MAX_RANDOM_BYTE) >= (MAX_EFFECTIVE_BALANCE * uint8(random_byte)))) {
       return candidate_index
     }
     i += 1uL

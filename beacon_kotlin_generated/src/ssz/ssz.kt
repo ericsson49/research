@@ -1,7 +1,9 @@
 package ssz
 
+import phase1.ENDIANNESS
 import pylib.pybytes
 import pylib.pyint
+import pylib.to_bytes
 import org.apache.tuweni.bytes.Bytes as TuweniBytes
 import org.apache.tuweni.bytes.Bytes32 as TuweniBytes32
 import org.apache.tuweni.bytes.Bytes48 as TuweniBytes48
@@ -66,6 +68,9 @@ fun SSZByteList.get_backing(): TreeNode = TODO()
 
 fun SSZByteList.toPyBytes(): pybytes = TODO()
 
-fun uint_to_bytes(b: uint8): pybytes = TODO()
-fun uint_to_bytes(b: uint32): pybytes = TODO()
-fun uint_to_bytes(b: uint64): pybytes = TODO()
+fun uint_to_bytes(b: uint8): pybytes = int_to_bytes(b.toULong(), pyint(1uL))
+fun uint_to_bytes(b: uint32): pybytes = int_to_bytes(b.toULong(), pyint(4uL))
+fun uint_to_bytes(b: uint64): pybytes = int_to_bytes(b, pyint(8uL))
+fun int_to_bytes(n: uint64, length: pyint): pybytes {
+  return n.to_bytes(length, ENDIANNESS)
+}

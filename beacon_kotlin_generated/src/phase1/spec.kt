@@ -57,8 +57,10 @@ import ssz.bit
 import ssz.boolean
 import ssz.get_backing
 import ssz.toPyBytes
+import ssz.uint32
 import ssz.uint64
 import ssz.uint8
+import ssz.uint_to_bytes
 import kotlin.experimental.xor
 
 fun ceillog2(x: uint64): pyint {
@@ -86,16 +88,9 @@ fun xor(bytes_1: Bytes32, bytes_2: Bytes32): Bytes32 {
 }
 
 /*
-    Return the ``length``-byte serialization of ``n`` in ``ENDIANNESS``-endian.
-    */
-fun int_to_bytes(n: uint64, length: pyint): pybytes {
-  return n.to_bytes(length, ENDIANNESS)
-}
-
-/*
     Return the integer deserialization of ``data`` interpreted as ``ENDIANNESS``-endian.
     */
-fun bytes_to_int(data: pybytes): uint64 {
+fun bytes_to_uint64(data: pybytes): uint64 {
   return uint64(from_bytes(data, ENDIANNESS))
 }
 
@@ -170,10 +165,10 @@ fun compute_shuffled_index(index: uint64, index_count: uint64, seed: Bytes32): u
   assert((index < index_count))
   var index_ = index
   for (current_round in range(SHUFFLE_ROUND_COUNT)) {
-    val pivot = (bytes_to_int(hash((seed + int_to_bytes(current_round, length = pyint(1uL)))).slice(0uL, 8uL)) % index_count)
+    val pivot = (bytes_to_uint64(hash((seed + uint_to_bytes(uint8(current_round)))).slice(0uL, 8uL)) % index_count)
     val flip = (((pivot + index_count) - index_) % index_count)
     val position = max(index_, flip)
-    val source = hash(((seed + int_to_bytes(current_round, length = pyint(1uL))) + int_to_bytes((position / 256uL), length = pyint(4uL))))
+    val source = hash(((seed + uint_to_bytes(uint8(current_round))) + uint_to_bytes(uint32((position / 256uL)))))
     val byte = uint8(source[((position % 256uL) / 8uL)])
     val bit = ((byte shr (position % 8uL)) % 2uL)
     index_ = if (pybool(bit)) flip else index_
@@ -191,7 +186,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
   val total = uint64(len(indices))
   while (true) {
     val candidate_index = indices[compute_shuffled_index((i % total), total, seed)]
-    val random_byte = hash((seed + int_to_bytes((i / 32uL), length = pyint(8uL))))[(i % 32uL)]
+    val random_byte = hash((seed + uint_to_bytes(uint64((i / 32uL)))))[(i % 32uL)]
     val effective_balance = state.validators[candidate_index].effective_balance
     if (((effective_balance * MAX_RANDOM_BYTE) >= (MAX_EFFECTIVE_BALANCE * uint8(random_byte)))) {
       return candidate_index
@@ -321,7 +316,7 @@ fun get_validator_churn_limit(state: BeaconState): uint64 {
     */
 fun get_seed(state: BeaconState, epoch: Epoch, domain_type: DomainType): Bytes32 {
   val mix = get_randao_mix(state, Epoch((((epoch + EPOCHS_PER_HISTORICAL_VECTOR) - MIN_SEED_LOOKAHEAD) - 1uL)))
-  return hash(((domain_type + int_to_bytes(epoch, length = pyint(8uL))) + mix))
+  return hash(((domain_type + uint_to_bytes(epoch)) + mix))
 }
 
 /*
@@ -345,7 +340,7 @@ fun get_beacon_committee(state: BeaconState, slot: Slot, index: CommitteeIndex):
     */
 fun get_beacon_proposer_index(state: BeaconState): ValidatorIndex {
   val epoch = get_current_epoch(state)
-  val seed = hash((get_seed(state, epoch, DOMAIN_BEACON_PROPOSER) + int_to_bytes(state.slot, length = pyint(8uL))))
+  val seed = hash((get_seed(state, epoch, DOMAIN_BEACON_PROPOSER) + uint_to_bytes(state.slot)))
   val indices = get_active_validator_indices(state, epoch)
   return compute_proposer_index(state, indices, seed)
 }
@@ -1236,7 +1231,7 @@ fun get_slot_signature(state: BeaconState, slot: Slot, privkey: pyint): BLSSigna
 fun is_aggregator(state: BeaconState, slot: Slot, index: CommitteeIndex, slot_signature: BLSSignature): pybool {
   val committee = get_beacon_committee(state, slot, index)
   val modulo = max(1uL, (len(committee) / TARGET_AGGREGATORS_PER_COMMITTEE))
-  return ((bytes_to_int(hash(slot_signature).slice(0uL, 8uL)) % modulo) == 0uL)
+  return ((bytes_to_uint64(hash(slot_signature).slice(0uL, 8uL)) % modulo) == 0uL)
 }
 
 fun get_aggregate_signature(attestations: Sequence<Attestation>): BLSSignature {
@@ -1623,8 +1618,8 @@ fun get_light_client_committee(beacon_state: BeaconState, epoch: Epoch): Sequenc
 fun get_shard_proposer_index(beacon_state: BeaconState, slot: Slot, shard: Shard): ValidatorIndex {
   val epoch = compute_epoch_at_slot(slot)
   val committee = get_shard_committee(beacon_state, epoch, shard)
-  val seed = hash((get_seed(beacon_state, epoch, DOMAIN_SHARD_COMMITTEE) + int_to_bytes(slot, length = pyint(8uL))))
-  val r = bytes_to_int(seed.slice(0uL, 8uL))
+  val seed = hash((get_seed(beacon_state, epoch, DOMAIN_SHARD_COMMITTEE) + uint_to_bytes(slot)))
+  val r = bytes_to_uint64(seed.slice(0uL, 8uL))
   return committee[(r % len(committee))]
 }
 
@@ -2188,7 +2183,7 @@ fun get_light_client_slot_signature(state: BeaconState, slot: Slot, privkey: pyi
 fun is_light_client_aggregator(state: BeaconState, slot: Slot, slot_signature: BLSSignature): pybool {
   val committee = get_light_client_committee(state, compute_epoch_at_slot(slot))
   val modulo = max(1uL, (len(committee) / TARGET_LIGHT_CLIENT_AGGREGATORS_PER_SLOT))
-  return ((bytes_to_int(hash(slot_signature).slice(0uL, 8uL)) % modulo) == 0uL)
+  return ((bytes_to_uint64(hash(slot_signature).slice(0uL, 8uL)) % modulo) == 0uL)
 }
 
 fun get_aggregate_light_client_signature(light_client_votes: Sequence<LightClientVote>): BLSSignature {

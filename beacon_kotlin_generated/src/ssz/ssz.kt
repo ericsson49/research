@@ -11,6 +11,7 @@ typealias SSZObject = Any
 typealias bit = Boolean
 typealias boolean = Boolean
 typealias uint8 = UByte
+typealias uint32 = UInt
 typealias uint64 = ULong
 
 typealias Bytes = TuweniBytes
@@ -35,6 +36,8 @@ typealias Vector<T> = MutableList<T>
 
 fun uint8(v: pyint): uint8 = v.value.toByte().toUByte()
 fun uint8(v: uint64): uint8 = v.toUByte()
+fun uint32(v: pyint): uint32 = v.value.toInt().toUInt()
+fun uint32(v: uint64): uint32 = v.toUInt()
 fun uint64(v: pyint): uint64 = v.value.toLong().toULong()
 fun uint64(v: ULong): uint64 = v
 fun Bytes4(): Bytes4 = TuweniBytes.fromHexString("0x00000000")
@@ -62,3 +65,7 @@ interface TreeNode {
 fun SSZByteList.get_backing(): TreeNode = TODO()
 
 fun SSZByteList.toPyBytes(): pybytes = TODO()
+
+fun uint_to_bytes(b: uint8): pybytes = TODO()
+fun uint_to_bytes(b: uint32): pybytes = TODO()
+fun uint_to_bytes(b: uint64): pybytes = TODO()

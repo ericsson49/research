@@ -434,9 +434,19 @@ data class SignedLightAggregateAndProof(
 
 data class LatestMessage(
     var epoch: Epoch = Epoch(),
-    var root: Root = Root(),
+    var root: Root = Root()
+)
+
+data class ShardLatestMessage(
+    var epoch: Epoch = Epoch(),
+    var root: Root = Root()
+)
+
+data class ShardStore(
     var shard: Shard = Shard(),
-    var shard_root: Root = Root()
+    var signed_blocks: SSZDict<Root, SignedShardBlock> = SSZDict<Root, SignedShardBlock>(),
+    var block_states: SSZDict<Root, ShardState> = SSZDict<Root, ShardState>(),
+    var latest_messages: SSZDict<ValidatorIndex, ShardLatestMessage> = SSZDict<ValidatorIndex, ShardLatestMessage>()
 )
 
 data class Store(
@@ -448,11 +458,6 @@ data class Store(
     var blocks: SSZDict<Root, BeaconBlockHeader> = SSZDict<Root, BeaconBlockHeader>(),
     var block_states: SSZDict<Root, BeaconState> = SSZDict<Root, BeaconState>(),
     var checkpoint_states: SSZDict<Checkpoint, BeaconState> = SSZDict<Checkpoint, BeaconState>(),
-    var latest_messages: SSZDict<ValidatorIndex, LatestMessage> = SSZDict<ValidatorIndex, LatestMessage>()
-)
-
-data class ShardStore(
-    var shard: Shard = Shard(),
-    var signed_blocks: SSZDict<Root, SignedShardBlock> = SSZDict<Root, SignedShardBlock>(),
-    var block_states: SSZDict<Root, ShardState> = SSZDict<Root, ShardState>()
+    var latest_messages: SSZDict<ValidatorIndex, LatestMessage> = SSZDict<ValidatorIndex, LatestMessage>(),
+    var shard_stores: SSZDict<Shard, ShardStore> = SSZDict<Shard, ShardStore>()
 )

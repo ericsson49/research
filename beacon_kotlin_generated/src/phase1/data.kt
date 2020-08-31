@@ -388,12 +388,6 @@ data class BeaconState(
     var custody_chunk_challenge_index: uint64 = 0uL
 )
 
-data class AttestationCustodyBitWrapper(
-    var attestation_data_root: Root = Root(),
-    var block_index: uint64 = 0uL,
-    var bit: boolean = false
-)
-
 data class FullAttestationData(
     var slot: Slot = Slot(),
     var index: CommitteeIndex = CommitteeIndex(),

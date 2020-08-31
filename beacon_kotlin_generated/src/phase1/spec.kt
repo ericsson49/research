@@ -63,8 +63,8 @@ import ssz.uint8
 import ssz.uint_to_bytes
 import kotlin.experimental.xor
 
-fun ceillog2(x: uint64): pyint {
-  return (x - 1uL).bit_length()
+fun ceillog2(x: uint64): uint64 {
+  return uint64((x - 1uL).bit_length())
 }
 
 /*
@@ -323,7 +323,7 @@ fun get_seed(state: BeaconState, epoch: Epoch, domain_type: DomainType): Bytes32
     Return the number of committees in each slot for the given ``epoch``.
     */
 fun get_committee_count_per_slot(state: BeaconState, epoch: Epoch): uint64 {
-  return max(uint64(1uL), min(MAX_COMMITTEES_PER_SLOT, ((uint64(len(get_active_validator_indices(state, epoch))) / SLOTS_PER_EPOCH) / TARGET_COMMITTEE_SIZE)))
+  return max(uint64(1uL), min(get_active_shard_count(state), ((uint64(len(get_active_validator_indices(state, epoch))) / SLOTS_PER_EPOCH) / TARGET_COMMITTEE_SIZE)))
 }
 
 /*
@@ -1380,7 +1380,7 @@ fun process_chunk_challenge_response(state: BeaconState, response: CustodyChunkR
   assert((len(matching_challenges) == 1uL))
   val challenge = matching_challenges[0uL]
   assert((response.chunk_index == challenge.chunk_index))
-  assert(is_valid_merkle_branch(leaf = hash_tree_root(response.chunk), branch = response.branch, depth = (uint64(CUSTODY_RESPONSE_DEPTH) + 1uL), index = response.chunk_index, root = challenge.data_root))
+  assert(is_valid_merkle_branch(leaf = hash_tree_root(response.chunk), branch = response.branch, depth = (CUSTODY_RESPONSE_DEPTH + 1uL), index = response.chunk_index, root = challenge.data_root))
   val index_in_records = state.custody_chunk_challenge_records.index(challenge)
   state.custody_chunk_challenge_records[index_in_records] = CustodyChunkChallengeRecord()
   val proposer_index = get_beacon_proposer_index(state)
@@ -1585,8 +1585,12 @@ fun compute_committee_source_epoch(epoch: Epoch, period: uint64): Epoch {
   return source_epoch
 }
 
+/*
+    Return the number of active shards.
+    Note that this puts an upper bound on the number of committees per slot.
+    */
 fun get_active_shard_count(state: BeaconState): uint64 {
-  return len(state.shard_states)
+  return INITIAL_ACTIVE_SHARDS
 }
 
 fun get_online_validator_indices(state: BeaconState): Set<ValidatorIndex> {
@@ -1601,8 +1605,7 @@ fun get_shard_committee(beacon_state: BeaconState, epoch: Epoch, shard: Shard): 
   val source_epoch = compute_committee_source_epoch(epoch, SHARD_COMMITTEE_PERIOD)
   val active_validator_indices = get_active_validator_indices(beacon_state, source_epoch)
   val seed = get_seed(beacon_state, source_epoch, DOMAIN_SHARD_COMMITTEE)
-  val active_shard_count = get_active_shard_count(beacon_state)
-  return compute_committee(indices = active_validator_indices, seed = seed, index = shard, count = active_shard_count)
+  return compute_committee(indices = active_validator_indices, seed = seed, index = shard, count = get_active_shard_count(beacon_state))
 }
 
 /*
@@ -1647,8 +1650,9 @@ fun get_start_shard(state: BeaconState, slot: Slot): Shard {
       return Shard(((state.current_epoch_start_shard + shard_delta) % active_shard_count))
     } else {
       val shard_delta = get_committee_count_delta(state, start_slot = slot, stop_slot = current_epoch_start_slot)
-      val max_committees_per_epoch = (MAX_COMMITTEES_PER_SLOT * SLOTS_PER_EPOCH)
-      return Shard((((state.current_epoch_start_shard + (max_committees_per_epoch * active_shard_count)) - shard_delta) % active_shard_count))
+      val max_committees_per_slot = active_shard_count
+      val max_committees_in_span = (max_committees_per_slot * (current_epoch_start_slot - slot))
+      return Shard((((state.current_epoch_start_shard + max_committees_in_span) - shard_delta) % active_shard_count))
     }
   }
 }
@@ -1710,7 +1714,6 @@ fun optional_fast_aggregate_verify(pubkeys: Sequence<BLSPubkey>, message: Bytes3
 fun validate_attestation(state: BeaconState, attestation: Attestation): Unit {
   val data = attestation.data
   assert((data.index < get_committee_count_per_slot(state, data.target.epoch)))
-  assert((data.index < get_active_shard_count(state)))
   assert((data.target.epoch in Pair(get_previous_epoch(state), get_current_epoch(state))))
   assert((data.target.epoch == compute_epoch_at_slot(data.slot)))
   assert(((data.slot + MIN_ATTESTATION_INCLUSION_DELAY) <= state.slot) && (state.slot <= (data.slot + SLOTS_PER_EPOCH)))
@@ -1766,8 +1769,9 @@ fun apply_shard_transition(state: BeaconState, shard: Shard, transition: ShardTr
   val pubkeys = proposers.map { proposer -> state.validators[proposer].pubkey }.toPyList()
   val signing_roots = headers.map { header -> compute_signing_root(header, get_domain(state, DOMAIN_SHARD_PROPOSAL, compute_epoch_at_slot(header.slot))) }.toPyList()
   assert(optional_aggregate_verify(pubkeys, signing_roots, transition.proposer_signature_aggregate))
-  state.shard_states[shard] = transition.shard_states[(len(transition.shard_states) - 1uL)]
-  state.shard_states[shard].slot = compute_previous_slot(state.slot)
+  val shard_state = copy(transition.shard_states[(len(transition.shard_states) - 1uL)])
+  shard_state.slot = compute_previous_slot(state.slot)
+  state.shard_states[shard] = shard_state
 }
 
 fun process_crosslink_for_shard(state: BeaconState, committee_index: CommitteeIndex, shard_transition: ShardTransition, attestations: Sequence<Attestation>): Root {

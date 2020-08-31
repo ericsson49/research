@@ -54,8 +54,8 @@ import ssz.uint8
 import ssz.uint_to_bytes
 import kotlin.experimental.xor
 
-fun ceillog2(x: uint64): pyint {
-  return (x - 1uL).bit_length()
+fun ceillog2(x: uint64): uint64 {
+  return uint64((x - 1uL).bit_length())
 }
 
 /*
@@ -76,13 +76,6 @@ fun integer_squareroot(n: uint64): uint64 {
     */
 fun xor(bytes_1: Bytes32, bytes_2: Bytes32): Bytes32 {
   return Bytes32(zip(bytes_1, bytes_2).map({ (a, b) -> a xor b }))
-}
-
-/*
-    Return the ``length``-byte serialization of ``n`` in ``ENDIANNESS``-endian.
-    */
-fun int_to_bytes(n: uint64, length: pyint): pybytes {
-  return n.to_bytes(length, ENDIANNESS)
 }
 
 /*

@@ -54,10 +54,6 @@ import ssz.uint8
 import ssz.uint_to_bytes
 import kotlin.experimental.xor
 
-fun ceillog2(x: uint64): uint64 {
-  return uint64((x - 1uL).bit_length())
-}
-
 /*
     Return the largest integer ``x`` such that ``x**2 <= n``.
     */
@@ -191,7 +187,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
     */
 fun compute_committee(indices: Sequence<ValidatorIndex>, seed: Bytes32, index: uint64, count: uint64): Sequence<ValidatorIndex> {
   val start = ((len(indices) * index) / count)
-  val end = ((len(indices) * (index + 1uL)) / count)
+  val end = ((len(indices) * uint64((index + 1uL))) / count)
   return range(start, end).map { i -> indices[compute_shuffled_index(uint64(i), uint64(len(indices)), seed)] }.toPyList()
 }
 
@@ -662,7 +658,7 @@ fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequenc
   for (index in get_unslashed_attesting_indices(state, matching_source_attestations)) {
     val attestation = min(matching_source_attestations.filter { a -> (index in get_attesting_indices(state, a.data, a.aggregation_bits)) }.map { a -> a }.toPyList(), key = { a -> a.inclusion_delay })
     rewards[attestation.proposer_index] += get_proposer_reward(state, index)
-    val max_attester_reward = (get_base_reward(state, index) - get_proposer_reward(state, index))
+    val max_attester_reward = Gwei((get_base_reward(state, index) - get_proposer_reward(state, index)))
     rewards[index] += Gwei((max_attester_reward / attestation.inclusion_delay))
   }
   val penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
@@ -738,10 +734,11 @@ fun process_registry_updates(state: BeaconState): Unit {
 fun process_slashings(state: BeaconState): Unit {
   val epoch = get_current_epoch(state)
   val total_balance = get_total_active_balance(state)
+  val adjusted_total_slashing_balance = min((sum(state.slashings) * PROPORTIONAL_SLASHING_MULTIPLIER), total_balance)
   for ((index, validator) in enumerate(state.validators)) {
     if (validator.slashed && ((epoch + (EPOCHS_PER_SLASHINGS_VECTOR / 2uL)) == validator.withdrawable_epoch)) {
       val increment = EFFECTIVE_BALANCE_INCREMENT
-      val penalty_numerator = ((validator.effective_balance / increment) * min((sum(state.slashings) * 3uL), total_balance))
+      val penalty_numerator = ((validator.effective_balance / increment) * adjusted_total_slashing_balance)
       val penalty = ((penalty_numerator / total_balance) * increment)
       decrease_balance(state, ValidatorIndex(index), penalty)
     }
@@ -756,7 +753,7 @@ fun process_final_updates(state: BeaconState): Unit {
   }
   for ((index, validator) in enumerate(state.validators)) {
     val balance = state.balances[index]
-    val HYSTERESIS_INCREMENT = (EFFECTIVE_BALANCE_INCREMENT / HYSTERESIS_QUOTIENT)
+    val HYSTERESIS_INCREMENT = uint64((EFFECTIVE_BALANCE_INCREMENT / HYSTERESIS_QUOTIENT))
     val DOWNWARD_THRESHOLD = (HYSTERESIS_INCREMENT * HYSTERESIS_DOWNWARD_MULTIPLIER)
     val UPWARD_THRESHOLD = (HYSTERESIS_INCREMENT * HYSTERESIS_UPWARD_MULTIPLIER)
     if (((balance + DOWNWARD_THRESHOLD) < validator.effective_balance) || ((validator.effective_balance + UPWARD_THRESHOLD) < balance)) {
@@ -912,12 +909,9 @@ fun process_voluntary_exit(state: BeaconState, signed_voluntary_exit: SignedVolu
   initiate_validator_exit(state, voluntary_exit.validator_index)
 }
 
-fun get_forkchoice_store(anchor_state: BeaconState): Store {
-  val anchor_block_header = copy(anchor_state.latest_block_header)
-  if ((anchor_block_header.state_root == Bytes32())) {
-    anchor_block_header.state_root = hash_tree_root(anchor_state)
-  }
-  val anchor_root = hash_tree_root(anchor_block_header)
+fun get_forkchoice_store(anchor_state: BeaconState, anchor_block: BeaconBlock): Store {
+  assert((anchor_block.state_root == hash_tree_root(anchor_state)))
+  val anchor_root = hash_tree_root(anchor_block)
   val anchor_epoch = get_current_epoch(anchor_state)
   val justified_checkpoint = Checkpoint(epoch = anchor_epoch, root = anchor_root)
   val finalized_checkpoint = Checkpoint(epoch = anchor_epoch, root = anchor_root)
@@ -927,7 +921,7 @@ fun get_forkchoice_store(anchor_state: BeaconState): Store {
       justified_checkpoint = justified_checkpoint,
       finalized_checkpoint = finalized_checkpoint,
       best_justified_checkpoint = justified_checkpoint,
-      blocks = PyDict(anchor_root to anchor_block_header),
+      blocks = PyDict(anchor_root to copy(anchor_block)),
       block_states = PyDict(anchor_root to copy(anchor_state)),
       checkpoint_states = PyDict(justified_checkpoint to copy(anchor_state)))
 }
@@ -963,7 +957,7 @@ fun get_latest_attesting_balance(store: Store, root: Root): Gwei {
   return Gwei(sum(active_indices.filter { i -> (i in store.latest_messages) && (get_ancestor(store, store.latest_messages[i]!!.root, store.blocks[root]!!.slot) == root) }.map { i -> state.validators[i].effective_balance }))
 }
 
-fun filter_block_tree(store: Store, block_root: Root, blocks: SSZDict<Root, BeaconBlockHeader>): pybool {
+fun filter_block_tree(store: Store, block_root: Root, blocks: SSZDict<Root, BeaconBlock>): pybool {
   val block = store.blocks[block_root]!!
   val children = store.blocks.keys().filter { root -> (store.blocks[root]!!.parent_root == block_root) }.map { root -> root }.toPyList()
   if (any(children)) {
@@ -988,9 +982,9 @@ fun filter_block_tree(store: Store, block_root: Root, blocks: SSZDict<Root, Beac
     Retrieve a filtered block tree from ``store``, only returning branches
     whose leaf state's justified/finalized info agrees with that in ``store``.
     */
-fun get_filtered_block_tree(store: Store): SSZDict<Root, BeaconBlockHeader> {
+fun get_filtered_block_tree(store: Store): SSZDict<Root, BeaconBlock> {
   val base = store.justified_checkpoint.root
-  val blocks: SSZDict<Root, BeaconBlockHeader> = PyDict()
+  val blocks: SSZDict<Root, BeaconBlock> = PyDict()
   filter_block_tree(store, base, blocks)
   return blocks
 }
@@ -1081,13 +1075,7 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   assert((block.slot > finalized_slot))
   assert((get_ancestor(store, block.parent_root, finalized_slot) == store.finalized_checkpoint.root))
   val state = state_transition(pre_state, signed_block, true)
-  store.blocks[hash_tree_root(block)] = BeaconBlockHeader(
-      slot = block.slot,
-      proposer_index = block.proposer_index,
-      parent_root = block.parent_root,
-      state_root = block.state_root,
-      body_root = hash_tree_root(block.body)
-  )
+  store.blocks[hash_tree_root(block)] = block
   store.block_states[hash_tree_root(block)] = state
   if ((state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch)) {
     if ((state.current_justified_checkpoint.epoch > store.best_justified_checkpoint.epoch)) {
@@ -1142,7 +1130,7 @@ fun check_if_validator_active(state: BeaconState, validator_index: ValidatorInde
     Return None if no assignment.
     */
 fun get_committee_assignment(state: BeaconState, epoch: Epoch, validator_index: ValidatorIndex): Triple<Sequence<ValidatorIndex>, CommitteeIndex, Slot>? {
-  val next_epoch = (get_current_epoch(state) + 1uL)
+  val next_epoch = Epoch((get_current_epoch(state) + 1uL))
   assert((epoch <= next_epoch))
   val start_slot = compute_start_slot_at_epoch(epoch)
   val committee_count_per_slot = get_committee_count_per_slot(state, epoch)
@@ -1212,7 +1200,7 @@ fun get_attestation_signature(state: BeaconState, attestation_data: AttestationD
     Note, this mimics expected Phase 1 behavior where attestations will be mapped to their shard subnet.
     */
 fun compute_subnet_for_attestation(committees_per_slot: uint64, slot: Slot, committee_index: CommitteeIndex): uint64 {
-  val slots_since_epoch_start = (slot % SLOTS_PER_EPOCH)
+  val slots_since_epoch_start = uint64((slot % SLOTS_PER_EPOCH))
   val committees_since_epoch_start = (committees_per_slot * slots_since_epoch_start)
   return uint64(((committees_since_epoch_start + committee_index) % ATTESTATION_SUBNET_COUNT))
 }
@@ -1243,6 +1231,26 @@ fun get_aggregate_and_proof_signature(state: BeaconState, aggregate_and_proof: A
   val domain = get_domain(state, DOMAIN_AGGREGATE_AND_PROOF, compute_epoch_at_slot(aggregate.data.slot))
   val signing_root = compute_signing_root(aggregate_and_proof, domain)
   return bls.Sign(privkey, signing_root)
+}
+
+fun compute_weak_subjectivity_period(state: BeaconState): uint64 {
+  var weak_subjectivity_period = MIN_VALIDATOR_WITHDRAWABILITY_DELAY
+  val validator_count = len(get_active_validator_indices(state, get_current_epoch(state)))
+  if ((validator_count >= (MIN_PER_EPOCH_CHURN_LIMIT * CHURN_LIMIT_QUOTIENT))) {
+    weak_subjectivity_period += ((SAFETY_DECAY * CHURN_LIMIT_QUOTIENT) / (2uL * 100uL))
+  } else {
+    weak_subjectivity_period += ((SAFETY_DECAY * validator_count) / ((2uL * 100uL) * MIN_PER_EPOCH_CHURN_LIMIT))
+  }
+  return weak_subjectivity_period
+}
+
+fun is_within_weak_subjectivity_period(store: Store, ws_state: BeaconState, ws_checkpoint: Checkpoint): pybool {
+  assert((ws_state.latest_block_header.state_root == ws_checkpoint.root))
+  assert((compute_epoch_at_slot(ws_state.slot) == ws_checkpoint.epoch))
+  val ws_period = compute_weak_subjectivity_period(ws_state)
+  val ws_state_epoch = compute_epoch_at_slot(ws_state.slot)
+  val current_epoch = compute_epoch_at_slot(get_current_slot(store))
+  return (current_epoch <= (ws_state_epoch + ws_period))
 }
 
 /*

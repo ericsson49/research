@@ -8,6 +8,7 @@ import ssz.Bytes32
 import ssz.Bytes4
 import ssz.uint64
 
+val CONFIG_NAME = "mainnet"
 val GENESIS_SLOT = Slot(0uL)
 val GENESIS_EPOCH = Epoch(0uL)
 val FAR_FUTURE_EPOCH = Epoch(((2uL.pow(64uL)) - 1uL))
@@ -27,6 +28,7 @@ val MIN_GENESIS_TIME = uint64(1578009600uL)
 val HYSTERESIS_QUOTIENT = uint64(4uL)
 val HYSTERESIS_DOWNWARD_MULTIPLIER = uint64(1uL)
 val HYSTERESIS_UPWARD_MULTIPLIER = uint64(5uL)
+val PROPORTIONAL_SLASHING_MULTIPLIER = uint64(3uL)
 val MIN_DEPOSIT_AMOUNT = Gwei(((2uL.pow(0uL)) * (10uL.pow(9uL))))
 val MAX_EFFECTIVE_BALANCE = Gwei(((2uL.pow(5uL)) * (10uL.pow(9uL))))
 val EJECTION_BALANCE = Gwei(((2uL.pow(4uL)) * (10uL.pow(9uL))))
@@ -71,3 +73,4 @@ val TARGET_AGGREGATORS_PER_COMMITTEE = (2uL.pow(4uL))
 val RANDOM_SUBNETS_PER_VALIDATOR = (2uL.pow(0uL))
 val EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION = (2uL.pow(8uL))
 val ATTESTATION_SUBNET_COUNT = 64uL
+val SAFETY_DECAY = uint64(10uL)

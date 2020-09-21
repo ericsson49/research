@@ -449,7 +449,7 @@ data class Store(
     var justified_checkpoint: Checkpoint = Checkpoint(),
     var finalized_checkpoint: Checkpoint = Checkpoint(),
     var best_justified_checkpoint: Checkpoint = Checkpoint(),
-    var blocks: SSZDict<Root, BeaconBlockHeader> = SSZDict<Root, BeaconBlockHeader>(),
+    var blocks: SSZDict<Root, BeaconBlock> = SSZDict<Root, BeaconBlock>(),
     var block_states: SSZDict<Root, BeaconState> = SSZDict<Root, BeaconState>(),
     var checkpoint_states: SSZDict<Checkpoint, BeaconState> = SSZDict<Checkpoint, BeaconState>(),
     var latest_messages: SSZDict<ValidatorIndex, LatestMessage> = SSZDict<ValidatorIndex, LatestMessage>(),

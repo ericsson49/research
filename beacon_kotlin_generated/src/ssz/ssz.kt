@@ -1,9 +1,11 @@
 package ssz
 
 import phase1.ENDIANNESS
+import pylib.bit_length
 import pylib.pybytes
 import pylib.pyint
 import pylib.to_bytes
+import java.lang.IllegalArgumentException
 import org.apache.tuweni.bytes.Bytes as TuweniBytes
 import org.apache.tuweni.bytes.Bytes32 as TuweniBytes32
 import org.apache.tuweni.bytes.Bytes48 as TuweniBytes48
@@ -36,6 +38,7 @@ typealias SSZDict<K, V> = MutableMap<K, V>
 typealias Sequence<T> = List<T>
 typealias Vector<T> = MutableList<T>
 
+fun bit(v: Boolean): bit = v
 fun uint8(v: pyint): uint8 = v.value.toByte().toUByte()
 fun uint8(v: uint64): uint8 = v.toUByte()
 fun uint32(v: pyint): uint32 = v.value.toInt().toUInt()
@@ -73,4 +76,10 @@ fun uint_to_bytes(b: uint32): pybytes = int_to_bytes(b.toULong(), pyint(4uL))
 fun uint_to_bytes(b: uint64): pybytes = int_to_bytes(b, pyint(8uL))
 fun int_to_bytes(n: uint64, length: pyint): pybytes {
   return n.to_bytes(length, ENDIANNESS)
+}
+
+fun ceillog2(x: uint64): uint64 {
+  if (x < 1uL)
+    throw IllegalArgumentException("ceillog2 accepts only positive values, x=${x}")
+  return uint64((x - 1uL).bit_length())
 }

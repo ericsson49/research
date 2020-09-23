@@ -11,8 +11,10 @@ import ssz.boolean
 fun hash_tree_root(a: Any): Bytes32 = TODO()
 fun hash(a: Any): Bytes32 = TODO()
 fun copy(v: phase0.BeaconBlockHeader) = v.copy()
+fun copy(v: phase0.BeaconBlock) = v.copy()
 fun copy(v: phase0.BeaconState) = v.copy()
 fun copy(v: phase1.BeaconBlockHeader) = v.copy()
+fun copy(v: phase1.BeaconBlock) = v.copy()
 fun copy(v: phase1.BeaconState) = v.copy()
 fun copy(v: ShardState) = v.copy()
 

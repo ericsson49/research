@@ -94,6 +94,7 @@ fun <T> Iterable<T>.intersection(b: Iterable<T>) = this.intersect(b)
 
 fun BitSet.slice(from: Int, to: Int) = (from until to).map { this[it] }
 fun Bytes.slice(a: uint64, b: uint64) = this.slice(a.toInt(), Math.min(b.toInt(), this.size()) - a.toInt())
+operator fun Bytes.get(r: ULongRange) = this.slice(r.first, r.endInclusive + 1uL)
 fun <T> List<T>.slice(a: uint64, b: uint64) = this.subList(a.toInt(), Math.min(b.toInt(), this.size))
 fun <T> MutableList<T>.updateSlice(f: uint64, t: uint64, x: List<T>) {
   for (i in f until t) {
@@ -102,10 +103,14 @@ fun <T> MutableList<T>.updateSlice(f: uint64, t: uint64, x: List<T>) {
 }
 
 operator fun <T> List<T>.get(index: uint64) = get(index.toInt())
+operator fun <T> List<T>.get(r: ULongRange) = this.slice(r.first.toInt() .. r.last.toInt() step r.step.toInt())
 operator fun <A> Pair<A, A>.get(i: uint64) = if (i == 0uL) first else if (i == 1uL) second else throw IllegalArgumentException("bad index " + i)
 operator fun pybytes.get(index: uint64) = pyint(get(index.toInt()).toUByte())
 
 operator fun <T> MutableList<T>.set(index: uint64, value: T) = set(index.toInt(), value)
+operator fun <T> MutableList<T>.set(r: ULongRange, value: List<T>) {
+  this.updateSlice(r.first, r.last + 1uL, value)
+}
 operator fun MutableList<Boolean>.set(i: uint64, v: uint64) = this.set(i, pybool(v))
 
 fun <T> Iterable<T>.count(x: T): uint64 {

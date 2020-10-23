@@ -101,15 +101,11 @@ fun <N> makeDominatorsProblem(cfg: CFG<N>): DFAProblem<Pair<N,String>,Set<N>> {
 
 fun <N> calcIDom(cfg: CFG<N>, domsRes: Map<Pair<N,String>,Set<N>>): Map<N,N> {
   val doms = domsRes.filterKeys { it.second == "out" }.mapKeys { it.key.first }
+  val sdoms = doms.mapValues { it.value.minus(it.key) }
   val res = mutableMapOf<N,N>()
   cfg.transitions.keys.forEach { n ->
-    val sdoms = domsRes[n to "out"]!!.minus(n)
-    val r = sdoms.filter { c ->
-      val dd = domsRes[c to "out"]!!
-      sdoms.minus(c).all { o -> o in dd }
-    }
-    if (r.size > 1)
-      fail()
+    val sdomN = sdoms[n]!!
+    val r = sdomN.fold(sdomN, { acc,m -> acc.minus(sdoms[m]!!)}).toList()
     if (r.size == 1)
       res[n] = r[0]
   }

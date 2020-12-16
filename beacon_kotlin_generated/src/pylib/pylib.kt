@@ -126,7 +126,7 @@ infix fun Byte.shl(a: uint64): uint64 = this.toULong().and(0xFFuL).shl(a.toInt()
 infix fun pybool.shl(a: uint64): uint64 = if (this) 1uL.shl(a) else 0uL
 
 infix fun uint64.shr(a: uint64): uint64 = this.shr(a.toInt())
-infix fun uint8.shr(a: uint64):uint8 = uint8(a.toByte().shr(a))
+infix fun uint8.shr(a: uint64):uint8 = uint8(this.toByte().shr(a))
 infix fun Byte.shr(a: uint64): uint64 = this.toULong().and(0xFFuL).shr(a.toInt())
 infix fun pybool.shr(a: uint64): uint64 = if (this) 1uL.shr(a) else 0uL
 

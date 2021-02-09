@@ -1,5 +1,6 @@
 package beacon_java.phase1.data;
 
+import beacon_java.data.BLSSignature;
 import lombok.*;
 
 @Data @NoArgsConstructor @AllArgsConstructor

@@ -1,5 +1,6 @@
 package beacon_java.phase1.data;
 
+import beacon_java.data.Root;
 import beacon_java.pylib.*;
 import lombok.*;
 

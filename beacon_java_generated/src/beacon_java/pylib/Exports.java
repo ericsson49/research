@@ -1,9 +1,6 @@
 package beacon_java.pylib;
 
-import beacon_java.phase1.data.BeaconBlock;
-import beacon_java.phase1.data.BeaconState;
-import beacon_java.phase1.data.Root;
-import beacon_java.phase1.data.ShardState;
+import beacon_java.data.Root;
 import beacon_java.ssz.Bytes32;
 import beacon_java.ssz.uint;
 import beacon_java.ssz.uint64;
@@ -65,9 +62,6 @@ public class Exports {
 
   public static Root hash_tree_root(Object o) { return null; }
   public static Bytes32 hash(Object o) { return null; }
-  public static BeaconBlock copy(BeaconBlock s) { return s; }
-  public static BeaconState copy(BeaconState s) { return s; }
-  public static ShardState copy(ShardState s) { return s; }
 
 
 

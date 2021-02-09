@@ -1,8 +1,8 @@
 package beacon_java.deps;
 
-import beacon_java.phase1.data.BLSPubkey;
-import beacon_java.phase1.data.BLSSignature;
-import beacon_java.phase1.data.Root;
+import beacon_java.data.BLSPubkey;
+import beacon_java.data.BLSSignature;
+import beacon_java.data.Root;
 import beacon_java.pylib.Sequence;
 import beacon_java.pylib.Triple;
 import beacon_java.pylib.pybool;

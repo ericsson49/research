@@ -1,5 +1,6 @@
 package beacon_java.phase1;
 
+import beacon_java.data.BLSSignature;
 import beacon_java.phase1.data.*;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;

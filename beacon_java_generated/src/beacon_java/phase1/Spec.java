@@ -6,6 +6,7 @@ import static beacon_java.phase1.Utils.copy;
 import static beacon_java.pylib.Exports.*;
 
 import beacon_java.data.*;
+import beacon_java.data.Root;
 import beacon_java.phase1.data.*;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;
@@ -526,7 +527,12 @@ public class Spec {
     process_reveal_deadlines(state_0);
     process_challenge_deadlines(state_0);
     process_slashings(state_0);
-    process_final_updates(state_0);
+    process_eth1_data_reset(state_0);
+    process_effective_balance_updates(state_0);
+    process_slashings_reset(state_0);
+    process_randao_mixes_reset(state_0);
+    process_historical_roots_update(state_0);
+    process_participation_record_updates(state_0);
     process_phase_1_final_updates(state_0);
   }
 
@@ -777,12 +783,14 @@ public class Spec {
     }
   }
 
-  public void process_final_updates(BeaconState state_0) {
-    var current_epoch_0 = get_current_epoch(state_0);
-    var next_epoch_0 = new Epoch(plus(current_epoch_0, pyint.create(1L)));
+  public void process_eth1_data_reset(BeaconState state_0) {
+    var next_epoch_0 = new Epoch(plus(get_current_epoch(state_0), pyint.create(1L)));
     if (eq(modulo(next_epoch_0, EPOCHS_PER_ETH1_VOTING_PERIOD), pyint.create(0L)).v()) {
       state_0.setEth1_data_votes(new SSZList<Eth1Data>());
     }
+  }
+
+  public void process_effective_balance_updates(BeaconState state_0) {
     for (var tmp_19: enumerate(state_0.getValidators())) {
       var index_0 = tmp_19.first;
       var validator_0 = tmp_19.second;
@@ -794,12 +802,28 @@ public class Spec {
         validator_0.setEffective_balance(min(minus(balance_0, modulo(balance_0, EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE));
       }
     }
+  }
+
+  public void process_slashings_reset(BeaconState state_0) {
+    var next_epoch_0 = new Epoch(plus(get_current_epoch(state_0), pyint.create(1L)));
     state_0.getSlashings().set(modulo(next_epoch_0, EPOCHS_PER_SLASHINGS_VECTOR), new Gwei(pyint.create(0L)));
+  }
+
+  public void process_randao_mixes_reset(BeaconState state_0) {
+    var current_epoch_0 = get_current_epoch(state_0);
+    var next_epoch_0 = new Epoch(plus(current_epoch_0, pyint.create(1L)));
     state_0.getRandao_mixes().set(modulo(next_epoch_0, EPOCHS_PER_HISTORICAL_VECTOR), new Root(get_randao_mix(state_0, current_epoch_0)));
+  }
+
+  public void process_historical_roots_update(BeaconState state_0) {
+    var next_epoch_0 = new Epoch(plus(get_current_epoch(state_0), pyint.create(1L)));
     if (eq(modulo(next_epoch_0, divide(SLOTS_PER_HISTORICAL_ROOT, SLOTS_PER_EPOCH)), pyint.create(0L)).v()) {
       var historical_batch_0 = new HistoricalBatch(state_0.getBlock_roots(), state_0.getState_roots());
       state_0.getHistorical_roots().append(hash_tree_root(historical_batch_0));
     }
+  }
+
+  public void process_participation_record_updates(BeaconState state_0) {
     state_0.setPrevious_epoch_attestations(state_0.getCurrent_epoch_attestations());
     state_0.setCurrent_epoch_attestations(new SSZList<PendingAttestation>());
   }
@@ -1226,7 +1250,8 @@ public class Spec {
     var period_start_0 = voting_period_start_time(state_0);
     var votes_to_consider_0 = eth1_chain_0.filter((block) -> and(is_candidate_block(block, period_start_0), greaterOrEqual(state_0.getEth1_data().getDeposit_count(), get_eth1_data(block).getDeposit_count()))).map((block) -> get_eth1_data(block));
     var valid_votes_0 = state_0.getEth1_data_votes().filter((vote) -> contains(votes_to_consider_0, vote)).map((vote) -> vote);
-    var default_vote_0 = any(votes_to_consider_0).v() ? votes_to_consider_0.get(minus(len(votes_to_consider_0), pyint.create(1L))) : state_0.getEth1_data();
+    Eth1Data state_eth1_data_0 = state_0.getEth1_data();
+    var default_vote_0 = any(votes_to_consider_0).v() ? votes_to_consider_0.get(minus(len(votes_to_consider_0), pyint.create(1L))) : state_eth1_data_0;
     return max(valid_votes_0, (v) -> new Pair<>(valid_votes_0.count(v), uminus(valid_votes_0.index(v))), default_vote_0);
   }
 
@@ -1287,18 +1312,33 @@ public class Spec {
     return bls.Sign(privkey_0, signing_root_0);
   }
 
+  /*
+    Returns the weak subjectivity period for the current ``state``.
+    This computation takes into account the effect of:
+        - validator set churn (bounded by ``get_validator_churn_limit()`` per epoch), and
+        - validator balance top-ups (bounded by ``MAX_DEPOSITS * SLOTS_PER_EPOCH`` per epoch).
+    A detailed calculation can be found at:
+    https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
+    */
   public uint64 compute_weak_subjectivity_period(BeaconState state_0) {
-    var weak_subjectivity_period_0 = MIN_VALIDATOR_WITHDRAWABILITY_DELAY;
-    var validator_count_0 = len(get_active_validator_indices(state_0, get_current_epoch(state_0)));
-    uint64 weak_subjectivity_period_3;
-    if (greaterOrEqual(multiply(MIN_PER_EPOCH_CHURN_LIMIT, CHURN_LIMIT_QUOTIENT), validator_count_0).v()) {
-      var weak_subjectivity_period_1 = plus(weak_subjectivity_period_0, divide(multiply(SAFETY_DECAY, CHURN_LIMIT_QUOTIENT), multiply(pyint.create(2L), pyint.create(100L))));
-      weak_subjectivity_period_3 = weak_subjectivity_period_1;
+    var ws_period_0 = MIN_VALIDATOR_WITHDRAWABILITY_DELAY;
+    var N_0 = len(get_active_validator_indices(state_0, get_current_epoch(state_0)));
+    var t_0 = divide(divide(get_total_active_balance(state_0), N_0), ETH_TO_GWEI);
+    var T_0 = divide(MAX_EFFECTIVE_BALANCE, ETH_TO_GWEI);
+    var delta_0 = get_validator_churn_limit(state_0);
+    var Delta_0 = multiply(MAX_DEPOSITS, SLOTS_PER_EPOCH);
+    var D_0 = SAFETY_DECAY;
+    uint64 ws_period_3;
+    if (less(multiply(t_0, plus(pyint.create(200L), multiply(pyint.create(12L), D_0))), multiply(T_0, plus(pyint.create(200L), multiply(pyint.create(3L), D_0)))).v()) {
+      var epochs_for_validator_set_churn_0 = divide(multiply(N_0, minus(multiply(t_0, plus(pyint.create(200L), multiply(pyint.create(12L), D_0))), multiply(T_0, plus(pyint.create(200L), multiply(pyint.create(3L), D_0))))), multiply(multiply(pyint.create(600L), delta_0), plus(multiply(pyint.create(2L), t_0), T_0)));
+      var epochs_for_balance_top_ups_0 = divide(multiply(N_0, plus(pyint.create(200L), multiply(pyint.create(3L), D_0))), multiply(pyint.create(600L), Delta_0));
+      var ws_period_1 = plus(ws_period_0, max(epochs_for_validator_set_churn_0, epochs_for_balance_top_ups_0));
+      ws_period_3 = ws_period_1;
     } else {
-      var weak_subjectivity_period_2 = plus(weak_subjectivity_period_0, divide(multiply(SAFETY_DECAY, validator_count_0), multiply(multiply(pyint.create(2L), pyint.create(100L)), MIN_PER_EPOCH_CHURN_LIMIT)));
-      weak_subjectivity_period_3 = weak_subjectivity_period_2;
+      var ws_period_2 = plus(ws_period_0, divide(multiply(multiply(multiply(pyint.create(3L), N_0), D_0), t_0), multiply(multiply(pyint.create(200L), Delta_0), minus(T_0, t_0))));
+      ws_period_3 = ws_period_2;
     }
-    return weak_subjectivity_period_3;
+    return ws_period_3;
   }
 
   public pybool is_within_weak_subjectivity_period(Store store_0, BeaconState ws_state_0, Checkpoint ws_checkpoint_0) {
@@ -2233,13 +2273,9 @@ public class Spec {
     return new Pair<>(shards_0, winning_roots_0);
   }
 
-  public Pair<pyint,Root> key_func0(LightClientVote a_0) {
-    return new Pair<>(len(a_0.getAggregation_bits().filter((i) -> eq(i, pyint.create(1L))).map((i) -> i)), hash_tree_root(a_0));
-  }
-
   public LightClientVote get_best_light_client_aggregate(BeaconBlock block_0, Sequence<LightClientVote> aggregates_0) {
     var viable_aggregates_0 = aggregates_0.filter((aggregate) -> and(eq(aggregate.getData().getSlot(), compute_previous_slot(block_0.getSlot())), eq(aggregate.getData().getBeacon_block_root(), block_0.getParent_root()))).map((aggregate) -> aggregate);
-    return max(viable_aggregates_0, this::key_func0, new LightClientVote(LightClientVote.data_default, LightClientVote.aggregation_bits_default, LightClientVote.signature_default));
+    return max(viable_aggregates_0, (a) -> new Pair<>(len(a.getAggregation_bits().filter((i) -> eq(i, pyint.create(1L))).map((i) -> i)), hash_tree_root(a)), new LightClientVote(LightClientVote.data_default, LightClientVote.aggregation_bits_default, LightClientVote.signature_default));
   }
 
   public Triple<Sequence<uint64>,Sequence<Root>,Sequence<ShardState>> get_shard_transition_fields(BeaconState beacon_state_0, Shard shard_0, Sequence<SignedShardBlock> shard_blocks_0) {

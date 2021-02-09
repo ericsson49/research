@@ -74,6 +74,7 @@ public interface Constants {
   pyint RANDOM_SUBNETS_PER_VALIDATOR = power(pyint.create(2L), pyint.create(0L));
   pyint EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION = power(pyint.create(2L), pyint.create(8L));
   pyint ATTESTATION_SUBNET_COUNT = pyint.create(64L);
+  uint64 ETH_TO_GWEI = new uint64(power(pyint.create(10L), pyint.create(9L)));
   uint64 SAFETY_DECAY = new uint64(pyint.create(10L));
   pyint CUSTODY_PRIME = pyint.create(minus(power(pyint.create(2L), pyint.create(256L)), pyint.create(189L)));
   uint64 CUSTODY_SECRETS = new uint64(pyint.create(3L));

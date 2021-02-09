@@ -1,5 +1,6 @@
 package beacon_java.phase1.data;
 
+import beacon_java.pylib.*;
 import beacon_java.ssz.*;
 
 public class DomainType extends Bytes4 {

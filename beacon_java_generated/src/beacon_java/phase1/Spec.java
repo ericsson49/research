@@ -4,7 +4,7 @@ import static beacon_java.phase1.Constants.*;
 import static beacon_java.deps.BLS.bls;
 import static beacon_java.pylib.Exports.*;
 
-import beacon_java.data.*;
+import beacon_java.phase1.data.*;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;
 import beacon_java.ssz.uint8;

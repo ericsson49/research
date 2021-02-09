@@ -1,9 +1,9 @@
 package beacon_java.pylib;
 
-import beacon_java.data.BeaconBlock;
-import beacon_java.data.BeaconState;
-import beacon_java.data.Root;
-import beacon_java.data.ShardState;
+import beacon_java.phase1.data.BeaconBlock;
+import beacon_java.phase1.data.BeaconState;
+import beacon_java.phase1.data.Root;
+import beacon_java.phase1.data.ShardState;
 import beacon_java.ssz.Bytes32;
 import beacon_java.ssz.uint;
 import beacon_java.ssz.uint64;

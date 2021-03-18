@@ -256,16 +256,25 @@ fun main() {
 }
 
 fun convertToAndOutOfSSA(it: FunctionDef): FunctionDef {
+  val (ssaF, phiFuncs) = convertToSSA(it)
+  return destructSSA(ssaF, phiFuncs)
+}
+
+fun destructSSA(ssaF: FunctionDef, phiFuncs: List<PhiFunc>): FunctionDef {
+  return ssaF.copy(body = insertCopies(ssaF.body, phiFuncs.toCopies()))
+}
+
+fun convertToSSA(it: FunctionDef): Pair<FunctionDef, List<PhiFunc>> {
   val analyses = FuncAnalyses(it)
 
   val ssaInfo = calcSSARenames(it, analyses)
   val enterRenames = ssaInfo.enter
   val before = ssaInfo.before
   val after = ssaInfo.after
-  val copies = ssaInfo.copies
 
   val renamer = StmtRenamer(before, after)
-  val res = renamer.renameStmts(it.body)
+  val ssaF = it.copy(args = renameFuncArguments(it.args, enterRenames),
+          body = renamer.renameStmts(it.body))
 
   fun remapEdgeSource(e: EdgeSource): EdgeSource = when (e) {
     is BlockIndex -> e.copy(block = renamer.blockRemap[e.block]!!)
@@ -273,11 +282,9 @@ fun convertToAndOutOfSSA(it: FunctionDef): FunctionDef {
     is Undef -> e
   }
 
-  val copies2 = copies.mapKeys { remapEdgeSource(it.key) }
-  val res2 = insertCopies(res, copies2)
-
-  val newF = it.copy(args = renameFuncArguments(it.args, enterRenames), body = res2)
-  return newF
+  val phiFuncs = ssaInfo.phiFuncs.map {
+    it.copy(vars = it.vars.map { (v, e) -> v to remapEdgeSource(e) }) }
+  return Pair(ssaF, phiFuncs)
 }
 
 typealias RENAMES = Map<String,String>
@@ -286,8 +293,15 @@ class SSAInfo(
     val enter: RENAMES,
     val before: StmtAnnoMap<RENAMES>,
     val after: StmtAnnoMap<RENAMES>,
-    val copies: Map<EdgeSource, List<COPY>>
+    val phiFuncs: List<PhiFunc>
 )
+
+data class PhiFunc(val phiVar: String, val vars: List<Pair<String,EdgeSource>>)
+
+fun List<PhiFunc>.toCopies(): Map<EdgeSource,List<Pair<String,String>>> {
+  return this.flatMap { it.vars.map { (v,e) -> e to (v to it.phiVar) } }
+          .groupBy { it.first }.mapValues { it.value.map { it.second } }
+}
 
 fun calcSSARenames(f: FunctionDef, analyses: FuncAnalyses): SSAInfo {
   val cfg = analyses.cfg
@@ -323,16 +337,16 @@ fun calcSSARenames(f: FunctionDef, analyses: FuncAnalyses): SSAInfo {
       .groupBy { it.binder }
       .mapValues { if (it.value.size != 1) fail() else it.value[0].valName }
 
-  val copies = phiNodes.flatMap { (n, vs) ->
+  val phiFuncs = phiNodes.flatMap { (n, vs) ->
     val preds = cfg.reverse[n]!!
     preds.flatMap { i ->
       val edgeSource = analyses.edgeLabeling[i to n]!!
       val pre = valsMap(reachDefsWithPhis[oldToNewInstrMap[i]!! to "out"]!!, vs)
       val phi = valsMap(reachDefsWithPhis[oldToNewInstrMap[n]!! to "in"]!!, vs)
 
-      vs.map { edgeSource to (pre[it]!! to phi[it]!!) }
+      vs.map { phi[it]!! to (pre[it]!! to edgeSource) }
     }
-  }.groupBy { it.first }.mapValues { it.value.map { it.second } }
+  }.groupBy { it.first }.mapValues { it.value.map { it.second } }.map { (k,v) -> PhiFunc(k,v) }
 
   val nonPhiRenames: Map<Instr, Pair<Map<String, Val>, Map<String, Val>>> = cfgWithPhis.transitions.keys.flatMap { n ->
     if (n !in phiNodes2) {
@@ -361,7 +375,7 @@ fun calcSSARenames(f: FunctionDef, analyses: FuncAnalyses): SSAInfo {
   val funcInitI = cfgWithPhis.transitions[cfgWithPhis.first]!![0]
   val initialRenames = reachDefsWithPhis[funcInitI to "out"]!!
       .groupBy { it.binder }.mapValues { it.value[0].valName }
-  return SSAInfo(initialRenames, before, after, copies)
+  return SSAInfo(initialRenames, before, after, phiFuncs)
 }
 
 fun calcPhiNodes2(analyses: FuncAnalyses): Map<Instr, Set<String>> {

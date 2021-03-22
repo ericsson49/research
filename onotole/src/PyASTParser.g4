@@ -6,7 +6,7 @@ param : value | namedParam;
 paramList : param (COMMA param)*;
 funcCall: WORD LPAR (paramList | ) RPAR;
 
-NUM : ('0' .. '9')+;
+NUM : '-'?('0' .. '9')+;
 WORD : ('_' | 'A' .. 'Z' | 'a' .. 'z')+;
 LPAR : '(';
 RPAR : ')';

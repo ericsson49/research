@@ -1,4 +1,4 @@
-// Generated from C:/Users/ericsson/IdeaProjects/research/onotole/src\PyASTParser.g4 by ANTLR 4.8
+// Generated from C:/Users/ericsson/IdeaProjects/research/onotole/src\PyASTParser.g4 by ANTLR 4.9
 package antlr;
 import org.antlr.v4.runtime.atn.*;
 import org.antlr.v4.runtime.dfa.DFA;
@@ -11,7 +11,7 @@ import java.util.ArrayList;
 
 @SuppressWarnings({"all", "warnings", "unchecked", "unused", "cast"})
 public class PyASTParserParser extends Parser {
-	static { RuntimeMetaData.checkVersion("4.8", RuntimeMetaData.VERSION); }
+	static { RuntimeMetaData.checkVersion("4.9", RuntimeMetaData.VERSION); }
 
 	protected static final DFA[] _decisionToDFA;
 	protected static final PredictionContextCache _sharedContextCache =

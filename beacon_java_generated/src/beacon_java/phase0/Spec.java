@@ -30,11 +30,9 @@ public class Spec {
     return x_2;
   }
 
-/*
-    Return the exclusive-or of two 32-byte strings.
-    */
-
-
+  /*
+      Return the exclusive-or of two 32-byte strings.
+      */
   public Bytes32 xor(Bytes32 bytes_1_0, Bytes32 bytes_2_0) {
     return new Bytes32(zip(bytes_1_0, bytes_2_0).map((tmp_0) -> { var a = tmp_0.first; var b = tmp_0.second; return bitXor(a, b); }));
   }
@@ -81,12 +79,9 @@ public class Spec {
     return or(and(not(eq(data_1_0, data_2_0)), eq(data_1_0.getTarget().getEpoch(), data_2_0.getTarget().getEpoch())), and(less(data_2_0.getSource().getEpoch(), data_1_0.getSource().getEpoch()), less(data_1_0.getTarget().getEpoch(), data_2_0.getTarget().getEpoch())));
   }
 
-/*
-    Check if ``indexed_attestation`` is not empty, has sorted and unique indices and has a valid aggregate signature.
-    */
-
-
-
+  /*
+      Check if ``indexed_attestation`` is not empty, has sorted and unique indices and has a valid aggregate signature.
+      */
   public pybool is_valid_indexed_attestation(BeaconState state_0, IndexedAttestation indexed_attestation_0) {
     var indices_0 = indexed_attestation_0.getAttesting_indices();
     if (or(eq(len(indices_0), pyint.create(0L)), not(eq(indices_0, sorted(set(indices_0))))).v()) {
@@ -98,12 +93,9 @@ public class Spec {
     return bls.FastAggregateVerify(pubkeys_0, signing_root_0, indexed_attestation_0.getSignature());
   }
 
-/*
-    Check if ``leaf`` at ``index`` verifies against the Merkle ``root`` and ``branch``.
-    */
-
-
-
+  /*
+      Check if ``leaf`` at ``index`` verifies against the Merkle ``root`` and ``branch``.
+      */
   public pybool is_valid_merkle_branch(Bytes32 leaf_0, Sequence<Bytes32> branch_0, uint64 depth_0, uint64 index_0, Root root_0) {
     var value_0 = leaf_0;
     var value_3 = value_0;
@@ -119,16 +111,9 @@ public class Spec {
     return eq(value_3, root_0);
   }
 
-/*
-    Return the shuffled index corresponding to ``seed`` (and ``index_count``).
-    */
-
-
-
-
-
-
-
+  /*
+      Return the shuffled index corresponding to ``seed`` (and ``index_count``).
+      */
   public uint64 compute_shuffled_index(uint64 index_0, uint64 index_count_0, Bytes32 seed_0) {
     pyassert(less(index_count_0, index_0));
     var index_2 = index_0;
@@ -145,13 +130,9 @@ public class Spec {
     return index_2;
   }
 
-/*
-    Return from ``indices`` a random index sampled by effective balance.
-    */
-
-
-
-
+  /*
+      Return from ``indices`` a random index sampled by effective balance.
+      */
   public ValidatorIndex compute_proposer_index(BeaconState state_0, Sequence<ValidatorIndex> indices_0, Bytes32 seed_0) {
     pyassert(greater(pyint.create(0L), len(indices_0)));
     var MAX_RANDOM_BYTE_0 = minus(power(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
@@ -170,13 +151,9 @@ public class Spec {
     }
   }
 
-/*
-    Return the committee corresponding to ``indices``, ``seed``, ``index``, and committee ``count``.
-    */
-
-
-
-
+  /*
+      Return the committee corresponding to ``indices``, ``seed``, ``index``, and committee ``count``.
+      */
   public Sequence<ValidatorIndex> compute_committee(Sequence<ValidatorIndex> indices_0, Bytes32 seed_0, uint64 index_0, uint64 count_0) {
     var start_0 = divide(multiply(len(indices_0), index_0), count_0);
     var end_0 = divide(multiply(len(indices_0), new uint64(plus(index_0, pyint.create(1L)))), count_0);
@@ -204,29 +181,26 @@ public class Spec {
     return new Epoch(plus(plus(epoch_0, pyint.create(1L)), MAX_SEED_LOOKAHEAD));
   }
 
-/*
-    Return the 32-byte fork data root for the ``current_version`` and ``genesis_validators_root``.
-    This is used primarily in signature domains to avoid collisions across forks/chains.
-    */
-
+  /*
+      Return the 32-byte fork data root for the ``current_version`` and ``genesis_validators_root``.
+      This is used primarily in signature domains to avoid collisions across forks/chains.
+      */
   public Root compute_fork_data_root(Version current_version_0, Root genesis_validators_root_0) {
     return hash_tree_root(new ForkData(current_version_0, genesis_validators_root_0));
   }
 
-/*
-    Return the 4-byte fork digest for the ``current_version`` and ``genesis_validators_root``.
-    This is a digest primarily used for domain separation on the p2p layer.
-    4-bytes suffices for practical separation of forks/chains.
-    */
-
+  /*
+      Return the 4-byte fork digest for the ``current_version`` and ``genesis_validators_root``.
+      This is a digest primarily used for domain separation on the p2p layer.
+      4-bytes suffices for practical separation of forks/chains.
+      */
   public ForkDigest compute_fork_digest(Version current_version_0, Root genesis_validators_root_0) {
     return new ForkDigest(compute_fork_data_root(current_version_0, genesis_validators_root_0).getSlice(pyint.create(0L), pyint.create(4L)));
   }
 
-/*
-    Return the domain for the ``domain_type`` and ``fork_version``.
-    */
-
+  /*
+      Return the domain for the ``domain_type`` and ``fork_version``.
+      */
   public Domain compute_domain(DomainType domain_type_0, Version fork_version_0, Root genesis_validators_root_0) {
     Version fork_version_2;
     if (fork_version_0 == null) {
@@ -246,11 +220,9 @@ public class Spec {
     return new Domain(plus(domain_type_0, fork_data_root_0.getSlice(pyint.create(0L), pyint.create(28L))));
   }
 
-/*
-    Return the signing root for the corresponding signing data.
-    */
-
-
+  /*
+      Return the signing root for the corresponding signing data.
+      */
   public Root compute_signing_root(Object ssz_object_0, Domain domain_0) {
     return hash_tree_root(new SigningData(hash_tree_root(ssz_object_0), domain_0));
   }
@@ -292,40 +264,32 @@ public class Spec {
     return state_0.getRandao_mixes().get(modulo(epoch_0, EPOCHS_PER_HISTORICAL_VECTOR));
   }
 
-/*
-    Return the sequence of active validator indices at ``epoch``.
-    */
-
+  /*
+      Return the sequence of active validator indices at ``epoch``.
+      */
   public Sequence<ValidatorIndex> get_active_validator_indices(BeaconState state_0, Epoch epoch_0) {
     return enumerate(state_0.getValidators()).filter((tmp_1) -> { var i = tmp_1.first; var v = tmp_1.second; return is_active_validator(v, epoch_0); }).map((tmp_2) -> { var i = tmp_2.first; var v = tmp_2.second; return new ValidatorIndex(i); });
   }
 
-/*
-    Return the validator churn limit for the current epoch.
-    */
-
-
+  /*
+      Return the validator churn limit for the current epoch.
+      */
   public uint64 get_validator_churn_limit(BeaconState state_0) {
     var active_validator_indices_0 = get_active_validator_indices(state_0, get_current_epoch(state_0));
     return max(MIN_PER_EPOCH_CHURN_LIMIT, divide(new uint64(len(active_validator_indices_0)), CHURN_LIMIT_QUOTIENT));
   }
 
-/*
-    Return the seed at ``epoch``.
-    */
-
-
+  /*
+      Return the seed at ``epoch``.
+      */
   public Bytes32 get_seed(BeaconState state_0, Epoch epoch_0, DomainType domain_type_0) {
     var mix_0 = get_randao_mix(state_0, new Epoch(minus(minus(plus(epoch_0, EPOCHS_PER_HISTORICAL_VECTOR), MIN_SEED_LOOKAHEAD), pyint.create(1L))));
     return hash(plus(plus(domain_type_0, uint_to_bytes(epoch_0)), mix_0));
   }
 
-/*
-    Return the number of committees in each slot for the given ``epoch``.
-    */
-
-
-
+  /*
+      Return the number of committees in each slot for the given ``epoch``.
+      */
   public uint64 get_committee_count_per_slot(BeaconState state_0, Epoch epoch_0) {
     return max(new uint64(pyint.create(1L)), min(MAX_COMMITTEES_PER_SLOT, divide(divide(new uint64(len(get_active_validator_indices(state_0, epoch_0))), SLOTS_PER_EPOCH), TARGET_COMMITTEE_SIZE)));
   }
@@ -339,11 +303,9 @@ public class Spec {
     return compute_committee(get_active_validator_indices(state_0, epoch_0), get_seed(state_0, epoch_0, DOMAIN_BEACON_ATTESTER), plus(multiply(modulo(slot_0, SLOTS_PER_EPOCH), committees_per_slot_0), index_0), multiply(committees_per_slot_0, SLOTS_PER_EPOCH));
   }
 
-/*
-    Return the beacon proposer index at the current slot.
-    */
-
-
+  /*
+      Return the beacon proposer index at the current slot.
+      */
   public ValidatorIndex get_beacon_proposer_index(BeaconState state_0) {
     var epoch_0 = get_current_epoch(state_0);
     var seed_0 = hash(plus(get_seed(state_0, epoch_0, DOMAIN_BEACON_PROPOSER), uint_to_bytes(state_0.getSlot())));
@@ -351,22 +313,19 @@ public class Spec {
     return compute_proposer_index(state_0, indices_0, seed_0);
   }
 
-/*
-    Return the combined effective balance of the ``indices``.
-    ``EFFECTIVE_BALANCE_INCREMENT`` Gwei minimum to avoid divisions by zero.
-    Math safe up to ~10B ETH, afterwhich this overflows uint64.
-    */
-
-
+  /*
+      Return the combined effective balance of the ``indices``.
+      ``EFFECTIVE_BALANCE_INCREMENT`` Gwei minimum to avoid divisions by zero.
+      Math safe up to ~10B ETH, afterwhich this overflows uint64.
+      */
   public Gwei get_total_balance(BeaconState state_0, Set<ValidatorIndex> indices_0) {
     return new Gwei(max(EFFECTIVE_BALANCE_INCREMENT, sum(indices_0.map((index) -> state_0.getValidators().get(index).getEffective_balance()))));
   }
 
-/*
-    Return the combined effective balance of the active validators.
-    Note: ``get_total_balance`` returns ``EFFECTIVE_BALANCE_INCREMENT`` Gwei minimum to avoid divisions by zero.
-    */
-
+  /*
+      Return the combined effective balance of the active validators.
+      Note: ``get_total_balance`` returns ``EFFECTIVE_BALANCE_INCREMENT`` Gwei minimum to avoid divisions by zero.
+      */
   public Gwei get_total_active_balance(BeaconState state_0) {
     return get_total_balance(state_0, set(get_active_validator_indices(state_0, get_current_epoch(state_0))));
   }
@@ -380,20 +339,17 @@ public class Spec {
     return compute_domain(domain_type_0, fork_version_0, state_0.getGenesis_validators_root());
   }
 
-/*
-    Return the indexed attestation corresponding to ``attestation``.
-    */
-
+  /*
+      Return the indexed attestation corresponding to ``attestation``.
+      */
   public IndexedAttestation get_indexed_attestation(BeaconState state_0, Attestation attestation_0) {
     var attesting_indices_0 = get_attesting_indices(state_0, attestation_0.getData(), attestation_0.getAggregation_bits());
     return new IndexedAttestation(new SSZList<>(sorted(attesting_indices_0)), attestation_0.getData(), attestation_0.getSignature());
   }
 
-/*
-    Return the set of attesting indices corresponding to ``data`` and ``bits``.
-    */
-
-
+  /*
+      Return the set of attesting indices corresponding to ``data`` and ``bits``.
+      */
   public Set<ValidatorIndex> get_attesting_indices(BeaconState state_0, AttestationData data_0, SSZBitlist bits_0) {
     var committee_0 = get_beacon_committee(state_0, data_0.getSlot(), data_0.getIndex());
     return set(enumerate(committee_0).filter((tmp_3) -> { var i = tmp_3.first; var index = tmp_3.second; return bits_0.get(i); }).map((tmp_4) -> { var i = tmp_4.first; var index = tmp_4.second; return index; }));
@@ -413,11 +369,9 @@ public class Spec {
     state_0.getBalances().set(index_0, new Gwei(greater(state_0.getBalances().get(index_0), delta_0).v() ? pyint.create(0L) : minus(state_0.getBalances().get(index_0), delta_0)));
   }
 
-/*
-    Initiate the exit of the validator with index ``index``.
-    */
-
-
+  /*
+      Initiate the exit of the validator with index ``index``.
+      */
   public void initiate_validator_exit(BeaconState state_0, ValidatorIndex index_0) {
     var validator_0 = state_0.getValidators().get(index_0);
     if (not(eq(validator_0.getExit_epoch(), FAR_FUTURE_EPOCH)).v()) {
@@ -437,10 +391,9 @@ public class Spec {
     validator_0.setWithdrawable_epoch(new Epoch(plus(validator_0.getExit_epoch(), MIN_VALIDATOR_WITHDRAWABILITY_DELAY)));
   }
 
-/*
-    Slash the validator with index ``slashed_index``.
-    */
-
+  /*
+      Slash the validator with index ``slashed_index``.
+      */
   public void slash_validator(BeaconState state_0, ValidatorIndex slashed_index_0, ValidatorIndex whistleblower_index_0) {
     var epoch_0 = get_current_epoch(state_0);
     initiate_validator_exit(state_0, slashed_index_0);
@@ -462,16 +415,6 @@ public class Spec {
     increase_balance(state_0, proposer_index_0, proposer_reward_0);
     increase_balance(state_0, whistleblower_index_2, new Gwei(minus(whistleblower_reward_0, proposer_reward_0)));
   }
-
-
-
-
-
-
-
-
-
-
 
   public BeaconState initialize_beacon_state_from_eth1(Bytes32 eth1_block_hash_0, uint64 eth1_timestamp_0, Sequence<Deposit> deposits_0) {
     var fork_0 = new Fork(GENESIS_FORK_VERSION, GENESIS_FORK_VERSION, GENESIS_EPOCH);
@@ -517,7 +460,6 @@ public class Spec {
     return state_0;
   }
 
-
   public pybool is_valid_genesis_state(BeaconState state_0) {
     if (less(MIN_GENESIS_TIME, state_0.getGenesis_time()).v()) {
       return pybool.create(false);
@@ -527,7 +469,6 @@ public class Spec {
     }
     return pybool.create(true);
   }
-
 
   public void state_transition(BeaconState state_0, SignedBeaconBlock signed_block_0, pybool validate_result_0) {
     var block_0 = signed_block_0.getMessage();
@@ -557,8 +498,6 @@ public class Spec {
       state_0.setSlot(new Slot(plus(state_0.getSlot(), pyint.create(1L))));
     }
   }
-
-
 
   public void process_slot(BeaconState state_0) {
     var previous_state_root_0 = hash_tree_root(state_0);
@@ -596,9 +535,6 @@ public class Spec {
     return get_matching_target_attestations(state_0, epoch_0).filter((a) -> eq(a.getData().getBeacon_block_root(), get_block_root_at_slot(state_0, a.getData().getSlot()))).map((a) -> a);
   }
 
-
-
-
   public Set<ValidatorIndex> get_unslashed_attesting_indices(BeaconState state_0, Sequence<PendingAttestation> attestations_0) {
     var output_0 = new Set<ValidatorIndex>();
     var output_2 = output_0;
@@ -616,10 +552,6 @@ public class Spec {
   public Gwei get_attesting_balance(BeaconState state_0, Sequence<PendingAttestation> attestations_0) {
     return get_total_balance(state_0, get_unslashed_attesting_indices(state_0, attestations_0));
   }
-
-
-
-
 
   public void process_justification_and_finalization(BeaconState state_0) {
     if (lessOrEqual(plus(GENESIS_EPOCH, pyint.create(1L)), get_current_epoch(state_0)).v()) {
@@ -675,17 +607,14 @@ public class Spec {
     return greater(MIN_EPOCHS_TO_INACTIVITY_PENALTY, get_finality_delay(state_0));
   }
 
-
   public Sequence<ValidatorIndex> get_eligible_validator_indices(BeaconState state_0) {
     var previous_epoch_0 = get_previous_epoch(state_0);
     return enumerate(state_0.getValidators()).filter((tmp_7) -> { var index = tmp_7.first; var v = tmp_7.second; return or(is_active_validator(v, previous_epoch_0), and(v.getSlashed(), less(v.getWithdrawable_epoch(), plus(previous_epoch_0, pyint.create(1L))))); }).map((tmp_8) -> { var index = tmp_8.first; var v = tmp_8.second; return new ValidatorIndex(index); });
   }
 
-/*
-    Helper with shared logic for use by get source, target, and head deltas functions
-    */
-
-
+  /*
+      Helper with shared logic for use by get source, target, and head deltas functions
+      */
   public Pair<Sequence<Gwei>,Sequence<Gwei>> get_attestation_component_deltas(BeaconState state_0, Sequence<PendingAttestation> attestations_0) {
     var rewards_0 = multiply(PyList.of(new Gwei(pyint.create(0L))), len(state_0.getValidators()));
     var penalties_0 = multiply(PyList.of(new Gwei(pyint.create(0L))), len(state_0.getValidators()));
@@ -732,14 +661,9 @@ public class Spec {
     return get_attestation_component_deltas(state_0, matching_head_attestations_0);
   }
 
-/*
-    Return proposer and inclusion delay micro-rewards/penalties for each validator.
-    */
-
-
-
-
-
+  /*
+      Return proposer and inclusion delay micro-rewards/penalties for each validator.
+      */
   public Pair<Sequence<Gwei>,Sequence<Gwei>> get_inclusion_delay_deltas(BeaconState state_0) {
     var rewards_0 = range(len(state_0.getValidators())).map((_0) -> new Gwei(pyint.create(0L)));
     var matching_source_attestations_0 = get_matching_source_attestations(state_0, get_previous_epoch(state_0));
@@ -753,13 +677,9 @@ public class Spec {
     return new Pair<>(rewards_0, penalties_0);
   }
 
-/*
-    Return inactivity reward/penalty deltas for each validator.
-    */
-
-
-
-
+  /*
+      Return inactivity reward/penalty deltas for each validator.
+      */
   public Pair<Sequence<Gwei>,Sequence<Gwei>> get_inactivity_penalty_deltas(BeaconState state_0) {
     var penalties_0 = range(len(state_0.getValidators())).map((_0) -> new Gwei(pyint.create(0L)));
     if (is_in_inactivity_leak(state_0).v()) {
@@ -778,13 +698,9 @@ public class Spec {
     return new Pair<>(rewards_0, penalties_0);
   }
 
-/*
-    Return attestation reward/penalty deltas for each validator.
-    */
-
-
-
-
+  /*
+      Return attestation reward/penalty deltas for each validator.
+      */
   public Pair<Sequence<Gwei>,Sequence<Gwei>> get_attestation_deltas(BeaconState state_0) {
     var tmp_9 = get_source_deltas(state_0);
     var source_rewards_0 = tmp_9.first;
@@ -806,8 +722,6 @@ public class Spec {
     return new Pair<>(rewards_0, penalties_0);
   }
 
-
-
   public void process_rewards_and_penalties(BeaconState state_0) {
     if (eq(get_current_epoch(state_0), GENESIS_EPOCH).v()) {
       return;
@@ -820,9 +734,6 @@ public class Spec {
       decrease_balance(state_0, new ValidatorIndex(index_0), penalties_0.get(index_0));
     }
   }
-
-
-
 
   public void process_registry_updates(BeaconState state_0) {
     for (var tmp_15: enumerate(state_0.getValidators())) {
@@ -841,9 +752,6 @@ public class Spec {
       validator_1.setActivation_epoch(compute_activation_exit_epoch(get_current_epoch(state_0)));
     }
   }
-
-
-
 
   public void process_slashings(BeaconState state_0) {
     var epoch_0 = get_current_epoch(state_0);
@@ -867,8 +775,6 @@ public class Spec {
       state_0.setEth1_data_votes(new SSZList<Eth1Data>());
     }
   }
-
-
 
   public void process_effective_balance_updates(BeaconState state_0) {
     for (var tmp_19: enumerate(state_0.getValidators())) {
@@ -895,8 +801,6 @@ public class Spec {
     state_0.getRandao_mixes().set(modulo(next_epoch_0, EPOCHS_PER_HISTORICAL_VECTOR), get_randao_mix(state_0, current_epoch_0));
   }
 
-
-
   public void process_historical_roots_update(BeaconState state_0) {
     var next_epoch_0 = new Epoch(plus(get_current_epoch(state_0), pyint.create(1L)));
     if (eq(modulo(next_epoch_0, divide(SLOTS_PER_HISTORICAL_ROOT, SLOTS_PER_EPOCH)), pyint.create(0L)).v()) {
@@ -917,8 +821,6 @@ public class Spec {
     process_operations(state_0, block_0.getBody());
   }
 
-
-
   public void process_block_header(BeaconState state_0, BeaconBlock block_0) {
     pyassert(eq(block_0.getSlot(), state_0.getSlot()));
     pyassert(greater(state_0.getLatest_block_header().getSlot(), block_0.getSlot()));
@@ -934,7 +836,6 @@ public class Spec {
     pyassert(not(proposer_0.getSlashed()));
   }
 
-
   public void process_randao(BeaconState state_0, BeaconBlockBody body_0) {
     var epoch_0 = get_current_epoch(state_0);
     var proposer_0 = state_0.getValidators().get(get_beacon_proposer_index(state_0));
@@ -944,16 +845,12 @@ public class Spec {
     state_0.getRandao_mixes().set(modulo(epoch_0, EPOCHS_PER_HISTORICAL_VECTOR), mix_0);
   }
 
-
-
   public void process_eth1_data(BeaconState state_0, BeaconBlockBody body_0) {
     state_0.getEth1_data_votes().append(body_0.getEth1_data());
     if (greater(multiply(EPOCHS_PER_ETH1_VOTING_PERIOD, SLOTS_PER_EPOCH), multiply(state_0.getEth1_data_votes().count(body_0.getEth1_data()), pyint.create(2L))).v()) {
       state_0.setEth1_data(body_0.getEth1_data());
     }
   }
-
-
 
   public void process_operations(BeaconState state_0, BeaconBlockBody body_0) {
     pyassert(eq(len(body_0.getDeposits()), min(MAX_DEPOSITS, minus(state_0.getEth1_data().getDeposit_count(), state_0.getEth1_deposit_index()))));
@@ -990,9 +887,6 @@ public class Spec {
     slash_validator(state_0, header_1_0.getProposer_index(), null);
   }
 
-
-
-
   public void process_attester_slashing(BeaconState state_0, AttesterSlashing attester_slashing_0) {
     var attestation_1_0 = attester_slashing_0.getAttestation_1();
     var attestation_2_0 = attester_slashing_0.getAttestation_2();
@@ -1014,10 +908,6 @@ public class Spec {
     pyassert(slashed_any_2);
   }
 
-
-
-
-
   public void process_attestation(BeaconState state_0, Attestation attestation_0) {
     var data_0 = attestation_0.getData();
     pyassert(contains(new Pair<>(get_previous_epoch(state_0), get_current_epoch(state_0)), data_0.getTarget().getEpoch()));
@@ -1037,16 +927,11 @@ public class Spec {
     pyassert(is_valid_indexed_attestation(state_0, get_indexed_attestation(state_0, attestation_0)));
   }
 
-
   public Validator get_validator_from_deposit(BeaconState state_0, Deposit deposit_0) {
     var amount_0 = deposit_0.getData().getAmount();
     var effective_balance_0 = min(minus(amount_0, modulo(amount_0, EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE);
     return new Validator(deposit_0.getData().getPubkey(), deposit_0.getData().getWithdrawal_credentials(), effective_balance_0, Validator.slashed_default, FAR_FUTURE_EPOCH, FAR_FUTURE_EPOCH, FAR_FUTURE_EPOCH, FAR_FUTURE_EPOCH);
   }
-
-
-
-
 
   public void process_deposit(BeaconState state_0, Deposit deposit_0) {
     pyassert(is_valid_merkle_branch(hash_tree_root(deposit_0.getData()), deposit_0.getProof(), plus(DEPOSIT_CONTRACT_TREE_DEPTH, pyint.create(1L)), state_0.getEth1_deposit_index(), state_0.getEth1_data().getDeposit_root()));
@@ -1081,11 +966,6 @@ public class Spec {
     pyassert(bls.Verify(validator_0.getPubkey(), signing_root_0, signed_voluntary_exit_0.getSignature()));
     initiate_validator_exit(state_0, voluntary_exit_0.getValidator_index());
   }
-
-
-
-
-
 
   public Store get_forkchoice_store(BeaconState anchor_state_0, BeaconBlock anchor_block_0) {
     pyassert(eq(anchor_block_0.getState_root(), hash_tree_root(anchor_state_0)));
@@ -1130,14 +1010,11 @@ public class Spec {
     }
   }
 
-
   public Gwei get_latest_attesting_balance(Store store_0, Root root_0) {
     var state_0 = store_0.getCheckpoint_states().get(store_0.getJustified_checkpoint());
     var active_indices_0 = get_active_validator_indices(state_0, get_current_epoch(state_0));
     return new Gwei(sum(active_indices_0.filter((i) -> and(contains(store_0.getLatest_messages(), i), eq(get_ancestor(store_0, store_0.getLatest_messages().get(i).getRoot(), store_0.getBlocks().get(root_0).getSlot()), root_0))).map((i) -> state_0.getValidators().get(i).getEffective_balance())));
   }
-
-
 
   public pybool filter_block_tree(Store store_0, Root block_root_0, PyDict<Root,BeaconBlock> blocks_0) {
     var block_0 = store_0.getBlocks().get(block_root_0);
@@ -1170,8 +1047,6 @@ public class Spec {
     filter_block_tree(store_0, base_0, blocks_0);
     return blocks_0;
   }
-
-
 
   public Root get_head(Store store_0) {
     var blocks_0 = get_filtered_block_tree(store_0);
@@ -1220,7 +1095,6 @@ public class Spec {
     pyassert(greaterOrEqual(plus(attestation_0.getData().getSlot(), pyint.create(1L)), get_current_slot(store_0)));
   }
 
-
   public void store_target_checkpoint_state(Store store_0, Checkpoint target_0) {
     if (not(contains(store_0.getCheckpoint_states(), target_0)).v()) {
       var base_state_0 = copy(store_0.getBlock_states().get(target_0.getRoot()));
@@ -1252,9 +1126,6 @@ public class Spec {
       store_0.setJustified_checkpoint(store_0.getBest_justified_checkpoint());
     }
   }
-
-
-
 
   public void on_block(Store store_0, SignedBeaconBlock signed_block_0) {
     var block_0 = signed_block_0.getMessage();
@@ -1312,7 +1183,7 @@ public class Spec {
     return is_active_validator(validator_0, get_current_epoch(state_0));
   }
 
-/*
+  /*
     Return the committee assignment in the ``epoch`` for ``validator_index``.
     ``assignment`` returned is a tuple of the following form:
         * ``assignmentlistOf(0)`` is the list of validators in the committee
@@ -1320,8 +1191,6 @@ public class Spec {
         * ``assignmentlistOf(2)`` is the slot at which the committee is assigned
     Return None if no assignment.
     */
-
-
   public Triple<Sequence<ValidatorIndex>,CommitteeIndex,Slot> get_committee_assignment(BeaconState state_0, Epoch epoch_0, ValidatorIndex validator_index_0) {
     var next_epoch_0 = new Epoch(plus(get_current_epoch(state_0), pyint.create(1L)));
     pyassert(lessOrEqual(next_epoch_0, epoch_0));
@@ -1361,11 +1230,6 @@ public class Spec {
     return and(lessOrEqual(period_start_0, plus(block_0.getTimestamp(), multiply(SECONDS_PER_ETH1_BLOCK, ETH1_FOLLOW_DISTANCE))), greaterOrEqual(period_start_0, plus(block_0.getTimestamp(), multiply(multiply(SECONDS_PER_ETH1_BLOCK, ETH1_FOLLOW_DISTANCE), pyint.create(2L)))));
   }
 
-
-
-
-
-
   public Eth1Data get_eth1_vote(BeaconState state_0, Sequence<Eth1Block> eth1_chain_0) {
     var period_start_0 = voting_period_start_time(state_0);
     var votes_to_consider_0 = eth1_chain_0.filter((block) -> and(is_candidate_block(block, period_start_0), greaterOrEqual(state_0.getEth1_data().getDeposit_count(), get_eth1_data(block).getDeposit_count()))).map((block) -> get_eth1_data(block));
@@ -1374,7 +1238,6 @@ public class Spec {
     var default_vote_0 = any(votes_to_consider_0).v() ? votes_to_consider_0.get(minus(len(votes_to_consider_0), pyint.create(1L))) : state_eth1_data_0;
     return max(valid_votes_0, (v) -> new Pair<>(valid_votes_0.count(v), uminus(valid_votes_0.index(v))), default_vote_0);
   }
-
 
   public Root compute_new_state_root(BeaconState state_0, BeaconBlock block_0) {
     BeaconState temp_state_0 = state_0.copy();
@@ -1411,9 +1274,6 @@ public class Spec {
     return bls.Sign(privkey_0, signing_root_0);
   }
 
-
-
-
   public pybool is_aggregator(BeaconState state_0, Slot slot_0, CommitteeIndex index_0, BLSSignature slot_signature_0) {
     var committee_0 = get_beacon_committee(state_0, slot_0, index_0);
     var modulo_0 = max(pyint.create(1L), divide(len(committee_0), TARGET_AGGREGATORS_PER_COMMITTEE));
@@ -1436,16 +1296,14 @@ public class Spec {
     return bls.Sign(privkey_0, signing_root_0);
   }
 
-/*
-    Returns the weak subjectivity period for the current ``state``.
-    This computation takes into account the effect of:
-        - validator set churn (bounded by ``get_validator_churn_limit()`` per epoch), and
-        - validator balance top-ups (bounded by ``MAX_DEPOSITS * SLOTS_PER_EPOCH`` per epoch).
-    A detailed calculation can be found at:
-    https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
-    */
-
-
+  /*
+      Returns the weak subjectivity period for the current ``state``.
+      This computation takes into account the effect of:
+          - validator set churn (bounded by ``get_validator_churn_limit()`` per epoch), and
+          - validator balance top-ups (bounded by ``MAX_DEPOSITS * SLOTS_PER_EPOCH`` per epoch).
+      A detailed calculation can be found at:
+      https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
+      */
   public uint64 compute_weak_subjectivity_period(BeaconState state_0) {
     var ws_period_0 = MIN_VALIDATOR_WITHDRAWABILITY_DELAY;
     var N_0 = len(get_active_validator_indices(state_0, get_current_epoch(state_0)));
@@ -1476,10 +1334,9 @@ public class Spec {
     return lessOrEqual(plus(ws_state_epoch_0, ws_period_0), current_epoch_0);
   }
 
-/*
-    A stub function return mocking Eth1Data.
-    */
-
+  /*
+      A stub function return mocking Eth1Data.
+      */
   public Eth1Data get_eth1_data(Eth1Block block_0) {
     return new Eth1Data(block_0.getDeposit_root(), block_0.getDeposit_count(), hash_tree_root(block_0));
   }

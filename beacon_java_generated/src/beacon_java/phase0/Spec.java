@@ -557,6 +557,15 @@ public class Spec {
     if (lessOrEqual(plus(GENESIS_EPOCH, pyint.create(1L)), get_current_epoch(state_0)).v()) {
       return;
     }
+    var previous_attestations_0 = get_matching_target_attestations(state_0, get_previous_epoch(state_0));
+    var current_attestations_0 = get_matching_target_attestations(state_0, get_current_epoch(state_0));
+    var total_active_balance_0 = get_total_active_balance(state_0);
+    var previous_target_balance_0 = get_attesting_balance(state_0, previous_attestations_0);
+    var current_target_balance_0 = get_attesting_balance(state_0, current_attestations_0);
+    weigh_justification_and_finalization(state_0, total_active_balance_0, previous_target_balance_0, current_target_balance_0);
+  }
+
+  public void weigh_justification_and_finalization(BeaconState state_0, Gwei total_active_balance_0, Gwei previous_epoch_target_balance_0, Gwei current_epoch_target_balance_0) {
     var previous_epoch_0 = get_previous_epoch(state_0);
     var current_epoch_0 = get_current_epoch(state_0);
     var old_previous_justified_checkpoint_0 = state_0.getPrevious_justified_checkpoint();
@@ -569,8 +578,7 @@ public class Spec {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(previous_epoch_0, get_block_root(state_0, previous_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(1L), new SSZBoolean(pyint.create(1L)));
     }
-    var matching_target_attestations_1 = get_matching_target_attestations(state_0, current_epoch_0);
-    if (greaterOrEqual(multiply(get_total_active_balance(state_0), pyint.create(2L)), multiply(get_attesting_balance(state_0, matching_target_attestations_1), pyint.create(3L))).v()) {
+    if (greaterOrEqual(multiply(total_active_balance_0, pyint.create(2L)), multiply(current_epoch_target_balance_0, pyint.create(3L))).v()) {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(current_epoch_0, get_block_root(state_0, current_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(1L)));
     }
@@ -973,16 +981,7 @@ public class Spec {
     var anchor_epoch_0 = get_current_epoch(anchor_state_0);
     var justified_checkpoint_0 = new Checkpoint(anchor_epoch_0, anchor_root_0);
     var finalized_checkpoint_0 = new Checkpoint(anchor_epoch_0, anchor_root_0);
-    return new Store(
-        new uint64(plus(anchor_state_0.getGenesis_time(), multiply(SECONDS_PER_SLOT, anchor_state_0.getSlot()))),
-        anchor_state_0.getGenesis_time(),
-        justified_checkpoint_0,
-        finalized_checkpoint_0,
-        justified_checkpoint_0,
-        new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_block_0))),
-        new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_state_0))),
-        new PyDict<>(new Pair<>(justified_checkpoint_0, copy(anchor_state_0))),
-        Store.latest_messages_default);
+    return new Store(new uint64(plus(anchor_state_0.getGenesis_time(), multiply(SECONDS_PER_SLOT, anchor_state_0.getSlot()))), anchor_state_0.getGenesis_time(), justified_checkpoint_0, finalized_checkpoint_0, justified_checkpoint_0, new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_block_0))), new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_state_0))), new PyDict<>(new Pair<>(justified_checkpoint_0, copy(anchor_state_0))), Store.latest_messages_default);
   }
 
   public pyint get_slots_since_genesis(Store store_0) {
@@ -1067,7 +1066,7 @@ public class Spec {
       To address the bouncing attack, only update conflicting justified
       checkpoints in the fork choice if in the early slots of the epoch.
       Otherwise, delay incorporation of new justified checkpoint until next epoch boundary.
-  
+
       See https://ethresear.ch/t/prevention-of-bouncing-attack-on-ffg/6114 for more detailed analysis and discussion.
       */
   public pybool should_update_justified_checkpoint(Store store_0, Checkpoint new_justified_checkpoint_0) {
@@ -1165,7 +1164,7 @@ public class Spec {
 
   /*
       Run ``on_attestation`` upon receiving a new ``attestation`` from either within a block or directly on the wire.
-  
+
       An ``attestation`` that is asserted as invalid may be valid at a later time,
       consider scheduling it for later processing in such case.
       */
@@ -1184,13 +1183,13 @@ public class Spec {
   }
 
   /*
-    Return the committee assignment in the ``epoch`` for ``validator_index``.
-    ``assignment`` returned is a tuple of the following form:
-        * ``assignmentlistOf(0)`` is the list of validators in the committee
-        * ``assignmentlistOf(1)`` is the index to which the committee is assigned
-        * ``assignmentlistOf(2)`` is the slot at which the committee is assigned
-    Return None if no assignment.
-    */
+      Return the committee assignment in the ``epoch`` for ``validator_index``.
+      ``assignment`` returned is a tuple of the following form:
+          * ``assignmentlistOf(0)`` is the list of validators in the committee
+          * ``assignmentlistOf(1)`` is the index to which the committee is assigned
+          * ``assignmentlistOf(2)`` is the slot at which the committee is assigned
+      Return None if no assignment.
+      */
   public Triple<Sequence<ValidatorIndex>,CommitteeIndex,Slot> get_committee_assignment(BeaconState state_0, Epoch epoch_0, ValidatorIndex validator_index_0) {
     var next_epoch_0 = new Epoch(plus(get_current_epoch(state_0), pyint.create(1L)));
     pyassert(lessOrEqual(next_epoch_0, epoch_0));

@@ -30,8 +30,7 @@ public class Exports {
 
 
   public static <T> PyList<T> list(Sequence<T> a) { return null; }
-  public static <T> Set<T> set(Sequence<T> s) { return null; }
-  public static <T> Set<T> set(Set<T> s) { return null; }
+  public static <T> Set<T> set(Iterable<T> s) { return null; }
   public static <T> PyList<T> sorted(Set<T> s) { return null; }
   public static <T> PyList<T> sorted(Sequence<T> s) { return null; }
   public static <T,E> PyList<T> sorted(Sequence<T> s, Function<T,E> key) { return null; }

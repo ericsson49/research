@@ -7,19 +7,11 @@ import java.util.function.Function;
  * This is a dummy implementation. The spec is assumed to be executed symbolically.
  */
 public class Set<E> implements Iterable<E> {
-  public Set<E> union(Set<E> a) {
+  public Set<E> union(Iterable<E> a) {
     return null;
   }
 
-  public Set<E> union(Sequence<E> a) {
-    return null;
-  }
-
-  public Set<E> intersection(Set<E> a) {
-    return null;
-  }
-
-  public Set<E> intersection(Sequence<E> a) {
+  public Set<E> intersection(Iterable<E> a) {
     return null;
   }
 

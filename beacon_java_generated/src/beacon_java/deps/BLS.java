@@ -22,8 +22,13 @@ public interface BLS {
     }
 
     @Override
-    public BLSSignature Aggregate(Object signatures_0) {
+    public BLSSignature Aggregate(Iterable<BLSSignature> signatures_0) {
       return TODO(BLSSignature.class);
+    }
+
+    @Override
+    public BLSPubkey AggregatePKs(Iterable<BLSPubkey> pubkeys) {
+      return TODO(BLSPubkey.class);
     }
 
     @Override
@@ -49,7 +54,9 @@ public interface BLS {
 
   BLSSignature Sign(pyint privkey_0, Root signing_root_0);
 
-  BLSSignature Aggregate(Object signatures_0);
+  BLSSignature Aggregate(Iterable<BLSSignature> signatures_0);
+
+  BLSPubkey AggregatePKs(Iterable<BLSPubkey> pks);
 
   pybool Verify(BLSPubkey pubkey, Root signing_root_0, BLSSignature signature);
 

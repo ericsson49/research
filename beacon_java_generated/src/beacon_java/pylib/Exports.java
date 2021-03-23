@@ -38,7 +38,7 @@ public class Exports {
   public static <T> uint64 len(Sequence<T> a) { return null; }
   public static <T> uint64 len(Set<T> a) { return null; }
   public static <A,B> Sequence<B> map(Function<A,B> f, Sequence<A> m) { return null; }
-  public static <A> Sequence<A> filter(Function<A,Boolean> f, Sequence<A> m) { return null; }
+  public static <A> Sequence<A> filter(Function<A,pyint> f, Sequence<A> m) { return null; }
   public static <A,B> Set<B> map(Function<A,B> f, Set<A> m) { return null; }
   public static <A> Set<A> filter(Function<A,pyint> f, Set<A> m) { return null; }
 

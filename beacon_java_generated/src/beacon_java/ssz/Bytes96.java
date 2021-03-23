@@ -14,6 +14,9 @@ public class Bytes96 implements pybytes {
   public Bytes96(Bytes96 value) {
   }
 
+  public Bytes96(pybytes value) {
+  }
+
   public Bytes96(String value) {
   }
 

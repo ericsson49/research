@@ -35,6 +35,7 @@ public interface Constants {
   Gwei EFFECTIVE_BALANCE_INCREMENT = new Gwei(multiply(power(pyint.create(2L), pyint.create(0L)), power(pyint.create(10L), pyint.create(9L))));
   Version GENESIS_FORK_VERSION = new Version("0x00000000");
   Bytes1 BLS_WITHDRAWAL_PREFIX = new Bytes1("0x00");
+  Bytes1 ETH1_ADDRESS_WITHDRAWAL_PREFIX = new Bytes1("0x01");
   uint64 GENESIS_DELAY = new uint64(pyint.create(604800L));
   uint64 SECONDS_PER_SLOT = new uint64(pyint.create(12L));
   uint64 SECONDS_PER_ETH1_BLOCK = new uint64(pyint.create(14L));

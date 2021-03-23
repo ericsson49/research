@@ -571,6 +571,15 @@ public class Spec {
     if (lessOrEqual(plus(GENESIS_EPOCH, pyint.create(1L)), get_current_epoch(state_0)).v()) {
       return;
     }
+    var previous_attestations_0 = get_matching_target_attestations(state_0, get_previous_epoch(state_0));
+    var current_attestations_0 = get_matching_target_attestations(state_0, get_current_epoch(state_0));
+    var total_active_balance_0 = get_total_active_balance(state_0);
+    var previous_target_balance_0 = get_attesting_balance(state_0, previous_attestations_0);
+    var current_target_balance_0 = get_attesting_balance(state_0, current_attestations_0);
+    weigh_justification_and_finalization(state_0, total_active_balance_0, previous_target_balance_0, current_target_balance_0);
+  }
+
+  public void weigh_justification_and_finalization(BeaconState state_0, Gwei total_active_balance_0, Gwei previous_epoch_target_balance_0, Gwei current_epoch_target_balance_0) {
     var previous_epoch_0 = get_previous_epoch(state_0);
     var current_epoch_0 = get_current_epoch(state_0);
     var old_previous_justified_checkpoint_0 = state_0.getPrevious_justified_checkpoint();
@@ -578,13 +587,11 @@ public class Spec {
     state_0.setPrevious_justified_checkpoint(state_0.getCurrent_justified_checkpoint());
     state_0.getJustification_bits().setSlice(pyint.create(1L), null, state_0.getJustification_bits().getSlice(pyint.create(0L), minus(JUSTIFICATION_BITS_LENGTH, pyint.create(1L))));
     state_0.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(0L)));
-    var matching_target_attestations_0 = get_matching_target_attestations(state_0, previous_epoch_0);
-    if (greaterOrEqual(multiply(get_total_active_balance(state_0), pyint.create(2L)), multiply(get_attesting_balance(state_0, matching_target_attestations_0), pyint.create(3L))).v()) {
+    if (greaterOrEqual(multiply(total_active_balance_0, pyint.create(2L)), multiply(previous_epoch_target_balance_0, pyint.create(3L))).v()) {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(previous_epoch_0, get_block_root(state_0, previous_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(1L), new SSZBoolean(pyint.create(1L)));
     }
-    var matching_target_attestations_1 = get_matching_target_attestations(state_0, current_epoch_0);
-    if (greaterOrEqual(multiply(get_total_active_balance(state_0), pyint.create(2L)), multiply(get_attesting_balance(state_0, matching_target_attestations_1), pyint.create(3L))).v()) {
+    if (greaterOrEqual(multiply(total_active_balance_0, pyint.create(2L)), multiply(current_epoch_target_balance_0, pyint.create(3L))).v()) {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(current_epoch_0, get_block_root(state_0, current_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(1L)));
     }
@@ -1823,9 +1830,9 @@ public class Spec {
   }
 
   /*
-    If ``pubkeys`` is an empty list, the given ``signature`` should be a stub ``NO_SIGNATURE``.
-    Otherwise, verify it with standard BLS AggregateVerify API.
-    */
+      If ``pubkeys`` is an empty list, the given ``signature`` should be a stub ``NO_SIGNATURE``.
+      Otherwise, verify it with standard BLS AggregateVerify API.
+      */
   public pybool optional_aggregate_verify(Sequence<BLSPubkey> pubkeys_0, Sequence<? extends Bytes32> messages_0, BLSSignature signature_0) {
     if (eq(len(pubkeys_0), pyint.create(0L)).v()) {
       return eq(signature_0, NO_SIGNATURE);
@@ -1880,8 +1887,8 @@ public class Spec {
     var offset_slots_0 = get_offset_slots(state_0, shard_0);
     pyassert(and(eq(len(transition_0.getShard_data_roots()), len(transition_0.getShard_states())), eq(len(transition_0.getShard_states()), len(transition_0.getShard_block_lengths())), eq(len(transition_0.getShard_block_lengths()), len(offset_slots_0))));
     pyassert(eq(transition_0.getStart_slot(), offset_slots_0.get(pyint.create(0L))));
-    PyList<ShardBlockHeader> headers_0 = new PyList<>();
-    PyList<ValidatorIndex> proposers_0 = new PyList<>();
+    var headers_0 = new PyList<ShardBlockHeader>();
+    var proposers_0 = new PyList<ValidatorIndex>();
     var prev_gasprice_0 = state_0.getShard_states().get(shard_0).getGasprice();
     var shard_parent_root_0 = state_0.getShard_states().get(shard_0).getLatest_block_root();
     var prev_gasprice_2 = prev_gasprice_0;
@@ -2008,7 +2015,7 @@ public class Spec {
     var previous_slot_0 = compute_previous_slot(state_0.getSlot());
     var previous_block_root_0 = get_block_root_at_slot(state_0, previous_slot_0);
     var total_reward_0 = new Gwei(pyint.create(0L));
-    PyList<BLSPubkey> signer_pubkeys_0 = new PyList<>();
+    var signer_pubkeys_0 = new PyList<BLSPubkey>();
     var total_reward_2 = total_reward_0;
     for (var tmp_27: enumerate(committee_0)) {
       var bit_index_0 = tmp_27.first;
@@ -2211,7 +2218,7 @@ public class Spec {
     var latest_shard_block_root_0 = beacon_head_state_0.getShard_states().get(shard_0).getLatest_block_root();
     var shard_head_root_0 = get_shard_head(store_0, shard_0);
     var root_0 = shard_head_root_0;
-    PyList<SignedShardBlock> signed_shard_blocks_0 = new PyList<>();
+    var signed_shard_blocks_0 = new PyList<SignedShardBlock>();
     var root_2 = root_0;
     while (not(eq(root_2, latest_shard_block_root_0)).v()) {
       var signed_shard_block_0 = shard_store_0.getSigned_blocks().get(root_2);
@@ -2243,8 +2250,8 @@ public class Spec {
   }
 
   public Pair<Sequence<Shard>,Sequence<Root>> get_shard_winning_roots(BeaconState state_0, Sequence<Attestation> attestations_0) {
-    PyList<Shard> shards_0 = new PyList<>();
-    PyList<Root> winning_roots_0 = new PyList<>();
+    var shards_0 = new PyList<Shard>();
+    var winning_roots_0 = new PyList<Root>();
     var online_indices_0 = get_online_validator_indices(state_0);
     var on_time_attestation_slot_0 = compute_previous_slot(state_0.getSlot());
     var committee_count_0 = get_committee_count_per_slot(state_0, compute_epoch_at_slot(on_time_attestation_slot_0));
@@ -2279,9 +2286,9 @@ public class Spec {
   }
 
   public Triple<Sequence<uint64>,Sequence<Root>,Sequence<ShardState>> get_shard_transition_fields(BeaconState beacon_state_0, Shard shard_0, Sequence<SignedShardBlock> shard_blocks_0) {
-    PyList<uint64> shard_block_lengths_0 = new PyList<>();
-    PyList<Root> shard_data_roots_0 = new PyList<>();
-    PyList<ShardState> shard_states_0 = new PyList<>();
+    var shard_block_lengths_0 = new PyList<uint64>();
+    var shard_data_roots_0 = new PyList<Root>();
+    var shard_states_0 = new PyList<ShardState>();
     var shard_state_0 = beacon_state_0.getShard_states().get(shard_0);
     var shard_block_slots_0 = shard_blocks_0.map((shard_block) -> shard_block.getMessage().getSlot());
     var offset_slots_0 = compute_offset_slots(get_latest_slot_for_shard(beacon_state_0, shard_0), new Slot(plus(beacon_state_0.getSlot(), pyint.create(1L))));

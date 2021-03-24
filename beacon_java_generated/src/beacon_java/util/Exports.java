@@ -1,5 +1,6 @@
 package beacon_java.util;
 
+import beacon_java.pylib.pyint;
 import beacon_java.ssz.uint64;
 
 import static beacon_java.pylib.Exports.less;
@@ -10,6 +11,11 @@ public class Exports {
     if (less(x, new uint64(1L)).v())
       throw new IllegalArgumentException("ceillog2 accepts only positive values, x=${x}");
     return new uint64(minus(x, new uint64(1L)).bit_length());
+  }
+  public static uint64 floorlog2(pyint x) {
+    if (less(x, new uint64(1L)).v())
+      throw new IllegalArgumentException("ceillog2 accepts only positive values, x=${x}");
+    return new uint64(minus(x.bit_length(), new uint64(1)));
   }
   public static void TODO() { throw new RuntimeException("TODO: not yet implemented"); }
   public static <T> T TODO(Class<T> p) { throw new RuntimeException("TODO: not yet implemented"); }

@@ -28,6 +28,7 @@ public class BeaconState {
   public static Checkpoint previous_justified_checkpoint_default = new Checkpoint();
   public static Checkpoint current_justified_checkpoint_default = new Checkpoint();
   public static Checkpoint finalized_checkpoint_default = new Checkpoint();
+  public static SSZList<uint64> inactivity_scores_default = new SSZList<uint64>();
   public static SyncCommittee current_sync_committee_default = new SyncCommittee();
   public static SyncCommittee next_sync_committee_default = new SyncCommittee();
   public uint64 genesis_time = genesis_time_default;
@@ -51,6 +52,7 @@ public class BeaconState {
   public Checkpoint previous_justified_checkpoint = previous_justified_checkpoint_default;
   public Checkpoint current_justified_checkpoint = current_justified_checkpoint_default;
   public Checkpoint finalized_checkpoint = finalized_checkpoint_default;
+  public SSZList<uint64> inactivity_scores = inactivity_scores_default;
   public SyncCommittee current_sync_committee = current_sync_committee_default;
   public SyncCommittee next_sync_committee = next_sync_committee_default;
   public BeaconState copy() { return this; }

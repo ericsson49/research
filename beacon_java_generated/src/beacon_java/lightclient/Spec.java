@@ -4,6 +4,7 @@ import static beacon_java.lightclient.Constants.*;
 import static beacon_java.deps.BLS.bls;
 import static beacon_java.lightclient.Utils.copy;
 import static beacon_java.pylib.Exports.*;
+import static beacon_java.util.Exports.floorlog2;
 
 import beacon_java.data.BLSPubkey;
 import beacon_java.data.BLSSignature;
@@ -14,8 +15,8 @@ import beacon_java.ssz.*;
 
 public class Spec {
   /*
-      Return the largest integer ``x`` such that ``x**2 <= n``.
-      */
+    Return the largest integer ``x`` such that ``x**2 <= n``.
+    */
   public uint64 integer_squareroot(uint64 n_0) {
     var x_0 = n_0;
     var y_0 = divide(plus(x_0, pyint.create(1L)), pyint.create(2L));
@@ -401,7 +402,7 @@ public class Spec {
     validator_0.setSlashed(new SSZBoolean(pybool.create(true)));
     validator_0.setWithdrawable_epoch(max(validator_0.getWithdrawable_epoch(), new Epoch(plus(epoch_0, EPOCHS_PER_SLASHINGS_VECTOR))));
     state_0.getSlashings().set(modulo(epoch_0, EPOCHS_PER_SLASHINGS_VECTOR), plus(state_0.getSlashings().get(modulo(epoch_0, EPOCHS_PER_SLASHINGS_VECTOR)), validator_0.getEffective_balance()));
-    decrease_balance(state_0, slashed_index_0, divide(validator_0.getEffective_balance(), HF1_MIN_SLASHING_PENALTY_QUOTIENT));
+    decrease_balance(state_0, slashed_index_0, divide(validator_0.getEffective_balance(), MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR));
     var proposer_index_0 = get_beacon_proposer_index(state_0);
     ValidatorIndex whistleblower_index_2;
     if (whistleblower_index_0 == null) {
@@ -423,7 +424,7 @@ public class Spec {
         BeaconState.genesis_validators_root_default,
         BeaconState.slot_default,
         fork_0,
-        new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, hash_tree_root(new BeaconBlockBody(BeaconBlockBody.randao_reveal_default, BeaconBlockBody.eth1_data_default, BeaconBlockBody.graffiti_default, BeaconBlockBody.proposer_slashings_default, BeaconBlockBody.attester_slashings_default, BeaconBlockBody.attestations_default, BeaconBlockBody.deposits_default, BeaconBlockBody.voluntary_exits_default, BeaconBlockBody.sync_committee_bits_default, BeaconBlockBody.sync_committee_signature_default))),
+        new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, hash_tree_root(new BeaconBlockBody(BeaconBlockBody.randao_reveal_default, BeaconBlockBody.eth1_data_default, BeaconBlockBody.graffiti_default, BeaconBlockBody.proposer_slashings_default, BeaconBlockBody.attester_slashings_default, BeaconBlockBody.attestations_default, BeaconBlockBody.deposits_default, BeaconBlockBody.voluntary_exits_default, BeaconBlockBody.sync_aggregate_default))),
         BeaconState.block_roots_default,
         BeaconState.state_roots_default,
         BeaconState.historical_roots_default,
@@ -440,6 +441,7 @@ public class Spec {
         BeaconState.previous_justified_checkpoint_default,
         BeaconState.current_justified_checkpoint_default,
         BeaconState.finalized_checkpoint_default,
+        BeaconState.inactivity_scores_default,
         BeaconState.current_sync_committee_default,
         BeaconState.next_sync_committee_default);
     var leaves_0 = list(map((deposit) -> deposit.getData(), deposits_0));
@@ -515,6 +517,7 @@ public class Spec {
 
   public void process_epoch(BeaconState state_0) {
     process_justification_and_finalization(state_0);
+    process_inactivity_updates(state_0);
     process_rewards_and_penalties(state_0);
     process_registry_updates(state_0);
     process_slashings(state_0);
@@ -549,6 +552,15 @@ public class Spec {
     if (lessOrEqual(plus(GENESIS_EPOCH, pyint.create(1L)), get_current_epoch(state_0)).v()) {
       return;
     }
+    var previous_indices_0 = get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, get_previous_epoch(state_0));
+    var current_indices_0 = get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, get_current_epoch(state_0));
+    var total_active_balance_0 = get_total_active_balance(state_0);
+    var previous_target_balance_0 = get_total_balance(state_0, previous_indices_0);
+    var current_target_balance_0 = get_total_balance(state_0, current_indices_0);
+    weigh_justification_and_finalization(state_0, total_active_balance_0, previous_target_balance_0, current_target_balance_0);
+  }
+
+  public void weigh_justification_and_finalization(BeaconState state_0, Gwei total_active_balance_0, Gwei previous_epoch_target_balance_0, Gwei current_epoch_target_balance_0) {
     var previous_epoch_0 = get_previous_epoch(state_0);
     var current_epoch_0 = get_current_epoch(state_0);
     var old_previous_justified_checkpoint_0 = state_0.getPrevious_justified_checkpoint();
@@ -556,13 +568,11 @@ public class Spec {
     state_0.setPrevious_justified_checkpoint(state_0.getCurrent_justified_checkpoint());
     state_0.getJustification_bits().setSlice(pyint.create(1L), null, state_0.getJustification_bits().getSlice(pyint.create(0L), minus(JUSTIFICATION_BITS_LENGTH, pyint.create(1L))));
     state_0.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(0L)));
-    var matching_target_indices_0 = get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, previous_epoch_0);
-    if (greaterOrEqual(multiply(get_total_active_balance(state_0), pyint.create(2L)), multiply(get_total_balance(state_0, matching_target_indices_0), pyint.create(3L))).v()) {
+    if (greaterOrEqual(multiply(total_active_balance_0, pyint.create(2L)), multiply(previous_epoch_target_balance_0, pyint.create(3L))).v()) {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(previous_epoch_0, get_block_root(state_0, previous_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(1L), new SSZBoolean(pyint.create(1L)));
     }
-    var matching_target_indices_1 = get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, current_epoch_0);
-    if (greaterOrEqual(multiply(get_total_active_balance(state_0), pyint.create(2L)), multiply(get_total_balance(state_0, matching_target_indices_1), pyint.create(3L))).v()) {
+    if (greaterOrEqual(multiply(total_active_balance_0, pyint.create(2L)), multiply(current_epoch_target_balance_0, pyint.create(3L))).v()) {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(current_epoch_0, get_block_root(state_0, current_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(1L)));
     }
@@ -582,9 +592,8 @@ public class Spec {
   }
 
   public Gwei get_base_reward(BeaconState state_0, ValidatorIndex index_0) {
-    var total_balance_0 = get_total_active_balance(state_0);
-    var effective_balance_0 = state_0.getValidators().get(index_0).getEffective_balance();
-    return new Gwei(divide(multiply(effective_balance_0, BASE_REWARD_FACTOR), integer_squareroot(total_balance_0)));
+    var increments_0 = divide(state_0.getValidators().get(index_0).getEffective_balance(), EFFECTIVE_BALANCE_INCREMENT);
+    return new Gwei(multiply(increments_0, get_base_reward_per_increment(state_0)));
   }
 
   public Gwei get_proposer_reward(BeaconState state_0, ValidatorIndex attesting_index_0) {
@@ -630,24 +639,27 @@ public class Spec {
   }
 
   /*
-      Compute the penalties associated with the inactivity leak, by scanning through the participation
-      flags to determine who participated and who did not, applying the leak penalty globally and applying
-      compensatory rewards to participants.
+      Return the inactivity penalty deltas by considering timely target participation flags and inactivity scores.
       */
   public Pair<Sequence<Gwei>,Sequence<Gwei>> get_inactivity_penalty_deltas(BeaconState state_0) {
+    var rewards_0 = range(len(state_0.getValidators())).map((_0) -> new Gwei(pyint.create(0L)));
     var penalties_0 = range(len(state_0.getValidators())).map((_0) -> new Gwei(pyint.create(0L)));
     if (is_in_inactivity_leak(state_0).v()) {
-      var reward_numerator_sum_0 = sum(get_flag_indices_and_numerators().map((tmp_9) -> { var _1 = tmp_9.first; var numerator = tmp_9.second; return numerator; }));
-      var matching_target_attesting_indices_0 = get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, get_previous_epoch(state_0));
+      var previous_epoch_0 = get_previous_epoch(state_0);
+      var matching_target_indices_0 = get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, previous_epoch_0);
       for (var index_0: get_eligible_validator_indices(state_0)) {
-        penalties_0.set(index_0, plus(penalties_0.get(index_0), new Gwei(divide(multiply(get_base_reward(state_0, index_0), reward_numerator_sum_0), FLAG_DENOMINATOR))));
-        if (not(contains(matching_target_attesting_indices_0, index_0)).v()) {
-          var effective_balance_0 = state_0.getValidators().get(index_0).getEffective_balance();
-          penalties_0.set(index_0, plus(penalties_0.get(index_0), new Gwei(divide(multiply(effective_balance_0, get_finality_delay(state_0)), HF1_INACTIVITY_PENALTY_QUOTIENT))));
+        for (var tmp_9: get_flag_indices_and_weights()) {
+          var __0 = tmp_9.first;
+          var weight_0 = tmp_9.second;
+          penalties_0.set(index_0, plus(penalties_0.get(index_0), new Gwei(divide(multiply(get_base_reward(state_0, index_0), weight_0), WEIGHT_DENOMINATOR))));
+        }
+        if (not(contains(matching_target_indices_0, index_0)).v()) {
+          var penalty_numerator_0 = multiply(state_0.getValidators().get(index_0).getEffective_balance(), state_0.getInactivity_scores().get(index_0));
+          var penalty_denominator_0 = multiply(INACTIVITY_SCORE_BIAS, INACTIVITY_PENALTY_QUOTIENT_ALTAIR);
+          penalties_0.set(index_0, plus(penalties_0.get(index_0), new Gwei(divide(penalty_numerator_0, penalty_denominator_0))));
         }
       }
     }
-    var rewards_0 = range(len(state_0.getValidators())).map((_0) -> new Gwei(pyint.create(0L)));
     return new Pair<>(rewards_0, penalties_0);
   }
 
@@ -655,10 +667,11 @@ public class Spec {
     if (eq(get_current_epoch(state_0), GENESIS_EPOCH).v()) {
       return;
     }
-    var flag_deltas_0 = get_flag_indices_and_numerators()
+    var flag_indices_and_numerators_0 = get_flag_indices_and_weights();
+    var flag_deltas_0 = flag_indices_and_numerators_0
         .map((tmp_10) -> {
-          var flag_index = tmp_10.first; var flag_numerator = tmp_10.second;
-          return get_flag_deltas(state_0, flag_index, new uint64(flag_numerator)); });
+          var index = tmp_10.first; var numerator = tmp_10.second;
+          return get_flag_index_deltas(state_0, index, new uint64(numerator)); });
     var deltas_0 = plus(flag_deltas_0, PyList.of(get_inactivity_penalty_deltas(state_0)));
     for (var tmp_11: deltas_0) {
       var rewards_0 = tmp_11.first;
@@ -691,7 +704,7 @@ public class Spec {
   public void process_slashings(BeaconState state_0) {
     var epoch_0 = get_current_epoch(state_0);
     var total_balance_0 = get_total_active_balance(state_0);
-    var adjusted_total_slashing_balance_0 = min(multiply(sum(state_0.getSlashings()), HF1_PROPORTIONAL_SLASHING_MULTIPLIER), total_balance_0);
+    var adjusted_total_slashing_balance_0 = min(multiply(sum(state_0.getSlashings()), PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR), total_balance_0);
     for (var tmp_15: enumerate(state_0.getValidators())) {
       var index_0 = tmp_15.first;
       var validator_0 = tmp_15.second;
@@ -749,7 +762,7 @@ public class Spec {
     process_randao(state_0, block_0.getBody());
     process_eth1_data(state_0, block_0.getBody());
     process_operations(state_0, block_0.getBody());
-    process_sync_committee(state_0, block_0.getBody());
+    process_sync_committee(state_0, block_0.getBody().getSync_aggregate());
   }
 
   public void process_block_header(BeaconState state_0, BeaconBlock block_0) {
@@ -874,12 +887,12 @@ public class Spec {
     var proposer_reward_numerator_2 = proposer_reward_numerator_0;
     for (var index_0: get_attesting_indices(state_0, data_0, attestation_0.getAggregation_bits())) {
       var proposer_reward_numerator_3 = proposer_reward_numerator_2;
-      for (var tmp_17: get_flag_indices_and_numerators()) {
+      for (var tmp_17: get_flag_indices_and_weights()) {
         var flag_index_0 = tmp_17.first;
-        var flag_numerator_0 = tmp_17.second;
+        var weight_0 = tmp_17.second;
         if (and(contains(participation_flag_indices_0, flag_index_0), not(has_flag(epoch_participation_2.get(index_0), flag_index_0))).v()) {
           epoch_participation_2.set(index_0, add_flag(epoch_participation_2.get(index_0), flag_index_0));
-          var proposer_reward_numerator_1 = plus(proposer_reward_numerator_3, multiply(get_base_reward(state_0, index_0), flag_numerator_0));
+          var proposer_reward_numerator_1 = plus(proposer_reward_numerator_3, multiply(get_base_reward(state_0, index_0), weight_0));
           proposer_reward_numerator_3 = proposer_reward_numerator_1;
         } else {
           proposer_reward_numerator_3 = proposer_reward_numerator_3;
@@ -887,7 +900,7 @@ public class Spec {
       }
       proposer_reward_numerator_2 = proposer_reward_numerator_3;
     }
-    var proposer_reward_0 = new Gwei(divide(proposer_reward_numerator_2, multiply(FLAG_DENOMINATOR, PROPOSER_REWARD_QUOTIENT)));
+    var proposer_reward_0 = new Gwei(divide(proposer_reward_numerator_2, multiply(WEIGHT_DENOMINATOR, PROPOSER_REWARD_QUOTIENT)));
     increase_balance(state_0, get_beacon_proposer_index(state_0), proposer_reward_0);
   }
 
@@ -902,18 +915,18 @@ public class Spec {
     state_0.setEth1_deposit_index(plus(state_0.getEth1_deposit_index(), pyint.create(1L)));
     var pubkey_0 = deposit_0.getData().getPubkey();
     var amount_0 = deposit_0.getData().getAmount();
-    var validator_pubkeys_0 = state_0.getValidators().map((v) -> v.getPubkey());
+    var validator_pubkeys_0 = state_0.getValidators().map((validator) -> validator.getPubkey());
     if (not(contains(validator_pubkeys_0, pubkey_0)).v()) {
       var deposit_message_0 = new DepositMessage(deposit_0.getData().getPubkey(), deposit_0.getData().getWithdrawal_credentials(), deposit_0.getData().getAmount());
       var domain_0 = compute_domain(DOMAIN_DEPOSIT, null, null);
       var signing_root_0 = compute_signing_root(deposit_message_0, domain_0);
-      if (not(bls.Verify(pubkey_0, signing_root_0, deposit_0.getData().getSignature())).v()) {
-        return;
+      if (bls.Verify(pubkey_0, signing_root_0, deposit_0.getData().getSignature()).v()) {
+        state_0.getValidators().append(get_validator_from_deposit(state_0, deposit_0));
+        state_0.getBalances().append(amount_0);
+        state_0.getPrevious_epoch_participation().append(new ParticipationFlags(pyint.create(0L)));
+        state_0.getCurrent_epoch_participation().append(new ParticipationFlags(pyint.create(0L)));
+        state_0.getInactivity_scores().append(new uint64(pyint.create(0L)));
       }
-      state_0.getValidators().append(get_validator_from_deposit(state_0, deposit_0));
-      state_0.getBalances().append(amount_0);
-      state_0.getPrevious_epoch_participation().append(new ParticipationFlags(pyint.create(0L)));
-      state_0.getCurrent_epoch_participation().append(new ParticipationFlags(pyint.create(0L)));
     } else {
       var index_0 = new ValidatorIndex(validator_pubkeys_0.index(pubkey_0));
       increase_balance(state_0, index_0, amount_0);
@@ -939,7 +952,7 @@ public class Spec {
     var anchor_epoch_0 = get_current_epoch(anchor_state_0);
     var justified_checkpoint_0 = new Checkpoint(anchor_epoch_0, anchor_root_0);
     var finalized_checkpoint_0 = new Checkpoint(anchor_epoch_0, anchor_root_0);
-    return new Store(new uint64(plus(anchor_state_0.getGenesis_time(), multiply(SECONDS_PER_SLOT, anchor_state_0.getSlot()))), anchor_state_0.getGenesis_time(), justified_checkpoint_0, finalized_checkpoint_0, justified_checkpoint_0, new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_block_0))), new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_state_0))), new PyDict<>(new Pair<>(justified_checkpoint_0, copy(anchor_state_0))), Store.latest_messages_default);
+    return new Store(new uint64(plus(anchor_state_0.getGenesis_time(), multiply(SECONDS_PER_SLOT, anchor_state_0.getSlot()))), anchor_state_0.getGenesis_time(), justified_checkpoint_0, finalized_checkpoint_0, justified_checkpoint_0, PyDict.of(new Pair<>(anchor_root_0, copy(anchor_block_0))), PyDict.of(new Pair<>(anchor_root_0, copy(anchor_state_0))), PyDict.of(new Pair<>(justified_checkpoint_0, copy(anchor_state_0))), Store.latest_messages_default);
   }
 
   public pyint get_slots_since_genesis(Store store_0) {
@@ -1000,7 +1013,7 @@ public class Spec {
       */
   public PyDict<Root,BeaconBlock> get_filtered_block_tree(Store store_0) {
     var base_0 = store_0.getJustified_checkpoint().getRoot();
-    PyDict<Root,BeaconBlock> blocks_0 = new PyDict<>();
+    PyDict<Root,BeaconBlock> blocks_0 = PyDict.of();
     filter_block_tree(store_0, base_0, blocks_0);
     return blocks_0;
   }
@@ -1301,8 +1314,8 @@ public class Spec {
     return bls.FastAggregateVerify(pubkeys_0, message_0, signature_0);
   }
 
-  public Sequence<Pair<pyint,pyint>> get_flag_indices_and_numerators() {
-    return PyList.of(new Pair<>(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_FLAG_NUMERATOR), new Pair<>(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_FLAG_NUMERATOR), new Pair<>(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_FLAG_NUMERATOR));
+  public Sequence<Pair<pyint,pyint>> get_flag_indices_and_weights() {
+    return PyList.of(new Pair<>(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), new Pair<>(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), new Pair<>(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT));
   }
 
   public ParticipationFlags add_flag(ParticipationFlags flags_0, pyint flag_index_0) {
@@ -1346,14 +1359,18 @@ public class Spec {
       */
   public SyncCommittee get_sync_committee(BeaconState state_0, Epoch epoch_0) {
     var indices_0 = get_sync_committee_indices(state_0, epoch_0);
-    var validators_0 = indices_0.map((index) -> state_0.getValidators().get(index));
-    var pubkeys_0 = validators_0.map((validator) -> validator.getPubkey());
-    var aggregates_0 = range(pyint.create(0L), len(pubkeys_0), SYNC_SUBCOMMITTEE_SIZE).map((i) -> bls.AggregatePKs(pubkeys_0.getSlice(i, plus(i, SYNC_SUBCOMMITTEE_SIZE))));
-    return new SyncCommittee(new SSZVector<>(pubkeys_0), new SSZVector<>(aggregates_0));
+    var pubkeys_0 = indices_0.map((index) -> state_0.getValidators().get(index).getPubkey());
+    var partition_0 = range(pyint.create(0L), len(pubkeys_0), SYNC_PUBKEYS_PER_AGGREGATE).map((i) -> pubkeys_0.getSlice(i, plus(i, SYNC_PUBKEYS_PER_AGGREGATE)));
+    var pubkey_aggregates_0 = partition_0.map((preaggregate) -> bls.AggregatePKs(preaggregate));
+    return new SyncCommittee(new SSZVector<>(pubkeys_0), new SSZVector<>(pubkey_aggregates_0));
+  }
+
+  public Gwei get_base_reward_per_increment(BeaconState state_0) {
+    return new Gwei(divide(multiply(EFFECTIVE_BALANCE_INCREMENT, BASE_REWARD_FACTOR), integer_squareroot(get_total_active_balance(state_0))));
   }
 
   /*
-      Retrieve the active and unslashed validator indices for the given epoch and flag index.
+      Return the active and unslashed validator indices for the given epoch and flag index.
       */
   public Set<ValidatorIndex> get_unslashed_participating_indices(BeaconState state_0, pyint flag_index_0, Epoch epoch_0) {
     pyassert(contains(new Pair<>(get_previous_epoch(state_0), get_current_epoch(state_0)), epoch_0));
@@ -1371,10 +1388,9 @@ public class Spec {
   }
 
   /*
-      Compute the rewards and penalties associated with a particular duty, by scanning through the participation
-      flags to determine who participated and who did not and assigning them the appropriate rewards and penalties.
+      Return the deltas for a given flag index by scanning through the participation flags.
       */
-  public Pair<Sequence<Gwei>,Sequence<Gwei>> get_flag_deltas(BeaconState state_0, pyint flag_index_0, uint64 numerator_0) {
+  public Pair<Sequence<Gwei>,Sequence<Gwei>> get_flag_index_deltas(BeaconState state_0, pyint flag_index_0, uint64 weight_0) {
     var rewards_0 = multiply(PyList.of(new Gwei(pyint.create(0L))), len(state_0.getValidators()));
     var penalties_0 = multiply(PyList.of(new Gwei(pyint.create(0L))), len(state_0.getValidators()));
     var unslashed_participating_indices_0 = get_unslashed_participating_indices(state_0, flag_index_0, get_previous_epoch(state_0));
@@ -1385,39 +1401,54 @@ public class Spec {
       var base_reward_0 = get_base_reward(state_0, index_0);
       if (contains(unslashed_participating_indices_0, index_0).v()) {
         if (is_in_inactivity_leak(state_0).v()) {
-          rewards_0.set(index_0, divide(multiply(base_reward_0, numerator_0), FLAG_DENOMINATOR));
+          rewards_0.set(index_0, plus(rewards_0.get(index_0), new Gwei(divide(multiply(base_reward_0, weight_0), WEIGHT_DENOMINATOR))));
         } else {
-          rewards_0.set(index_0, divide(multiply(multiply(base_reward_0, numerator_0), unslashed_participating_increments_0), multiply(active_increments_0, FLAG_DENOMINATOR)));
+          var reward_numerator_0 = multiply(multiply(base_reward_0, weight_0), unslashed_participating_increments_0);
+          rewards_0.set(index_0, plus(rewards_0.get(index_0), new Gwei(divide(reward_numerator_0, multiply(active_increments_0, WEIGHT_DENOMINATOR)))));
         }
       } else {
-        penalties_0.set(index_0, divide(multiply(base_reward_0, numerator_0), FLAG_DENOMINATOR));
+        penalties_0.set(index_0, plus(penalties_0.get(index_0), new Gwei(divide(multiply(base_reward_0, weight_0), WEIGHT_DENOMINATOR))));
       }
     }
     return new Pair<>(rewards_0, penalties_0);
   }
 
-  public void process_sync_committee(BeaconState state_0, BeaconBlockBody body_0) {
+  public void process_sync_committee(BeaconState state_0, SyncAggregate aggregate_0) {
     var previous_slot_0 = new Slot(minus(max(pyint.create(state_0.getSlot()), pyint.create(1L)), pyint.create(1L)));
     var committee_indices_0 = get_sync_committee_indices(state_0, get_current_epoch(state_0));
-    var participant_indices_0 = zip(committee_indices_0, body_0.getSync_committee_bits()).filter((tmp_18) -> { var index = tmp_18.first; var bit = tmp_18.second; return bit; }).map((tmp_19) -> { var index = tmp_19.first; var bit = tmp_19.second; return index; });
+    var included_indices_0 = zip(committee_indices_0, aggregate_0.getSync_committee_bits()).filter((tmp_18) -> { var index = tmp_18.first; var bit = tmp_18.second; return bit; }).map((tmp_19) -> { var index = tmp_19.first; var bit = tmp_19.second; return index; });
     var committee_pubkeys_0 = state_0.getCurrent_sync_committee().getPubkeys();
-    var participant_pubkeys_0 = zip(committee_pubkeys_0, body_0.getSync_committee_bits()).filter((tmp_20) -> { var pubkey = tmp_20.first; var bit = tmp_20.second; return bit; }).map((tmp_21) -> { var pubkey = tmp_21.first; var bit = tmp_21.second; return pubkey; });
+    var included_pubkeys_0 = zip(committee_pubkeys_0, aggregate_0.getSync_committee_bits()).filter((tmp_20) -> { var pubkey = tmp_20.first; var bit = tmp_20.second; return bit; }).map((tmp_21) -> { var pubkey = tmp_21.first; var bit = tmp_21.second; return pubkey; });
     var domain_0 = get_domain(state_0, DOMAIN_SYNC_COMMITTEE, compute_epoch_at_slot(previous_slot_0));
     var signing_root_0 = compute_signing_root(get_block_root_at_slot(state_0, previous_slot_0), domain_0);
-    pyassert(eth2_fast_aggregate_verify(participant_pubkeys_0, signing_root_0, body_0.getSync_committee_signature()));
-    var proposer_rewards_0 = new Gwei(pyint.create(0L));
-    var active_validator_count_0 = new uint64(len(get_active_validator_indices(state_0, get_current_epoch(state_0))));
-    var proposer_rewards_2 = proposer_rewards_0;
-    for (var participant_index_0: participant_indices_0) {
-      var proposer_reward_0 = get_proposer_reward(state_0, participant_index_0);
-      var proposer_rewards_1 = plus(proposer_rewards_2, proposer_reward_0);
-      var base_reward_0 = get_base_reward(state_0, participant_index_0);
-      var max_participant_reward_0 = minus(base_reward_0, proposer_reward_0);
-      var reward_0 = new Gwei(divide(multiply(max_participant_reward_0, active_validator_count_0), multiply(len(committee_indices_0), SLOTS_PER_EPOCH)));
-      increase_balance(state_0, participant_index_0, reward_0);
-      proposer_rewards_2 = proposer_rewards_1;
+    pyassert(eth2_fast_aggregate_verify(included_pubkeys_0, signing_root_0, aggregate_0.getSync_committee_signature()));
+    var total_active_increments_0 = divide(get_total_active_balance(state_0), EFFECTIVE_BALANCE_INCREMENT);
+    var total_base_rewards_0 = new Gwei(multiply(get_base_reward_per_increment(state_0), total_active_increments_0));
+    var max_epoch_rewards_0 = new Gwei(divide(multiply(total_base_rewards_0, SYNC_REWARD_WEIGHT), WEIGHT_DENOMINATOR));
+    var max_slot_rewards_0 = new Gwei(divide(divide(multiply(max_epoch_rewards_0, len(included_indices_0)), len(committee_indices_0)), SLOTS_PER_EPOCH));
+    var committee_effective_balance_0 = sum(included_indices_0.map((index) -> state_0.getValidators().get(index).getEffective_balance()));
+    var committee_effective_balance_1 = max(EFFECTIVE_BALANCE_INCREMENT, committee_effective_balance_0);
+    for (var included_index_0: included_indices_0) {
+      var effective_balance_0 = state_0.getValidators().get(included_index_0).getEffective_balance();
+      var inclusion_reward_0 = new Gwei(divide(multiply(max_slot_rewards_0, effective_balance_0), committee_effective_balance_1));
+      var proposer_reward_0 = new Gwei(divide(inclusion_reward_0, PROPOSER_REWARD_QUOTIENT));
+      increase_balance(state_0, get_beacon_proposer_index(state_0), proposer_reward_0);
+      increase_balance(state_0, included_index_0, minus(inclusion_reward_0, proposer_reward_0));
     }
-    increase_balance(state_0, get_beacon_proposer_index(state_0), proposer_rewards_2);
+  }
+
+  public void process_inactivity_updates(BeaconState state_0) {
+    for (var index_0: get_eligible_validator_indices(state_0)) {
+      if (contains(get_unslashed_participating_indices(state_0, TIMELY_TARGET_FLAG_INDEX, get_previous_epoch(state_0)), index_0).v()) {
+        if (greater(pyint.create(0L), state_0.getInactivity_scores().get(index_0)).v()) {
+          state_0.getInactivity_scores().set(index_0, minus(state_0.getInactivity_scores().get(index_0), pyint.create(1L)));
+        }
+      } else {
+        if (is_in_inactivity_leak(state_0).v()) {
+          state_0.getInactivity_scores().set(index_0, plus(state_0.getInactivity_scores().get(index_0), INACTIVITY_SCORE_BIAS));
+        }
+      }
+    }
   }
 
   public void process_participation_flag_updates(BeaconState state_0) {
@@ -1433,18 +1464,153 @@ public class Spec {
     }
   }
 
-  public BeaconState upgrade_to_lightclient_patch(BeaconState pre_0) {
+  public BeaconState upgrade_to_altair(BeaconState pre_0) {
     var epoch_0 = get_current_epoch(pre_0);
     var post_0 = new BeaconState(pre_0.getGenesis_time(), pre_0.getGenesis_validators_root(), pre_0.getSlot(),
-        new Fork(pre_0.getFork().getCurrent_version(), LIGHTCLIENT_PATCH_FORK_VERSION, epoch_0), pre_0.getLatest_block_header(), pre_0.getBlock_roots(),
+        new Fork(pre_0.getFork().getCurrent_version(), ALTAIR_FORK_VERSION, epoch_0), pre_0.getLatest_block_header(), pre_0.getBlock_roots(),
         pre_0.getState_roots(), pre_0.getHistorical_roots(), pre_0.getEth1_data(), pre_0.getEth1_data_votes(),
         pre_0.getEth1_deposit_index(), pre_0.getValidators(), pre_0.getBalances(), pre_0.getRandao_mixes(), pre_0.getSlashings(),
         new SSZList<>(range(len(pre_0.getValidators())).map((_0) -> new ParticipationFlags(pyint.create(0L)))),
         new SSZList<>(range(len(pre_0.getValidators())).map((_0) -> new ParticipationFlags(pyint.create(0L)))),
-        pre_0.getJustification_bits(), pre_0.getPrevious_justified_checkpoint(), pre_0.getCurrent_justified_checkpoint(), pre_0.getFinalized_checkpoint(), BeaconState.current_sync_committee_default, BeaconState.next_sync_committee_default);
+        pre_0.getJustification_bits(), pre_0.getPrevious_justified_checkpoint(), pre_0.getCurrent_justified_checkpoint(), pre_0.getFinalized_checkpoint(), new SSZList<>(range(len(pre_0.getValidators())).map((_0) -> new uint64(pyint.create(0L)))), BeaconState.current_sync_committee_default, BeaconState.next_sync_committee_default);
     post_0.setCurrent_sync_committee(get_sync_committee(post_0, get_current_epoch(post_0)));
     post_0.setNext_sync_committee(get_sync_committee(post_0, plus(get_current_epoch(post_0), EPOCHS_PER_SYNC_COMMITTEE_PERIOD)));
     return post_0;
+  }
+
+  public uint64 compute_sync_committee_period(Epoch epoch_0) {
+    return divide(epoch_0, EPOCHS_PER_SYNC_COMMITTEE_PERIOD);
+  }
+
+  public pybool is_assigned_to_sync_committee(BeaconState state_0, Epoch epoch_0, ValidatorIndex validator_index_0) {
+    var sync_committee_period_0 = compute_sync_committee_period(epoch_0);
+    var current_epoch_0 = get_current_epoch(state_0);
+    var current_sync_committee_period_0 = compute_sync_committee_period(current_epoch_0);
+    var next_sync_committee_period_0 = plus(current_sync_committee_period_0, pyint.create(1L));
+    pyassert(contains(new Pair<>(current_sync_committee_period_0, next_sync_committee_period_0), sync_committee_period_0));
+    var pubkey_0 = state_0.getValidators().get(validator_index_0).getPubkey();
+    if (eq(sync_committee_period_0, current_sync_committee_period_0).v()) {
+      return contains(state_0.getCurrent_sync_committee().getPubkeys(), pubkey_0);
+    } else {
+      return contains(state_0.getNext_sync_committee().getPubkeys(), pubkey_0);
+    }
+  }
+
+  public void process_sync_committee_contributions(BeaconState state_0, BeaconBlock block_0, Set<SyncCommitteeContribution> contributions_0) {
+    var sync_aggregate_0 = new SyncAggregate(SyncAggregate.sync_committee_bits_default, SyncAggregate.sync_committee_signature_default);
+    var signatures_0 = new PyList<BLSSignature>();
+    for (var contribution_0: contributions_0) {
+      var subcommittee_index_0 = contribution_0.getSubcommittee_index();
+      for (var tmp_22: enumerate(contribution_0.getAggregation_bits())) {
+        var index_0 = tmp_22.first;
+        var participated_0 = tmp_22.second;
+        if (pybool(participated_0).v()) {
+          var participant_index_0 = plus(multiply(divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT), subcommittee_index_0), index_0);
+          sync_aggregate_0.getSync_committee_bits().set(participant_index_0, new SSZBoolean(pybool.create(true)));
+        }
+      }
+      signatures_0.append(contribution_0.getSignature());
+    }
+    sync_aggregate_0.setSync_committee_signature(bls.Aggregate(signatures_0));
+    block_0.getBody().setSync_aggregate(sync_aggregate_0);
+  }
+
+  public SyncCommitteeSignature get_sync_committee_signature(BeaconState state_0, ValidatorIndex validator_index_0, pyint privkey_0) {
+    var epoch_0 = get_current_epoch(state_0);
+    var domain_0 = get_domain(state_0, DOMAIN_SYNC_COMMITTEE, epoch_0);
+    var signing_root_0 = compute_signing_root(get_block_root_at_slot(state_0, state_0.getSlot()), domain_0);
+    var signature_0 = bls.Sign(privkey_0, signing_root_0);
+    return new SyncCommitteeSignature(state_0.getSlot(), SyncCommitteeSignature.beacon_block_root_default, validator_index_0, signature_0);
+  }
+
+  public Sequence<uint64> compute_subnets_for_sync_committee(BeaconState state_0, ValidatorIndex validator_index_0) {
+    var target_pubkey_0 = state_0.getValidators().get(validator_index_0).getPubkey();
+    var sync_committee_indices_0 = enumerate(state_0.getCurrent_sync_committee().getPubkeys()).filter((tmp_23) -> { var index = tmp_23.first; var pubkey = tmp_23.second; return eq(pubkey, target_pubkey_0); }).map((tmp_24) -> { var index = tmp_24.first; var pubkey = tmp_24.second; return index; });
+    return sync_committee_indices_0.map((index) -> new uint64(divide(index, divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT))));
+  }
+
+  public BLSSignature get_sync_committee_slot_signature(BeaconState state_0, Slot slot_0, uint64 subcommittee_index_0, pyint privkey_0) {
+    var domain_0 = get_domain(state_0, DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF, compute_epoch_at_slot(slot_0));
+    var signing_data_0 = new SyncCommitteeSigningData(slot_0, subcommittee_index_0);
+    var signing_root_0 = compute_signing_root(signing_data_0, domain_0);
+    return bls.Sign(privkey_0, signing_root_0);
+  }
+
+  public pybool is_sync_committee_aggregator(BeaconState state_0, BLSSignature signature_0) {
+    var modulo_0 = max(pyint.create(1L), divide(divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT), TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE));
+    return eq(modulo(bytes_to_uint64(hash(signature_0).getSlice(pyint.create(0L), pyint.create(8L))), modulo_0), pyint.create(0L));
+  }
+
+  public ContributionAndProof get_contribution_and_proof(BeaconState state_0, ValidatorIndex aggregator_index_0, SyncCommitteeContribution contribution_0, pyint privkey_0) {
+    var selection_proof_0 = get_sync_committee_slot_signature(state_0, contribution_0.getSlot(), contribution_0.getSubcommittee_index(), privkey_0);
+    return new ContributionAndProof(aggregator_index_0, contribution_0, selection_proof_0);
+  }
+
+  public BLSSignature get_contribution_and_proof_signature(BeaconState state_0, ContributionAndProof contribution_and_proof_0, pyint privkey_0) {
+    var contribution_0 = contribution_and_proof_0.getContribution();
+    var domain_0 = get_domain(state_0, DOMAIN_CONTRIBUTION_AND_PROOF, compute_epoch_at_slot(contribution_0.getSlot()));
+    var signing_root_0 = compute_signing_root(contribution_and_proof_0, domain_0);
+    return bls.Sign(privkey_0, signing_root_0);
+  }
+
+  public uint64 get_subtree_index(GeneralizedIndex generalized_index_0) {
+    return new uint64(modulo(generalized_index_0, power(pyint.create(2L), floorlog2(generalized_index_0))));
+  }
+
+  public void validate_light_client_update(LightClientSnapshot snapshot_0, LightClientUpdate update_0, Root genesis_validators_root_0) {
+    pyassert(greater(snapshot_0.getHeader().getSlot(), update_0.getHeader().getSlot()));
+    var snapshot_period_0 = divide(compute_epoch_at_slot(snapshot_0.getHeader().getSlot()), EPOCHS_PER_SYNC_COMMITTEE_PERIOD);
+    var update_period_0 = divide(compute_epoch_at_slot(update_0.getHeader().getSlot()), EPOCHS_PER_SYNC_COMMITTEE_PERIOD);
+    pyassert(contains(new Pair<>(snapshot_period_0, plus(snapshot_period_0, pyint.create(1L))), update_period_0));
+    BeaconBlockHeader signed_header_2;
+    if (eq(update_0.getFinality_header(), new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, BeaconBlockHeader.body_root_default)).v()) {
+      var signed_header_0 = update_0.getHeader();
+      pyassert(eq(update_0.getFinality_branch(), range(floorlog2(FINALIZED_ROOT_INDEX)).map((_0) -> new Bytes32())));
+      signed_header_2 = signed_header_0;
+    } else {
+      var signed_header_1 = update_0.getFinality_header();
+      pyassert(is_valid_merkle_branch(hash_tree_root(update_0.getHeader()), update_0.getFinality_branch(), floorlog2(FINALIZED_ROOT_INDEX), get_subtree_index(FINALIZED_ROOT_INDEX), update_0.getFinality_header().getState_root()));
+      signed_header_2 = signed_header_1;
+    }
+    SyncCommittee sync_committee_2;
+    if (eq(update_period_0, snapshot_period_0).v()) {
+      var sync_committee_0 = snapshot_0.getCurrent_sync_committee();
+      pyassert(eq(update_0.getNext_sync_committee_branch(), range(floorlog2(NEXT_SYNC_COMMITTEE_INDEX)).map((_0) -> new Bytes32())));
+      sync_committee_2 = sync_committee_0;
+    } else {
+      var sync_committee_1 = snapshot_0.getNext_sync_committee();
+      pyassert(is_valid_merkle_branch(hash_tree_root(update_0.getNext_sync_committee()), update_0.getNext_sync_committee_branch(), floorlog2(NEXT_SYNC_COMMITTEE_INDEX), get_subtree_index(NEXT_SYNC_COMMITTEE_INDEX), update_0.getHeader().getState_root()));
+      sync_committee_2 = sync_committee_1;
+    }
+    pyassert(greaterOrEqual(MIN_SYNC_COMMITTEE_PARTICIPANTS, sum(update_0.getSync_committee_bits())));
+    var participant_pubkeys_0 = zip(update_0.getSync_committee_bits(), sync_committee_2.getPubkeys()).filter((tmp_25) -> { var bit = tmp_25.first; var pubkey = tmp_25.second; return bit; }).map((tmp_26) -> { var bit = tmp_26.first; var pubkey = tmp_26.second; return pubkey; });
+    var domain_0 = compute_domain(DOMAIN_SYNC_COMMITTEE, update_0.getFork_version(), genesis_validators_root_0);
+    var signing_root_0 = compute_signing_root(signed_header_2, domain_0);
+    pyassert(bls.FastAggregateVerify(participant_pubkeys_0, signing_root_0, update_0.getSync_committee_signature()));
+  }
+
+  public void apply_light_client_update(LightClientSnapshot snapshot_0, LightClientUpdate update_0) {
+    var snapshot_period_0 = divide(compute_epoch_at_slot(snapshot_0.getHeader().getSlot()), EPOCHS_PER_SYNC_COMMITTEE_PERIOD);
+    var update_period_0 = divide(compute_epoch_at_slot(update_0.getHeader().getSlot()), EPOCHS_PER_SYNC_COMMITTEE_PERIOD);
+    if (eq(update_period_0, plus(snapshot_period_0, pyint.create(1L))).v()) {
+      snapshot_0.setCurrent_sync_committee(snapshot_0.getNext_sync_committee());
+      snapshot_0.setNext_sync_committee(update_0.getNext_sync_committee());
+    }
+    snapshot_0.setHeader(update_0.getHeader());
+  }
+
+  public void process_light_client_update(LightClientStore store_0, LightClientUpdate update_0, Slot current_slot_0, Root genesis_validators_root_0) {
+    validate_light_client_update(store_0.getSnapshot(), update_0, genesis_validators_root_0);
+    store_0.getValid_updates().append(update_0);
+    if (and(greater(multiply(len(update_0.getSync_committee_bits()), pyint.create(2L)), multiply(sum(update_0.getSync_committee_bits()), pyint.create(3L))), not(eq(update_0.getFinality_header(), new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, BeaconBlockHeader.body_root_default)))).v()) {
+      apply_light_client_update(store_0.getSnapshot(), update_0);
+      store_0.setValid_updates(new SSZList<LightClientUpdate>());
+    } else {
+      if (greater(plus(store_0.getSnapshot().getHeader().getSlot(), LIGHT_CLIENT_UPDATE_TIMEOUT), current_slot_0).v()) {
+        apply_light_client_update(store_0.getSnapshot(), max(store_0.getValid_updates(), (update) -> sum(update.getSync_committee_bits())));
+        store_0.setValid_updates(new SSZList<LightClientUpdate>());
+      }
+    }
   }
 
   /*

@@ -9,6 +9,8 @@ import static beacon_java.pylib.Exports.*;
 
 public interface Constants {
   String CONFIG_NAME = "mainnet";
+  GeneralizedIndex FINALIZED_ROOT_INDEX = new GeneralizedIndex(pyint.create(105L));
+  GeneralizedIndex NEXT_SYNC_COMMITTEE_INDEX = new GeneralizedIndex(pyint.create(55L));
   Slot GENESIS_SLOT = new Slot(pyint.create(0L));
   Epoch GENESIS_EPOCH = new Epoch(pyint.create(0L));
   Epoch FAR_FUTURE_EPOCH = new Epoch(minus(power(pyint.create(2L), pyint.create(64L)), pyint.create(1L)));
@@ -79,18 +81,27 @@ public interface Constants {
   pyint TIMELY_HEAD_FLAG_INDEX = pyint.create(0L);
   pyint TIMELY_SOURCE_FLAG_INDEX = pyint.create(1L);
   pyint TIMELY_TARGET_FLAG_INDEX = pyint.create(2L);
-  pyint TIMELY_HEAD_FLAG_NUMERATOR = pyint.create(12L);
-  pyint TIMELY_SOURCE_FLAG_NUMERATOR = pyint.create(12L);
-  pyint TIMELY_TARGET_FLAG_NUMERATOR = pyint.create(32L);
-  pyint FLAG_DENOMINATOR = pyint.create(64L);
+  pyint TIMELY_HEAD_WEIGHT = pyint.create(12L);
+  pyint TIMELY_SOURCE_WEIGHT = pyint.create(12L);
+  pyint TIMELY_TARGET_WEIGHT = pyint.create(24L);
+  pyint SYNC_REWARD_WEIGHT = pyint.create(8L);
+  pyint WEIGHT_DENOMINATOR = pyint.create(64L);
   BLSSignature G2_POINT_AT_INFINITY = new BLSSignature(plus(pybytes.create("\\xc0"), multiply(pybytes.create("\\x00"), pyint.create(95L))));
-  uint64 HF1_INACTIVITY_PENALTY_QUOTIENT = new uint64(multiply(pyint.create(3L), power(pyint.create(2L), pyint.create(24L))));
-  uint64 HF1_MIN_SLASHING_PENALTY_QUOTIENT = new uint64(power(pyint.create(2L), pyint.create(6L)));
-  uint64 HF1_PROPORTIONAL_SLASHING_MULTIPLIER = new uint64(pyint.create(2L));
+  uint64 INACTIVITY_PENALTY_QUOTIENT_ALTAIR = new uint64(multiply(pyint.create(3L), power(pyint.create(2L), pyint.create(24L))));
+  uint64 MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR = new uint64(power(pyint.create(2L), pyint.create(6L)));
+  uint64 PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR = new uint64(pyint.create(2L));
   uint64 SYNC_COMMITTEE_SIZE = new uint64(power(pyint.create(2L), pyint.create(10L)));
-  uint64 SYNC_SUBCOMMITTEE_SIZE = new uint64(power(pyint.create(2L), pyint.create(6L)));
+  uint64 SYNC_PUBKEYS_PER_AGGREGATE = new uint64(power(pyint.create(2L), pyint.create(6L)));
+  uint64 INACTIVITY_SCORE_BIAS = new uint64(pyint.create(4L));
   Epoch EPOCHS_PER_SYNC_COMMITTEE_PERIOD = new Epoch(power(pyint.create(2L), pyint.create(8L)));
   DomainType DOMAIN_SYNC_COMMITTEE = new DomainType("0x07000000");
-  Version LIGHTCLIENT_PATCH_FORK_VERSION = new Version("0x01000000");
-  Slot LIGHTCLIENT_PATCH_FORK_SLOT = new Slot(pyint.create(0L));
+  DomainType DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF = new DomainType("0x08000000");
+  DomainType DOMAIN_CONTRIBUTION_AND_PROOF = new DomainType("0x09000000");
+  Version ALTAIR_FORK_VERSION = new Version("0x01000000");
+  Slot ALTAIR_FORK_SLOT = new Slot(pyint.create(0L));
+  pyint TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE = power(pyint.create(2L), pyint.create(2L));
+  pyint SYNC_COMMITTEE_SUBNET_COUNT = pyint.create(8L);
+  pyint MIN_SYNC_COMMITTEE_PARTICIPANTS = pyint.create(1L);
+  uint64 MAX_VALID_LIGHT_CLIENT_UPDATES = new uint64(minus(power(pyint.create(2L), pyint.create(64L)), pyint.create(1L)));
+  Slot LIGHT_CLIENT_UPDATE_TIMEOUT = new Slot(power(pyint.create(2L), pyint.create(13L)));
 }

@@ -7,6 +7,8 @@ import static beacon_java.util.Exports.TODO;
  */
 public class PyDict<K, V> implements Dictionary<K, V> {
   public static <K,V> PyDict<K,V> of(Pair<K, V>... pairs) { return TODO(PyDict.class); }
+  public PyDict(Pair<K, V>... pairs) {
+  }
 
   public PyDict(Sequence<Pair<K, V>> pairs) {
   }

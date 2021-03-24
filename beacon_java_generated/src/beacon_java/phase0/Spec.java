@@ -425,7 +425,7 @@ public class Spec {
         BeaconState.block_roots_default,
         BeaconState.state_roots_default,
         BeaconState.historical_roots_default,
-        new Eth1Data(Eth1Data.deposit_root_default, len(deposits_0), eth1_block_hash_0),
+        new Eth1Data(Eth1Data.deposit_root_default, new uint64(len(deposits_0)), eth1_block_hash_0),
         BeaconState.eth1_data_votes_default,
         BeaconState.eth1_deposit_index_default,
         BeaconState.validators_default,
@@ -573,8 +573,7 @@ public class Spec {
     state_0.setPrevious_justified_checkpoint(state_0.getCurrent_justified_checkpoint());
     state_0.getJustification_bits().setSlice(pyint.create(1L), null, state_0.getJustification_bits().getSlice(pyint.create(0L), minus(JUSTIFICATION_BITS_LENGTH, pyint.create(1L))));
     state_0.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(0L)));
-    var matching_target_attestations_0 = get_matching_target_attestations(state_0, previous_epoch_0);
-    if (greaterOrEqual(multiply(get_total_active_balance(state_0), pyint.create(2L)), multiply(get_attesting_balance(state_0, matching_target_attestations_0), pyint.create(3L))).v()) {
+    if (greaterOrEqual(multiply(total_active_balance_0, pyint.create(2L)), multiply(previous_epoch_target_balance_0, pyint.create(3L))).v()) {
       state_0.setCurrent_justified_checkpoint(new Checkpoint(previous_epoch_0, get_block_root(state_0, previous_epoch_0)));
       state_0.getJustification_bits().set(pyint.create(1L), new SSZBoolean(pyint.create(1L)));
     }
@@ -838,7 +837,7 @@ public class Spec {
         block_0.getSlot(),
         block_0.getProposer_index(),
         block_0.getParent_root(),
-        new Root(new Bytes32()),
+        new Root(),
         hash_tree_root(block_0.getBody())));
     var proposer_0 = state_0.getValidators().get(block_0.getProposer_index());
     pyassert(not(proposer_0.getSlashed()));
@@ -887,7 +886,7 @@ public class Spec {
     pyassert(not(eq(header_1_0, header_2_0)));
     var proposer_0 = state_0.getValidators().get(header_1_0.getProposer_index());
     pyassert(is_slashable_validator(proposer_0, get_current_epoch(state_0)));
-    for (var signed_header_0: PyList.of(proposer_slashing_0.getSigned_header_1(), proposer_slashing_0.getSigned_header_2())) {
+    for (var signed_header_0: Pair.of(proposer_slashing_0.getSigned_header_1(), proposer_slashing_0.getSigned_header_2())) {
       var domain_0 = get_domain(state_0, DOMAIN_BEACON_PROPOSER, compute_epoch_at_slot(signed_header_0.getMessage().getSlot()));
       var signing_root_0 = compute_signing_root(signed_header_0.getMessage(), domain_0);
       pyassert(bls.Verify(proposer_0.getPubkey(), signing_root_0, signed_header_0.getSignature()));
@@ -981,7 +980,7 @@ public class Spec {
     var anchor_epoch_0 = get_current_epoch(anchor_state_0);
     var justified_checkpoint_0 = new Checkpoint(anchor_epoch_0, anchor_root_0);
     var finalized_checkpoint_0 = new Checkpoint(anchor_epoch_0, anchor_root_0);
-    return new Store(new uint64(plus(anchor_state_0.getGenesis_time(), multiply(SECONDS_PER_SLOT, anchor_state_0.getSlot()))), anchor_state_0.getGenesis_time(), justified_checkpoint_0, finalized_checkpoint_0, justified_checkpoint_0, new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_block_0))), new PyDict<>(new Pair<>(anchor_root_0, copy(anchor_state_0))), new PyDict<>(new Pair<>(justified_checkpoint_0, copy(anchor_state_0))), Store.latest_messages_default);
+    return new Store(new uint64(plus(anchor_state_0.getGenesis_time(), multiply(SECONDS_PER_SLOT, anchor_state_0.getSlot()))), anchor_state_0.getGenesis_time(), justified_checkpoint_0, finalized_checkpoint_0, justified_checkpoint_0, PyDict.of(new Pair<>(anchor_root_0, copy(anchor_block_0))), PyDict.of(new Pair<>(anchor_root_0, copy(anchor_state_0))), PyDict.of(new Pair<>(justified_checkpoint_0, copy(anchor_state_0))), Store.latest_messages_default);
   }
 
   public pyint get_slots_since_genesis(Store store_0) {

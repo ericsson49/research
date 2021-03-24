@@ -428,7 +428,7 @@ public class Spec {
         BeaconState.block_roots_default,
         BeaconState.state_roots_default,
         BeaconState.historical_roots_default,
-        new Eth1Data(Eth1Data.deposit_root_default, len(deposits_0), eth1_block_hash_0),
+        new Eth1Data(Eth1Data.deposit_root_default, new uint64(len(deposits_0)), eth1_block_hash_0),
         BeaconState.eth1_data_votes_default,
         BeaconState.eth1_deposit_index_default,
         BeaconState.validators_default,
@@ -850,7 +850,7 @@ public class Spec {
     pyassert(eq(block_0.getParent_root(), hash_tree_root(state_0.getLatest_block_header())));
     state_0.setLatest_block_header(
         new BeaconBlockHeader(block_0.getSlot(), block_0.getProposer_index(), block_0.getParent_root(),
-            new Root(new Bytes32()), hash_tree_root(block_0.getBody())));
+            new Root(), hash_tree_root(block_0.getBody())));
     var proposer_0 = state_0.getValidators().get(block_0.getProposer_index());
     pyassert(not(proposer_0.getSlashed()));
   }
@@ -900,7 +900,7 @@ public class Spec {
     pyassert(not(eq(header_1_0, header_2_0)));
     var proposer_0 = state_0.getValidators().get(header_1_0.getProposer_index());
     pyassert(is_slashable_validator(proposer_0, get_current_epoch(state_0)));
-    for (var signed_header_0: PyList.of(proposer_slashing_0.getSigned_header_1(), proposer_slashing_0.getSigned_header_2())) {
+    for (var signed_header_0: Pair.of(proposer_slashing_0.getSigned_header_1(), proposer_slashing_0.getSigned_header_2())) {
       var domain_0 = get_domain(state_0, DOMAIN_BEACON_PROPOSER, compute_epoch_at_slot(signed_header_0.getMessage().getSlot()));
       var signing_root_0 = compute_signing_root(signed_header_0.getMessage(), domain_0);
       pyassert(bls.Verify(proposer_0.getPubkey(), signing_root_0, signed_header_0.getSignature()));
@@ -1500,7 +1500,7 @@ public class Spec {
     var new_record_0 = new CustodyChunkChallengeRecord(
         state_0.getCustody_chunk_challenge_index(),
         get_beacon_proposer_index(state_0), challenge_0.getResponder_index(), get_current_epoch(state_0),
-        new Root(challenge_0.getShard_transition().getShard_data_roots().get(challenge_0.getData_index())), challenge_0.getChunk_index());
+        challenge_0.getShard_transition().getShard_data_roots().get(challenge_0.getData_index()), challenge_0.getChunk_index());
     replace_empty_or_append(state_0.getCustody_chunk_challenge_records(), new_record_0);
     state_0.setCustody_chunk_challenge_index(plus(state_0.getCustody_chunk_challenge_index(), pyint.create(1L)));
     responder_0.setWithdrawable_epoch(FAR_FUTURE_EPOCH);
@@ -1634,7 +1634,7 @@ public class Spec {
   }
 
   public void process_custody_final_updates(BeaconState state_0) {
-    state_0.getExposed_derived_secrets().set(modulo(get_current_epoch(state_0), EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS), new SSZList<ValidatorIndex>(new PyList<>()));
+    state_0.getExposed_derived_secrets().set(modulo(get_current_epoch(state_0), EARLY_DERIVED_SECRET_PENALTY_MAX_FUTURE_EPOCHS), new SSZList<ValidatorIndex>(PyList.of()));
     var records_0 = state_0.getCustody_chunk_challenge_records();
     var validator_indices_in_records_0 = set(records_0.map((record) -> record.getResponder_index()));
     for (var tmp_23: enumerate(state_0.getValidators())) {
@@ -1666,7 +1666,7 @@ public class Spec {
       Takes as input balance-in-increments (// EFFECTIVE_BALANCE_INCREMENT) to preserve symmetry with
       the unpacking function.
       */
-  public uint64 pack_compact_validator(ValidatorIndex index_0, pybool slashed_0, uint64 balance_in_increments_0) {
+  public uint64 pack_compact_validator(ValidatorIndex index_0, SSZBoolean slashed_0, uint64 balance_in_increments_0) {
     return plus(plus(leftShift(index_0, pyint.create(16L)), leftShift(slashed_0, pyint.create(15L))), balance_in_increments_0);
   }
 
@@ -1685,7 +1685,7 @@ public class Spec {
     var compact_validators_0 = zip(committee_0, validators_0)
         .map((tmp_24) -> {
           var i = tmp_24.first; var v = tmp_24.second;
-          return pack_compact_validator(i, pybool(v.getSlashed()), divide(v.getEffective_balance(), EFFECTIVE_BALANCE_INCREMENT)); });
+          return pack_compact_validator(i, v.getSlashed(), divide(v.getEffective_balance(), EFFECTIVE_BALANCE_INCREMENT)); });
     var pubkeys_0 = validators_0.map((v) -> v.getPubkey());
     return new CompactCommittee(new SSZList<>(pubkeys_0), new SSZList<>(compact_validators_0));
   }
@@ -1907,7 +1907,7 @@ public class Spec {
         var header_0 = new ShardBlockHeader(
             shard_parent_root_3,
             get_block_root_at_slot(state_0, offset_slot_0),
-            offset_slot_0, shard_0, proposal_index_0, new Root(transition_0.getShard_data_roots().get(i_0)));
+            offset_slot_0, shard_0, proposal_index_0, transition_0.getShard_data_roots().get(i_0));
         var shard_parent_root_1 = hash_tree_root(header_0);
         headers_0.append(header_0);
         proposers_0.append(proposal_index_0);

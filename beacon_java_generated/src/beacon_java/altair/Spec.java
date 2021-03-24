@@ -4,6 +4,7 @@ import static beacon_java.altair.Constants.*;
 import static beacon_java.deps.BLS.bls;
 import static beacon_java.altair.Utils.copy;
 import static beacon_java.pylib.Exports.*;
+import static beacon_java.ssz.Exports.truediv;
 import static beacon_java.util.Exports.floorlog2;
 
 import beacon_java.data.BLSPubkey;
@@ -1618,5 +1619,13 @@ public class Spec {
       */
   public Eth1Data get_eth1_data(Eth1Block block_0) {
     return new Eth1Data(block_0.getDeposit_root(), block_0.getDeposit_count(), hash_tree_root(block_0));
+  }
+
+  public GeneralizedIndex get_generalized_index(Object ssz_class, Object... path) {
+    var ssz_path = new Path(ssz_class);
+    for (var item: path) {
+      ssz_path = truediv(ssz_path, item);
+    }
+    return new GeneralizedIndex(ssz_path.gindex());
   }
 }

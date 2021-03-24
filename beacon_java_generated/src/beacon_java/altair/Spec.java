@@ -16,8 +16,8 @@ import beacon_java.ssz.*;
 
 public class Spec {
   /*
-    Return the largest integer ``x`` such that ``x**2 <= n``.
-    */
+      Return the largest integer ``x`` such that ``x**2 <= n``.
+      */
   public uint64 integer_squareroot(uint64 n_0) {
     var x_0 = n_0;
     var y_0 = divide(plus(x_0, pyint.create(1L)), pyint.create(2L));
@@ -429,7 +429,7 @@ public class Spec {
         BeaconState.block_roots_default,
         BeaconState.state_roots_default,
         BeaconState.historical_roots_default,
-        new Eth1Data(Eth1Data.deposit_root_default, len(deposits_0), eth1_block_hash_0),
+        new Eth1Data(Eth1Data.deposit_root_default, new uint64(len(deposits_0)), eth1_block_hash_0),
         BeaconState.eth1_data_votes_default,
         BeaconState.eth1_deposit_index_default,
         BeaconState.validators_default,
@@ -771,7 +771,7 @@ public class Spec {
     pyassert(greater(state_0.getLatest_block_header().getSlot(), block_0.getSlot()));
     pyassert(eq(block_0.getProposer_index(), get_beacon_proposer_index(state_0)));
     pyassert(eq(block_0.getParent_root(), hash_tree_root(state_0.getLatest_block_header())));
-    state_0.setLatest_block_header(new BeaconBlockHeader(block_0.getSlot(), block_0.getProposer_index(), block_0.getParent_root(), new Root(new Bytes32()), hash_tree_root(block_0.getBody())));
+    state_0.setLatest_block_header(new BeaconBlockHeader(block_0.getSlot(), block_0.getProposer_index(), block_0.getParent_root(), new Root(), hash_tree_root(block_0.getBody())));
     var proposer_0 = state_0.getValidators().get(block_0.getProposer_index());
     pyassert(not(proposer_0.getSlashed()));
   }
@@ -819,7 +819,7 @@ public class Spec {
     pyassert(not(eq(header_1_0, header_2_0)));
     var proposer_0 = state_0.getValidators().get(header_1_0.getProposer_index());
     pyassert(is_slashable_validator(proposer_0, get_current_epoch(state_0)));
-    for (var signed_header_0: PyList.of(proposer_slashing_0.getSigned_header_1(), proposer_slashing_0.getSigned_header_2())) {
+    for (var signed_header_0: Pair.of(proposer_slashing_0.getSigned_header_1(), proposer_slashing_0.getSigned_header_2())) {
       var domain_0 = get_domain(state_0, DOMAIN_BEACON_PROPOSER, compute_epoch_at_slot(signed_header_0.getMessage().getSlot()));
       var signing_root_0 = compute_signing_root(signed_header_0.getMessage(), domain_0);
       pyassert(bls.Verify(proposer_0.getPubkey(), signing_root_0, signed_header_0.getSignature()));
@@ -1316,7 +1316,7 @@ public class Spec {
   }
 
   public Sequence<Pair<pyint,pyint>> get_flag_indices_and_weights() {
-    return PyList.of(new Pair<>(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), new Pair<>(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), new Pair<>(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT));
+    return Triple.of(new Pair<>(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), new Pair<>(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), new Pair<>(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT));
   }
 
   public ParticipationFlags add_flag(ParticipationFlags flags_0, pyint flag_index_0) {

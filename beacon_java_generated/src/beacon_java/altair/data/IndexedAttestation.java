@@ -1,6 +1,5 @@
 package beacon_java.altair.data;
 
-import beacon_java.data.*;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;
 import lombok.*;

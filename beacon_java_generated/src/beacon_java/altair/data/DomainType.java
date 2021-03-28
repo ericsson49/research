@@ -1,5 +1,6 @@
 package beacon_java.altair.data;
 
+import beacon_java.pylib.*;
 import beacon_java.ssz.*;
 
 public class DomainType extends Bytes4 {

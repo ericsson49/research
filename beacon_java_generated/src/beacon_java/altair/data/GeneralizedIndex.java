@@ -1,7 +1,7 @@
 package beacon_java.altair.data;
 
-import beacon_java.pylib.pybytes;
-import beacon_java.pylib.pyint;
+import beacon_java.pylib.*;
+import beacon_java.ssz.*;
 
 public class GeneralizedIndex implements pyint {
   public GeneralizedIndex() { }

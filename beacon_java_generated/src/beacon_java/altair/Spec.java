@@ -1,15 +1,13 @@
 package beacon_java.altair;
 
 import static beacon_java.altair.Constants.*;
+import static beacon_java.altair.Utils.hash_tree_root;
 import static beacon_java.deps.BLS.bls;
 import static beacon_java.altair.Utils.copy;
 import static beacon_java.pylib.Exports.*;
 import static beacon_java.ssz.Exports.truediv;
 import static beacon_java.util.Exports.floorlog2;
 
-import beacon_java.data.BLSPubkey;
-import beacon_java.data.BLSSignature;
-import beacon_java.data.Root;
 import beacon_java.altair.data.*;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;
@@ -1520,7 +1518,7 @@ public class Spec {
     var epoch_0 = get_current_epoch(state_0);
     var domain_0 = get_domain(state_0, DOMAIN_SYNC_COMMITTEE, epoch_0);
     var signing_root_0 = compute_signing_root(get_block_root_at_slot(state_0, state_0.getSlot()), domain_0);
-    var signature_0 = bls.Sign(privkey_0, signing_root_0);
+    BLSSignature signature_0 = bls.Sign(privkey_0, signing_root_0);
     return new SyncCommitteeSignature(state_0.getSlot(), SyncCommitteeSignature.beacon_block_root_default, validator_index_0, signature_0);
   }
 

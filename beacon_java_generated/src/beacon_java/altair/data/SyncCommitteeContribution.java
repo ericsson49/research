@@ -1,12 +1,9 @@
 package beacon_java.altair.data;
 
-import beacon_java.data.BLSSignature;
-import beacon_java.data.Root;
-import beacon_java.ssz.SSZBitvector;
-import beacon_java.ssz.uint64;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import beacon_java.data.*;
+import beacon_java.pylib.*;
+import beacon_java.ssz.*;
+import lombok.*;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class SyncCommitteeContribution {

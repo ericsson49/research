@@ -1,6 +1,5 @@
 package beacon_java.altair;
 
-import beacon_java.data.BLSSignature;
 import beacon_java.altair.data.*;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;

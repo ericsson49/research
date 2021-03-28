@@ -1,6 +1,7 @@
 package beacon_java.phase0.data;
 
-import beacon_java.data.Root;
+import beacon_java.pylib.*;
+import beacon_java.ssz.*;
 import lombok.*;
 
 @Data @NoArgsConstructor @AllArgsConstructor

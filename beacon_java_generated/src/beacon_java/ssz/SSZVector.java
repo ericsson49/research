@@ -12,7 +12,7 @@ import java.util.function.Function;
 public class SSZVector<E> implements Sequence<E> {
   public SSZVector() {
   }
-  public SSZVector(Sequence<? extends E> a) {
+  public SSZVector(Iterable<? extends E> a) {
   }
 
   public E get(pyint i) {

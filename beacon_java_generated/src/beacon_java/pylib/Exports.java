@@ -29,7 +29,7 @@ public class Exports {
   public static <T extends pyint> Sequence<T> range(T a, T b, T c) { return null; }
 
 
-  public static <T> PyList<T> list(Sequence<T> a) { return null; }
+  public static <T> PyList<T> list(Iterable<T> a) { return null; }
   public static <T> Set<T> set(Iterable<T> s) { return null; }
   public static <T> PyList<T> sorted(Set<T> s) { return null; }
   public static <T> PyList<T> sorted(Sequence<T> s) { return null; }
@@ -37,10 +37,8 @@ public class Exports {
   public static <T,E> PyList<T> sorted(Set<T> s, Function<T,E> key) { return null; }
   public static <T> pyint len(Sequence<T> a) { return null; }
   public static <T> pyint len(Set<T> a) { return null; }
-  public static <A,B> Sequence<B> map(Function<A,B> f, Sequence<A> m) { return null; }
-  public static <A> Sequence<A> filter(Function<A,pyint> f, Sequence<A> m) { return null; }
-  public static <A,B> Set<B> map(Function<A,B> f, Set<A> m) { return null; }
-  public static <A> Set<A> filter(Function<A,pyint> f, Set<A> m) { return null; }
+  public static <A,B> Iterable<B> map(Function<A,B> f, Iterable<A> m) { return null; }
+  public static <A> Iterable<A> filter(Function<A,pyint> f, Iterable<A> m) { return null; }
 
   public static <E> Sequence<Pair<uint64,E>> enumerate(Sequence<E> s) { return null; }
 

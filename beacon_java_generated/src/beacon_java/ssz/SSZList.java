@@ -13,7 +13,7 @@ public class SSZList<E> implements Sequence<E> {
   public SSZList() {
   }
 
-  public SSZList(Sequence<? extends E> a) {
+  public SSZList(Iterable<? extends E> a) {
   }
 
   public void append(E e) {

@@ -8,4 +8,6 @@ public class Pair<A, B> {
     this.first = a;
     this.second = b;
   }
+
+  public static <T> Sequence<T> of(T a, T b) { return PyList.of(a,b); }
 }

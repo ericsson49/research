@@ -35,8 +35,8 @@ public class Exports {
   public static <T> PyList<T> sorted(Sequence<T> s) { return null; }
   public static <T,E> PyList<T> sorted(Sequence<T> s, Function<T,E> key) { return null; }
   public static <T,E> PyList<T> sorted(Set<T> s, Function<T,E> key) { return null; }
-  public static <T> uint64 len(Sequence<T> a) { return null; }
-  public static <T> uint64 len(Set<T> a) { return null; }
+  public static <T> pyint len(Sequence<T> a) { return null; }
+  public static <T> pyint len(Set<T> a) { return null; }
   public static <A,B> Sequence<B> map(Function<A,B> f, Sequence<A> m) { return null; }
   public static <A> Sequence<A> filter(Function<A,pyint> f, Sequence<A> m) { return null; }
   public static <A,B> Set<B> map(Function<A,B> f, Set<A> m) { return null; }

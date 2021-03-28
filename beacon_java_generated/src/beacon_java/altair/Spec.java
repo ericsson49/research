@@ -672,7 +672,7 @@ public class Spec {
     var flag_deltas_0 = flag_indices_and_numerators_0
         .map((tmp_10) -> {
           var index = tmp_10.first; var numerator = tmp_10.second;
-          return get_flag_index_deltas(state_0, index, new uint64(numerator)); });
+          return get_flag_index_deltas(state_0, index, numerator); });
     var deltas_0 = plus(flag_deltas_0, PyList.of(get_inactivity_penalty_deltas(state_0)));
     for (var tmp_11: deltas_0) {
       var rewards_0 = tmp_11.first;
@@ -1315,7 +1315,7 @@ public class Spec {
     return bls.FastAggregateVerify(pubkeys_0, message_0, signature_0);
   }
 
-  public Sequence<Pair<pyint,pyint>> get_flag_indices_and_weights() {
+  public Sequence<Pair<pyint,uint64>> get_flag_indices_and_weights() {
     return Triple.of(new Pair<>(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), new Pair<>(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), new Pair<>(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT));
   }
 
@@ -1619,13 +1619,5 @@ public class Spec {
       */
   public Eth1Data get_eth1_data(Eth1Block block_0) {
     return new Eth1Data(block_0.getDeposit_root(), block_0.getDeposit_count(), hash_tree_root(block_0));
-  }
-
-  public GeneralizedIndex get_generalized_index(Object ssz_class, Object... path) {
-    var ssz_path = new Path(ssz_class);
-    for (var item: path) {
-      ssz_path = truediv(ssz_path, item);
-    }
-    return new GeneralizedIndex(ssz_path.gindex());
   }
 }

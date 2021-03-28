@@ -81,11 +81,11 @@ public interface Constants {
   pyint TIMELY_HEAD_FLAG_INDEX = pyint.create(0L);
   pyint TIMELY_SOURCE_FLAG_INDEX = pyint.create(1L);
   pyint TIMELY_TARGET_FLAG_INDEX = pyint.create(2L);
-  pyint TIMELY_HEAD_WEIGHT = pyint.create(12L);
-  pyint TIMELY_SOURCE_WEIGHT = pyint.create(12L);
-  pyint TIMELY_TARGET_WEIGHT = pyint.create(24L);
-  pyint SYNC_REWARD_WEIGHT = pyint.create(8L);
-  pyint WEIGHT_DENOMINATOR = pyint.create(64L);
+  uint64 TIMELY_HEAD_WEIGHT = new uint64(pyint.create(12L));
+  uint64 TIMELY_SOURCE_WEIGHT = new uint64(pyint.create(12L));
+  uint64 TIMELY_TARGET_WEIGHT = new uint64(pyint.create(24L));
+  uint64 SYNC_REWARD_WEIGHT = new uint64(pyint.create(8L));
+  uint64 WEIGHT_DENOMINATOR = new uint64(pyint.create(64L));
   BLSSignature G2_POINT_AT_INFINITY = new BLSSignature(plus(pybytes.create("\\xc0"), multiply(pybytes.create("\\x00"), pyint.create(95L))));
   uint64 INACTIVITY_PENALTY_QUOTIENT_ALTAIR = new uint64(multiply(pyint.create(3L), power(pyint.create(2L), pyint.create(24L))));
   uint64 MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR = new uint64(power(pyint.create(2L), pyint.create(6L)));

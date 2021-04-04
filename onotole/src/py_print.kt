@@ -5,6 +5,12 @@ fun pyPrint(op: EBinOp) = when(op) {
   EBinOp.Div -> "/"
   EBinOp.FloorDiv -> "//"
   EBinOp.Mod -> "%"
+  EBinOp.Pow -> "**"
+  EBinOp.BitXor -> "^"
+  EBinOp.BitOr -> "|"
+  EBinOp.BitAnd -> "&"
+  EBinOp.RShift -> ">>"
+  EBinOp.LShift -> "<<"
   else -> fail("not implemented $op")
 }
 
@@ -26,21 +32,39 @@ fun pyPrint(op: ECmpOp) = when(op) {
   ECmpOp.LtE -> "<="
 }
 
+fun pyPrint(op: EUnaryOp) = when(op) {
+  EUnaryOp.Not -> "not"
+  EUnaryOp.Invert -> "~"
+  EUnaryOp.UAdd -> "+"
+  EUnaryOp.USub -> "-"
+}
+fun pyPrint(c: Comprehension): String = "for " + pyPrint(c.target) + " in " + pyPrint(c.iter) + c.ifs.joinToString { " " + pyPrint(it) }
+
 fun pyPrint(e: TExpr): String {
   return when(e) {
     is Name -> e.id
     is Num -> e.n.toString()
     is NameConstant -> e.value.toString()
+    is Str -> "\"\"" + e.s + "\"\""
+    is Bytes -> "b" + e.s
     is Tuple -> e.elts.joinToString(", ", "(", ")") { pyPrint(it) }
     is PyList -> e.elts.joinToString(", ", "[", "]") { pyPrint(it) }
     is PyDict -> e.keys.zip(e.values)
         .joinToString(", ", "{", "}") { pyPrint(it.first) + ": " + pyPrint(it.second) }
-    is PySet -> e.elts.joinToString(", ", "set(", ")") { pyPrint(it) }
+    is PySet -> if (e.elts.isEmpty()) "set()" else e.elts.joinToString(", ", "{", "}") { pyPrint(it) }
     is BinOp -> pyPrint(e.left) + " " + pyPrint(e.op) + " " + pyPrint(e.right)
     is BoolOp -> e.values.joinToString(" " + pyPrint(e.op) + " ") { pyPrint(it) }
     is Compare -> pyPrint(e.left) + e.ops.zip(e.comparators).joinToString { " " + pyPrint(it.first) + " " + pyPrint(it.second) }
+    is UnaryOp -> pyPrint(e.op) + " " + pyPrint(e.operand)
     is Call -> pyPrint(e.func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
     is Subscript -> pyPrint(e.value) + "[" + pyPrint(e.slice) + "]"
+    is Attribute -> pyPrint(e.value) + "." + e.attr
+    is Lambda -> "lambda " + e.args.args.joinToString(", ") { pyPrint(it) } + ": " + pyPrint(e.body)
+    is IfExp -> pyPrint(e.body) + " if (" + pyPrint(e.test) + ") else " + pyPrint(e.orelse)
+    is GeneratorExp -> pyPrint(e.elt) + " " + e.generators.joinToString(", ") { pyPrint(it) }
+    is ListComp -> "[" + pyPrint(e.elt) + " " + e.generators.joinToString(", ") { pyPrint(it) } + "]"
+    is DictComp -> "{" + pyPrint(e.key) + ": " + pyPrint(e.value) + " " + e.generators.joinToString(", ") { pyPrint(it) } + "}"
+    is Starred -> "*" + pyPrint(e.value)
     else -> fail("unsupported $e")
   }
 }
@@ -57,7 +81,10 @@ fun pyPrint(slice1: TSlice) = when (slice1) {
 fun pyPrintStmt(s: Stmt): List<String> {
   return when(s) {
     is Assign -> listOf(s.targets.joinToString(", ") { pyPrint(it) } + " = " + pyPrint(s.value))
+    is AnnAssign -> listOf(pyPrint(s.target) + ": " + pyPrintType(s.annotation) + (s.value?.let { " = " + pyPrint(it) } ?: ""))
     is AugAssign -> listOf(pyPrint(s.target) + " ${pyPrint(s.op)}= " + pyPrint(s.value))
+    is Assert -> listOf("assert " + pyPrint(s.test) + (s.msg?.let { ", " + pyPrint(it) } ?: ""))
+    is Expr -> listOf(pyPrint(s.value))
     is If -> {
       val res = mutableListOf("if " + pyPrint(s.test) + ":")
       res.addAll(s.body.flatMap { pyPrintStmt(it).map { "  $it" } })
@@ -77,14 +104,23 @@ fun pyPrintStmt(s: Stmt): List<String> {
       res.addAll(s.body.flatMap { pyPrintStmt(it).map { "  $it" } })
       res.toList()
     }
+    is Continue -> listOf("continue")
+    is Break -> listOf("break")
+    is Pass -> listOf("pass")
     is Return -> listOf("return" + (s.value?.let { " " + pyPrint(it) } ?: ""))
     else -> fail("unsupported $s")
   }
 }
 
 fun pyPrintType(e: TExpr): String = when(e) {
+  is NameConstant -> if (e.value == null) "None" else fail()
   is Name -> e.id
   is Subscript -> pyPrintType(e.value) + "[" + pyPrintType((e.slice as Index).value) + "]"
+  is Tuple -> when(e.elts.size) {
+    0 -> "()"
+    1 -> "(" + pyPrint(e.elts[0]) + ",)"
+    else -> "(" + e.elts.joinToString(", ") { pyPrint(it) } + ")"
+  }
   else -> fail("not implemented $e")
 }
 

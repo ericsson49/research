@@ -54,24 +54,24 @@ enum class ExprContext {
 
 sealed class TExpr
 data class BoolOp(val op: EBoolOp, val values: List<TExpr>): TExpr()
-class NamedExpr(target: TExpr, value: TExpr): TExpr()
+//class NamedExpr(target: TExpr, value: TExpr): TExpr()
 data class BinOp(val left: TExpr, val op: EBinOp, val right: TExpr): TExpr()
 data class UnaryOp(val op: EUnaryOp, val operand: TExpr): TExpr()
 data class Lambda(val args: Arguments, val body: TExpr): TExpr()
 data class IfExp(val test: TExpr, val body: TExpr, val orelse: TExpr): TExpr()
 data class PyDict(val keys: List<TExpr>, val values: List<TExpr>): TExpr()
-class TSet(elts: List<TExpr>): TExpr()
+data class PySet(val elts: List<TExpr>): TExpr()
 data class ListComp(val elt: TExpr, val generators: List<Comprehension>): TExpr()
-class SetComp(elt: TExpr, generators: List<Comprehension>): TExpr()
-class DictComp(key: TExpr, value: TExpr, generators: List<Comprehension>): TExpr()
+data class SetComp(val elt: TExpr, val generators: List<Comprehension>): TExpr()
+data class DictComp(val key: TExpr, val value: TExpr, val generators: List<Comprehension>): TExpr()
 data class GeneratorExp(val elt: TExpr, val generators: List<Comprehension>): TExpr()
-class Await(value: TExpr): TExpr()
-class Yield(value: TExpr? = null): TExpr()
-class YieldFrom(value: TExpr): TExpr()
+//class Await(value: TExpr): TExpr()
+//class Yield(value: TExpr? = null): TExpr()
+//class YieldFrom(value: TExpr): TExpr()
 data class Compare(val left: TExpr, val ops: List<ECmpOp>, val comparators: List<TExpr>): TExpr()
 data class Call(val func: TExpr, val args: List<TExpr>, val keywords: List<Keyword>): TExpr()
-class FormattedValue(value: TExpr, conversion: int? = null, format_spec: TExpr? = null): TExpr()
-class JoinedStr(values: List<TExpr>): TExpr()
+data class FormattedValue(val value: TExpr, val conversion: int? = null, val format_spec: TExpr? = null): TExpr()
+data class JoinedStr(val values: List<TExpr>): TExpr()
 sealed class Constant(val value: constant, kind: string? = null): TExpr()
 data class Attribute(val value: TExpr, val attr: identifier, val ctx: ExprContext): TExpr()
 data class Subscript(val value: TExpr, val slice: TSlice, val ctx: ExprContext): TExpr()
@@ -90,9 +90,9 @@ data class FunctionDef(val name: identifier, val args: Arguments,
                        val body: List<Stmt> = listOf(), val decorator_list: List<TExpr> = listOf(),
                        val returns: TExpr? = null,
                        val type_comment: string? = null): Stmt()
-class AsyncFunctionDef(name: identifier, args: Arguments,
-                       body: List<Stmt> = listOf(), decorator_list: List<TExpr> = listOf(), returns: TExpr? = null,
-                       type_comment: string? = null): Stmt()
+//class AsyncFunctionDef(name: identifier, args: Arguments,
+//                       body: List<Stmt> = listOf(), decorator_list: List<TExpr> = listOf(), returns: TExpr? = null,
+//                       type_comment: string? = null): Stmt()
 
 data class ClassDef(val name: identifier,
                     val bases: List<TExpr> = listOf(),
@@ -101,25 +101,25 @@ data class ClassDef(val name: identifier,
                     val decorator_list: List<TExpr> = listOf()): Stmt()
 data class Return(val value: TExpr? = null): Stmt()
 
-class Delete(targets: List<TExpr> = listOf()): Stmt()
+//class Delete(targets: List<TExpr> = listOf()): Stmt()
 data class Assign(val targets: List<TExpr> = listOf(), val value: TExpr, val type_comment: string? = null): Stmt()
 data class AugAssign(val target: TExpr, val op: EBinOp, val value: TExpr): Stmt()
 data class AnnAssign(val target: TExpr, val annotation: TExpr, val value: TExpr? = null, val simple: int): Stmt()
 data class For(val target: TExpr, val iter: TExpr, val body: List<Stmt> = listOf(), val orelse: List<Stmt> = listOf(), val type_comment: string? = null): Stmt()
-class AsyncFor(target: TExpr, iter: TExpr, body: List<Stmt> = listOf(), orelse: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
+//class AsyncFor(target: TExpr, iter: TExpr, body: List<Stmt> = listOf(), orelse: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
 data class While(val test: TExpr, val body: List<Stmt> = listOf(), val orelse: List<Stmt> = listOf()): Stmt()
 data class If(val test: TExpr, val body: List<Stmt> = listOf(), val orelse: List<Stmt> = listOf()): Stmt()
-class With(items: List<WithItem> = listOf(), body: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
-class AsyncWith(items: List<WithItem> = listOf(), body: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
+//class With(items: List<WithItem> = listOf(), body: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
+//class AsyncWith(items: List<WithItem> = listOf(), body: List<Stmt> = listOf(), type_comment: string? = null): Stmt()
 
 class Raise(exc: TExpr? = null, cause: TExpr? = null): Stmt()
 data class Try(val body: List<Stmt> = listOf(), val handlers: List<ExceptHandler> = listOf(), val orelse: List<Stmt> = listOf(), val finalbody: List<Stmt> = listOf()): Stmt()
 data class Assert(val test: TExpr, val msg: TExpr? = null): Stmt()
 
-class Import(names: List<Alias> = listOf()): Stmt()
-class ImportFrom(module: identifier? = null, names: List<Alias> = listOf(), level: int? = null): Stmt()
+//class Import(names: List<Alias> = listOf()): Stmt()
+//class ImportFrom(module: identifier? = null, names: List<Alias> = listOf(), level: int? = null): Stmt()
 
-class Global(names: List<identifier> = listOf()): Stmt()
+//class Global(names: List<identifier> = listOf()): Stmt()
 class Nonlocal(names: List<identifier> = listOf()): Stmt()
 data class Expr(val value: TExpr): Stmt()
 class Pass: Stmt()

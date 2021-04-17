@@ -80,7 +80,7 @@ fun pyPrint(slice1: TSlice) = when (slice1) {
 
 fun pyPrintStmt(s: Stmt): List<String> {
   return when(s) {
-    is Assign -> listOf(s.targets.joinToString(", ") { pyPrint(it) } + " = " + pyPrint(s.value))
+    is Assign -> listOf(pyPrint(s.target) + " = " + pyPrint(s.value))
     is AnnAssign -> listOf(pyPrint(s.target) + ": " + pyPrintType(s.annotation) + (s.value?.let { " = " + pyPrint(it) } ?: ""))
     is AugAssign -> listOf(pyPrint(s.target) + " ${pyPrint(s.op)}= " + pyPrint(s.value))
     is Assert -> listOf("assert " + pyPrint(s.test) + (s.msg?.let { ", " + pyPrint(it) } ?: ""))

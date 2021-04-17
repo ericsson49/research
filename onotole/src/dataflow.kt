@@ -98,7 +98,7 @@ class CFG<T> {
 }
 
 fun <T, U, A> List<T>.foldRightWithAcc(init: U, acc: A, f: (T, U, A) -> U): U {
-  return this.foldRight(init, { a,b -> f(a, b, acc) })
+  return this.foldRight(init) { a, b -> f(a, b, acc) }
 }
 
 interface NodeProcessor<T> {
@@ -120,7 +120,7 @@ class Undef: EdgeSource()
 
 class CFGBuilder<T>(val proc: NodeProcessor<T>) {
   val cfg = CFG<T>()
-  val tmpVars = mutableSetOf<String>()
+  val freshNames = FreshNames()
   val stmtToInstrMap = IdentityHashMap<Stmt,Pair<T,T>>()
   val edgeLabeling = mutableMapOf<Pair<T,T>,EdgeSource>()
   val loopTargets = mutableListOf<Pair<T,T>>()
@@ -170,9 +170,7 @@ class CFGBuilder<T>(val proc: NodeProcessor<T>) {
         addInstr(proc.mkInstr(emptySet(), refs), next, index)
       }
       is Assign -> {
-        if (s.targets.size != 1)
-          fail("unsupported")
-        val target = s.targets[0]
+        val target = s.target
         val vars = getVarNamesInStoreCtx(target).toSet()
         val refs = liveVarAnalysis(s.value)
         addInstr(proc.mkInstr(vars, refs), next, index)
@@ -204,8 +202,7 @@ class CFGBuilder<T>(val proc: NodeProcessor<T>) {
         addInstr(whileHead, listOf(bodyBegin, next), listOf(BlockIndex(s.body, 0), BlockIndex(block, i+1)))
       }
       is For -> {
-        val newTmpVar = "tmp_" + tmpVars.size
-        tmpVars.add(newTmpVar)
+        val newTmpVar = freshNames.fresh()
         val preHead = proc.mkInstr(setOf(newTmpVar), liveVarAnalysis(s.iter))
         val forHead = proc.mkInstr(targets = emptySet(), refs = setOf(newTmpVar))
         pushLoop(forHead, next)

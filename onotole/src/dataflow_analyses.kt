@@ -174,7 +174,7 @@ object CopiesComparator: Comparator<Pair<String,String>> {
   }
 }
 fun makeCopyStmt(p: Pair<String,String>) = Assign(
-    targets = listOf(Name(id = p.second, ctx = ExprContext.Store)),
+    target = Name(id = p.second, ctx = ExprContext.Store),
     value = Name(id = p.first, ctx = ExprContext.Load))
 fun makeCopyStmts(s: List<Pair<String,String>>): List<Assign> {
   val sortedWith = s.sortedWith(CopiesComparator)

@@ -1,6 +1,5 @@
 package phase0
 
-import phase1.Version
 import pylib.pow
 import ssz.Bytes
 import ssz.Bytes1

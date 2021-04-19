@@ -88,7 +88,7 @@ fun <T : Comparable<T>> min(c: Iterable<T>): T = c.min()!!
 fun <T, K : Comparable<K>> min(c: Iterable<T>, key: (T) -> K): T = c.minBy(key)!!
 fun <T : Comparable<T>> min(a: T, b: T): T = if (a < b) a else b
 
-fun <T> enumerate(c: Collection<T>) = c.mapIndexed { a, b -> Pair(a, b) }
+fun <T> enumerate(c: Collection<T>) = c.mapIndexed { a, b -> Pair(a.toULong(), b) }
 
 fun <T> Iterable<T>.intersection(b: Iterable<T>) = this.intersect(b)
 
@@ -112,6 +112,13 @@ operator fun <T> MutableList<T>.set(r: ULongRange, value: List<T>) {
   this.updateSlice(r.first, r.last + 1uL, value)
 }
 operator fun MutableList<Boolean>.set(i: uint64, v: uint64) = this.set(i, pybool(v))
+
+fun <T> MutableList<T>.update(index: uint64, updF: (T) -> T) {
+  this[index] = updF(this[index])
+}
+fun <T> MutableList<T>.update(index: uint64, updF: (uint64,T) -> T) {
+  this[index] = updF(index, this[index])
+}
 
 fun <T> Iterable<T>.count(x: T): uint64 {
   return this.filter { it == x }.count().toULong()
@@ -139,7 +146,7 @@ fun zip(b1: Bytes32, b2: Bytes32): List<Pair<Byte, Byte>> = b1.toArray().toList(
 
 fun <T> set(c: Collection<T>) = c.toSet()
 fun <T> set() = setOf<T>()
-fun <T> list(c: Iterable<T>) = c.toList()
+fun <T> list(c: Iterable<T>) = c.toMutableList()
 fun <T : Comparable<T>> sorted(c: Iterable<T>) = c.sorted().toMutableList()
 fun <T, K : Comparable<K>> sorted(c: Iterable<T>, key: (T) -> K) = c.sortedBy(key)
 

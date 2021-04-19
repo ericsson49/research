@@ -10,7 +10,6 @@ import pylib.Tuple2
 import pylib.all
 import pylib.any
 import pylib.append
-import pylib.bit_length
 import pylib.contains
 import pylib.count
 import pylib.enumerate
@@ -124,7 +123,7 @@ fun is_valid_indexed_attestation(state: BeaconState, indexed_attestation: Indexe
   if ((len(indices) == 0uL) || !(indices == sorted(set(indices)))) {
     return false
   }
-  val pubkeys = indices.map { i -> state.validators[i].pubkey }.toPyList()
+  val pubkeys = list(indices.map { i -> state.validators[i].pubkey })
   val domain = get_domain(state, DOMAIN_BEACON_ATTESTER, indexed_attestation.data.target.epoch)
   val signing_root = compute_signing_root(indexed_attestation.data, domain)
   return bls.FastAggregateVerify(pubkeys, signing_root, indexed_attestation.signature)
@@ -188,7 +187,7 @@ fun compute_proposer_index(state: BeaconState, indices: Sequence<ValidatorIndex>
 fun compute_committee(indices: Sequence<ValidatorIndex>, seed: Bytes32, index: uint64, count: uint64): Sequence<ValidatorIndex> {
   val start = len(indices) * index / count
   val end = len(indices) * uint64(index + 1uL) / count
-  return range(start, end).map { i -> indices[compute_shuffled_index(uint64(i), uint64(len(indices)), seed)] }.toPyList()
+  return list(range(start, end).map { i -> indices[compute_shuffled_index(uint64(i), uint64(len(indices)), seed)] })
 }
 
 /*
@@ -297,7 +296,7 @@ fun get_randao_mix(state: BeaconState, epoch: Epoch): Bytes32 {
     Return the sequence of active validator indices at ``epoch``.
     */
 fun get_active_validator_indices(state: BeaconState, epoch: Epoch): Sequence<ValidatorIndex> {
-  return enumerate(state.validators).filter { (_, v) -> is_active_validator(v, epoch) }.map { (i, _) -> ValidatorIndex(i) }.toPyList()
+  return list(enumerate(state.validators).filter { (i, v) -> is_active_validator(v, epoch) }.map { (i, v) -> ValidatorIndex(i) })
 }
 
 /*
@@ -348,7 +347,7 @@ fun get_beacon_proposer_index(state: BeaconState): ValidatorIndex {
     Math safe up to ~10B ETH, afterwhich this overflows uint64.
     */
 fun get_total_balance(state: BeaconState, indices: Set<ValidatorIndex>): Gwei {
-  return Gwei(max(EFFECTIVE_BALANCE_INCREMENT, sum(indices.map { index -> state.validators[index].effective_balance }.toPyList())))
+  return Gwei(max(EFFECTIVE_BALANCE_INCREMENT, sum(list(indices.map { index -> state.validators[index].effective_balance }))))
 }
 
 /*
@@ -381,7 +380,7 @@ fun get_indexed_attestation(state: BeaconState, attestation: Attestation): Index
     */
 fun get_attesting_indices(state: BeaconState, data: AttestationData, bits: SSZBitlist): Set<ValidatorIndex> {
   val committee = get_beacon_committee(state, data.slot, data.index)
-  return set(enumerate(committee).filter { (i, _) -> bits[i] }.map { (_, index) -> index })
+  return set(enumerate(committee).filter { (i, index) -> bits[i] }.map { (i, index) -> index })
 }
 
 /*
@@ -395,7 +394,7 @@ fun increase_balance(state: BeaconState, index: ValidatorIndex, delta: Gwei): Un
     Decrease the validator balance at index ``index`` by ``delta``, with underflow protection.
     */
 fun decrease_balance(state: BeaconState, index: ValidatorIndex, delta: Gwei): Unit {
-  state.balances[index] = if (delta > state.balances[index]) 0uL else state.balances[index] - delta
+  state.balances[index] = Gwei(if (delta > state.balances[index]) 0uL else state.balances[index] - delta)
 }
 
 /*
@@ -406,9 +405,9 @@ fun initiate_validator_exit(state: BeaconState, index: ValidatorIndex): Unit {
   if (validator.exit_epoch != FAR_FUTURE_EPOCH) {
     return
   }
-  val exit_epochs = state.validators.filter { v -> v.exit_epoch != FAR_FUTURE_EPOCH }.map { v -> v.exit_epoch }.toPyList()
+  val exit_epochs = list(state.validators.filter { v -> v.exit_epoch != FAR_FUTURE_EPOCH }.map { v -> v.exit_epoch })
   var exit_queue_epoch = max(exit_epochs + PyList(compute_activation_exit_epoch(get_current_epoch(state))))
-  val exit_queue_churn = len(state.validators.filter { v -> v.exit_epoch == exit_queue_epoch }.map { v -> v }.toPyList())
+  val exit_queue_churn = len(list(state.validators.filter { v -> v.exit_epoch == exit_queue_epoch }.map { v -> v }))
   if (exit_queue_churn >= get_validator_churn_limit(state)) {
     exit_queue_epoch += Epoch(1uL)
   }
@@ -442,7 +441,7 @@ fun slash_validator(state: BeaconState, slashed_index: ValidatorIndex, whistlebl
 
 fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: uint64, deposits: Sequence<Deposit>): BeaconState {
   val fork = Fork(previous_version = GENESIS_FORK_VERSION, current_version = GENESIS_FORK_VERSION, epoch = GENESIS_EPOCH)
-  val state = BeaconState(genesis_time = eth1_timestamp + GENESIS_DELAY, fork = fork, eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = len(deposits)), latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())), randao_mixes = PyList(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR)
+  val state = BeaconState(genesis_time = eth1_timestamp + GENESIS_DELAY, fork = fork, eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = uint64(len(deposits))), latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())), randao_mixes = PyList(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR)
   val leaves = list(map({ deposit -> deposit.data }, deposits))
   for ((index, deposit) in enumerate(deposits)) {
     val deposit_data_list = SSZList<DepositData>(*leaves[0uL until (index.toULong() + 1uL)].toTypedArray())
@@ -471,7 +470,7 @@ fun is_valid_genesis_state(state: BeaconState): pybool {
   return true
 }
 
-fun state_transition(state: BeaconState, signed_block: SignedBeaconBlock, validate_result: pybool = true): BeaconState {
+fun state_transition(state: BeaconState, signed_block: SignedBeaconBlock, validate_result: pybool = true): Unit {
   val block = signed_block.message
   process_slots(state, block.slot)
   if (validate_result) {
@@ -481,7 +480,6 @@ fun state_transition(state: BeaconState, signed_block: SignedBeaconBlock, valida
   if (validate_result) {
     assert(block.state_root == hash_tree_root(state))
   }
-  return state
 }
 
 fun verify_block_signature(state: BeaconState, signed_block: SignedBeaconBlock): pybool {
@@ -516,7 +514,12 @@ fun process_epoch(state: BeaconState): Unit {
   process_rewards_and_penalties(state)
   process_registry_updates(state)
   process_slashings(state)
-  process_final_updates(state)
+  process_eth1_data_reset(state)
+  process_effective_balance_updates(state)
+  process_slashings_reset(state)
+  process_randao_mixes_reset(state)
+  process_historical_roots_update(state)
+  process_participation_record_updates(state)
 }
 
 fun get_matching_source_attestations(state: BeaconState, epoch: Epoch): Sequence<PendingAttestation> {
@@ -525,11 +528,11 @@ fun get_matching_source_attestations(state: BeaconState, epoch: Epoch): Sequence
 }
 
 fun get_matching_target_attestations(state: BeaconState, epoch: Epoch): Sequence<PendingAttestation> {
-  return get_matching_source_attestations(state, epoch).filter { a -> a.data.target.root == get_block_root(state, epoch) }.map { a -> a }.toPyList()
+  return list(get_matching_source_attestations(state, epoch).filter { a -> a.data.target.root == get_block_root(state, epoch) }.map { a -> a })
 }
 
 fun get_matching_head_attestations(state: BeaconState, epoch: Epoch): Sequence<PendingAttestation> {
-  return get_matching_target_attestations(state, epoch).filter { a -> a.data.beacon_block_root == get_block_root_at_slot(state, a.data.slot) }.map { a -> a }.toPyList()
+  return list(get_matching_target_attestations(state, epoch).filter { a -> a.data.beacon_block_root == get_block_root_at_slot(state, a.data.slot) }.map { a -> a })
 }
 
 fun get_unslashed_attesting_indices(state: BeaconState, attestations: Sequence<PendingAttestation>): Set<ValidatorIndex> {
@@ -552,6 +555,15 @@ fun process_justification_and_finalization(state: BeaconState): Unit {
   if (get_current_epoch(state) <= (GENESIS_EPOCH + 1uL)) {
     return
   }
+  val previous_attestations = get_matching_target_attestations(state, get_previous_epoch(state))
+  val current_attestations = get_matching_target_attestations(state, get_current_epoch(state))
+  val total_active_balance = get_total_active_balance(state)
+  val previous_target_balance = get_attesting_balance(state, previous_attestations)
+  val current_target_balance = get_attesting_balance(state, current_attestations)
+  weigh_justification_and_finalization(state, total_active_balance, previous_target_balance, current_target_balance)
+}
+
+fun weigh_justification_and_finalization(state: BeaconState, total_active_balance: Gwei, previous_epoch_target_balance: Gwei, current_epoch_target_balance: Gwei): Unit {
   val previous_epoch = get_previous_epoch(state)
   val current_epoch = get_current_epoch(state)
   val old_previous_justified_checkpoint = state.previous_justified_checkpoint
@@ -559,13 +571,11 @@ fun process_justification_and_finalization(state: BeaconState): Unit {
   state.previous_justified_checkpoint = state.current_justified_checkpoint
   state.justification_bits[1uL until len(state.justification_bits)] = state.justification_bits[0uL until (JUSTIFICATION_BITS_LENGTH - 1uL)]
   state.justification_bits[0uL] = 0uL
-  var matching_target_attestations = get_matching_target_attestations(state, previous_epoch)
-  if ((get_attesting_balance(state, matching_target_attestations) * 3uL) >= (get_total_active_balance(state) * 2uL)) {
+  if ((previous_epoch_target_balance * 3uL) >= (total_active_balance * 2uL)) {
     state.current_justified_checkpoint = Checkpoint(epoch = previous_epoch, root = get_block_root(state, previous_epoch))
     state.justification_bits[1uL] = 1uL
   }
-  matching_target_attestations = get_matching_target_attestations(state, current_epoch)
-  if ((get_attesting_balance(state, matching_target_attestations) * 3uL) >= (get_total_active_balance(state) * 2uL)) {
+  if ((current_epoch_target_balance * 3uL) >= (total_active_balance * 2uL)) {
     state.current_justified_checkpoint = Checkpoint(epoch = current_epoch, root = get_block_root(state, current_epoch))
     state.justification_bits[0uL] = 1uL
   }
@@ -604,7 +614,7 @@ fun is_in_inactivity_leak(state: BeaconState): pybool {
 
 fun get_eligible_validator_indices(state: BeaconState): Sequence<ValidatorIndex> {
   val previous_epoch = get_previous_epoch(state)
-  return enumerate(state.validators).filter { (_, v) -> is_active_validator(v, previous_epoch) || (v.slashed && ((previous_epoch + 1uL) < v.withdrawable_epoch)) }.map { (index, _) -> ValidatorIndex(index) }.toPyList()
+  return list(enumerate(state.validators).filter { (index, v) -> is_active_validator(v, previous_epoch) || (v.slashed && ((previous_epoch + 1uL) < v.withdrawable_epoch)) }.map { (index, v) -> ValidatorIndex(index) })
 }
 
 /*
@@ -660,15 +670,15 @@ fun get_head_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
     Return proposer and inclusion delay micro-rewards/penalties for each validator.
     */
 fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  val rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
+  val rewards = list(range(len(state.validators)).map { _ -> Gwei(0uL) })
   val matching_source_attestations = get_matching_source_attestations(state, get_previous_epoch(state))
   for (index in get_unslashed_attesting_indices(state, matching_source_attestations)) {
-    val attestation = min(matching_source_attestations.filter { a -> index in get_attesting_indices(state, a.data, a.aggregation_bits) }.map { a -> a }.toPyList(), key = { a -> a.inclusion_delay })
+    val attestation = min(list(matching_source_attestations.filter { a -> index in get_attesting_indices(state, a.data, a.aggregation_bits) }.map { a -> a }), key = { a -> a.inclusion_delay })
     rewards[attestation.proposer_index] += get_proposer_reward(state, index)
     val max_attester_reward = Gwei(get_base_reward(state, index) - get_proposer_reward(state, index))
     rewards[index] += Gwei(max_attester_reward / attestation.inclusion_delay)
   }
-  val penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
+  val penalties = list(range(len(state.validators)).map { _ -> Gwei(0uL) })
   return Pair(rewards, penalties)
 }
 
@@ -676,7 +686,7 @@ fun get_inclusion_delay_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequenc
     Return inactivity reward/penalty deltas for each validator.
     */
 fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
-  val penalties = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
+  val penalties = list(range(len(state.validators)).map { _ -> Gwei(0uL) })
   if (is_in_inactivity_leak(state)) {
     val matching_target_attestations = get_matching_target_attestations(state, get_previous_epoch(state))
     val matching_target_attesting_indices = get_unslashed_attesting_indices(state, matching_target_attestations)
@@ -689,7 +699,7 @@ fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequ
       }
     }
   }
-  val rewards = range(len(state.validators)).map { _ -> Gwei(0uL) }.toPyList()
+  val rewards = list(range(len(state.validators)).map { _ -> Gwei(0uL) })
   return Pair(rewards, penalties)
 }
 
@@ -702,8 +712,8 @@ fun get_attestation_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gw
   val (head_rewards, head_penalties) = get_head_deltas(state)
   val (inclusion_delay_rewards, _) = get_inclusion_delay_deltas(state)
   val (_, inactivity_penalties) = get_inactivity_penalty_deltas(state)
-  val rewards = range(len(state.validators)).map { i -> source_rewards[i] + target_rewards[i] + head_rewards[i] + inclusion_delay_rewards[i] }.toPyList()
-  val penalties = range(len(state.validators)).map { i -> source_penalties[i] + target_penalties[i] + head_penalties[i] + inactivity_penalties[i] }.toPyList()
+  val rewards = list(range(len(state.validators)).map { i -> source_rewards[i] + target_rewards[i] + head_rewards[i] + inclusion_delay_rewards[i] })
+  val penalties = list(range(len(state.validators)).map { i -> source_penalties[i] + target_penalties[i] + head_penalties[i] + inactivity_penalties[i] })
   return Pair(rewards, penalties)
 }
 
@@ -728,9 +738,9 @@ fun process_registry_updates(state: BeaconState): Unit {
     }
   }
   val activation_queue = sorted(
-      enumerate(state.validators)
+      list(enumerate(state.validators)
           .filter { (_, validator) -> is_eligible_for_activation(state, validator) }
-          .map { (index, _) -> index }.toPyList(),
+          .map { (index, _) -> index }),
       key = { index -> Tuple2(state.validators[index].activation_eligibility_epoch, index) })
   for (index in activation_queue[0uL until get_validator_churn_limit(state)]) {
     val validator = state.validators[index]
@@ -752,12 +762,14 @@ fun process_slashings(state: BeaconState): Unit {
   }
 }
 
-fun process_final_updates(state: BeaconState): Unit {
-  val current_epoch = get_current_epoch(state)
-  val next_epoch = Epoch(current_epoch + 1uL)
+fun process_eth1_data_reset(state: BeaconState): Unit {
+  val next_epoch = Epoch(get_current_epoch(state) + 1uL)
   if ((next_epoch % EPOCHS_PER_ETH1_VOTING_PERIOD) == 0uL) {
     state.eth1_data_votes = SSZList<Eth1Data>()
   }
+}
+
+fun process_effective_balance_updates(state: BeaconState): Unit {
   for ((index, validator) in enumerate(state.validators)) {
     val balance = state.balances[index]
     val HYSTERESIS_INCREMENT = uint64(EFFECTIVE_BALANCE_INCREMENT / HYSTERESIS_QUOTIENT)
@@ -767,12 +779,28 @@ fun process_final_updates(state: BeaconState): Unit {
       validator.effective_balance = min(balance - (balance % EFFECTIVE_BALANCE_INCREMENT), MAX_EFFECTIVE_BALANCE)
     }
   }
+}
+
+fun process_slashings_reset(state: BeaconState): Unit {
+  val next_epoch = Epoch(get_current_epoch(state) + 1uL)
   state.slashings[next_epoch % EPOCHS_PER_SLASHINGS_VECTOR] = Gwei(0uL)
+}
+
+fun process_randao_mixes_reset(state: BeaconState): Unit {
+  val current_epoch = get_current_epoch(state)
+  val next_epoch = Epoch(current_epoch + 1uL)
   state.randao_mixes[next_epoch % EPOCHS_PER_HISTORICAL_VECTOR] = get_randao_mix(state, current_epoch)
+}
+
+fun process_historical_roots_update(state: BeaconState): Unit {
+  val next_epoch = Epoch(get_current_epoch(state) + 1uL)
   if ((next_epoch % (SLOTS_PER_HISTORICAL_ROOT / SLOTS_PER_EPOCH)) == 0uL) {
     val historical_batch = HistoricalBatch(block_roots = state.block_roots, state_roots = state.state_roots)
     state.historical_roots.append(hash_tree_root(historical_batch))
   }
+}
+
+fun process_participation_record_updates(state: BeaconState): Unit {
   state.previous_epoch_attestations = state.current_epoch_attestations
   state.current_epoch_attestations = SSZList<PendingAttestation>()
 }
@@ -811,7 +839,7 @@ fun process_eth1_data(state: BeaconState, body: BeaconBlockBody): Unit {
 }
 
 fun process_operations(state: BeaconState, body: BeaconBlockBody): Unit {
-  assert((len(body.deposits) == min(MAX_DEPOSITS, (state.eth1_data.deposit_count - state.eth1_deposit_index))))
+  assert(len(body.deposits) == min(MAX_DEPOSITS, state.eth1_data.deposit_count - state.eth1_deposit_index))
   fun <T> for_ops(operations: Sequence<T>, fn: (BeaconState, T) -> Unit): Unit {
     for (operation in operations) {
       fn(state, operation)
@@ -887,7 +915,7 @@ fun process_deposit(state: BeaconState, deposit: Deposit): Unit {
   state.eth1_deposit_index += 1uL
   val pubkey = deposit.data.pubkey
   val amount = deposit.data.amount
-  val validator_pubkeys = state.validators.map { v -> v.pubkey }.toPyList()
+  val validator_pubkeys = list(state.validators.map { v -> v.pubkey })
   if (pubkey !in validator_pubkeys) {
     val deposit_message = DepositMessage(pubkey = deposit.data.pubkey, withdrawal_credentials = deposit.data.withdrawal_credentials, amount = deposit.data.amount)
     val domain = compute_domain(DOMAIN_DEPOSIT)
@@ -956,11 +984,11 @@ fun get_latest_attesting_balance(store: Store, root: Root): Gwei {
   return Gwei(sum(active_indices.filter { i -> (i in store.latest_messages) && (get_ancestor(store, store.latest_messages[i]!!.root, store.blocks[root]!!.slot) == root) }.map { i -> state.validators[i].effective_balance }))
 }
 
-fun filter_block_tree(store: Store, block_root: Root, blocks: SSZDict<Root, BeaconBlock>): pybool {
+fun filter_block_tree(store: Store, block_root: Root, blocks: PyDict<Root, BeaconBlock>): pybool {
   val block = store.blocks[block_root]!!
-  val children = store.blocks.keys().filter { root -> store.blocks[root]!!.parent_root == block_root }.map { root -> root }.toPyList()
+  val children = list(store.blocks.keys().filter { root -> store.blocks[root]!!.parent_root == block_root }.map { root -> root })
   if (any(children)) {
-    val filter_block_tree_result = children.map { child -> filter_block_tree(store, child, blocks) }.toPyList()
+    val filter_block_tree_result = list(children.map { child -> filter_block_tree(store, child, blocks) })
     if (any(filter_block_tree_result)) {
       blocks[block_root] = block
       return true
@@ -981,9 +1009,9 @@ fun filter_block_tree(store: Store, block_root: Root, blocks: SSZDict<Root, Beac
     Retrieve a filtered block tree from ``store``, only returning branches
     whose leaf state's justified/finalized info agrees with that in ``store``.
     */
-fun get_filtered_block_tree(store: Store): SSZDict<Root, BeaconBlock> {
+fun get_filtered_block_tree(store: Store): PyDict<Root, BeaconBlock> {
   val base = store.justified_checkpoint.root
-  val blocks: SSZDict<Root, BeaconBlock> = PyDict()
+  val blocks: PyDict<Root, BeaconBlock> = PyDict()
   filter_block_tree(store, base, blocks)
   return blocks
 }
@@ -991,9 +1019,8 @@ fun get_filtered_block_tree(store: Store): SSZDict<Root, BeaconBlock> {
 fun get_head(store: Store): Root {
   val blocks = get_filtered_block_tree(store)
   var head = store.justified_checkpoint.root
-  val justified_slot = compute_start_slot_at_epoch(store.justified_checkpoint.epoch)
   while (true) {
-    val children = blocks.keys().filter { root -> (blocks[root]!!.parent_root == head) && (blocks[root]!!.slot > justified_slot) }.map { root -> root }.toPyList()
+    val children = list(blocks.keys().filter { root -> blocks[root]!!.parent_root == head }.map { root -> root })
     if (len(children) == 0uL) {
       return head
     }
@@ -1073,7 +1100,8 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock): Unit {
   var finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
   assert(block.slot > finalized_slot)
   assert(get_ancestor(store, block.parent_root, finalized_slot) == store.finalized_checkpoint.root)
-  val state = state_transition(pre_state, signed_block, true)
+  val state = pre_state.copy()
+  state_transition(state, signed_block, true)
   store.blocks[hash_tree_root(block)] = block
   store.block_states[hash_tree_root(block)] = state
   if (state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch) {
@@ -1169,16 +1197,17 @@ fun is_candidate_block(block: Eth1Block, period_start: uint64): pybool {
 
 fun get_eth1_vote(state: BeaconState, eth1_chain: Sequence<Eth1Block>): Eth1Data {
   val period_start = voting_period_start_time(state)
-  val votes_to_consider = eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) }.toPyList()
-  val valid_votes = state.eth1_data_votes.filter { vote -> vote in votes_to_consider }.map { vote -> vote }.toPyList()
-  val default_vote = if (any(votes_to_consider)) votes_to_consider[len(votes_to_consider) - 1uL] else state.eth1_data
+  val votes_to_consider = list(eth1_chain.filter { block -> is_candidate_block(block, period_start) && (get_eth1_data(block).deposit_count >= state.eth1_data.deposit_count) }.map { block -> get_eth1_data(block) })
+  val valid_votes = list(state.eth1_data_votes.filter { vote -> vote in votes_to_consider }.map { vote -> vote })
+  val state_eth1_data: Eth1Data = state.eth1_data
+  val default_vote = if (any(votes_to_consider)) votes_to_consider[len(votes_to_consider) - 1uL] else state_eth1_data
   return max(valid_votes, key = { v -> Tuple2(valid_votes.count(v), -valid_votes.index(v)) }, default = default_vote)
 }
 
 fun compute_new_state_root(state: BeaconState, block: BeaconBlock): Root {
-  var temp_state: BeaconState = state.copy()
+  val temp_state: BeaconState = state.copy()
   val signed_block = SignedBeaconBlock(message = block)
-  temp_state = state_transition(temp_state, signed_block, validate_result = false)
+  state_transition(temp_state, signed_block, validate_result = false)
   return hash_tree_root(temp_state)
 }
 
@@ -1196,7 +1225,7 @@ fun get_attestation_signature(state: BeaconState, attestation_data: AttestationD
 
 /*
     Compute the correct subnet for an attestation for Phase 0.
-    Note, this mimics expected Phase 1 behavior where attestations will be mapped to their shard subnet.
+    Note, this mimics expected future behavior where attestations will be mapped to their shard subnet.
     */
 fun compute_subnet_for_attestation(committees_per_slot: uint64, slot: Slot, committee_index: CommitteeIndex): uint64 {
   val slots_since_epoch_start = uint64(slot % SLOTS_PER_EPOCH)
@@ -1217,7 +1246,7 @@ fun is_aggregator(state: BeaconState, slot: Slot, index: CommitteeIndex, slot_si
 }
 
 fun get_aggregate_signature(attestations: Sequence<Attestation>): BLSSignature {
-  val signatures = attestations.map { attestation -> attestation.signature }.toPyList()
+  val signatures = list(attestations.map { attestation -> attestation.signature })
   return bls.Aggregate(signatures)
 }
 
@@ -1232,15 +1261,33 @@ fun get_aggregate_and_proof_signature(state: BeaconState, aggregate_and_proof: A
   return bls.Sign(privkey, signing_root)
 }
 
+/*
+    Returns the weak subjectivity period for the current ``state``.
+    This computation takes into account the effect of:
+        - validator set churn (bounded by ``get_validator_churn_limit()`` per epoch), and
+        - validator balance top-ups (bounded by ``MAX_DEPOSITS * SLOTS_PER_EPOCH`` per epoch).
+    A detailed calculation can be found at:
+    https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
+    */
 fun compute_weak_subjectivity_period(state: BeaconState): uint64 {
-  var weak_subjectivity_period = MIN_VALIDATOR_WITHDRAWABILITY_DELAY
-  val validator_count = len(get_active_validator_indices(state, get_current_epoch(state)))
-  if (validator_count >= (MIN_PER_EPOCH_CHURN_LIMIT * CHURN_LIMIT_QUOTIENT)) {
-    weak_subjectivity_period += SAFETY_DECAY * CHURN_LIMIT_QUOTIENT / (2uL * 100uL)
+  val ws_period = MIN_VALIDATOR_WITHDRAWABILITY_DELAY
+  val N = len(get_active_validator_indices(state, get_current_epoch(state)))
+  val t = get_total_active_balance(state) / N / ETH_TO_GWEI
+  val T = MAX_EFFECTIVE_BALANCE / ETH_TO_GWEI
+  val delta = get_validator_churn_limit(state)
+  val Delta = MAX_DEPOSITS * SLOTS_PER_EPOCH
+  val D = SAFETY_DECAY
+  val ws_period_3: uint64
+  if ((T * (200uL + (3uL * D))) < (t * (200uL + (12uL * D)))) {
+    val epochs_for_validator_set_churn = N * ((t * (200uL + (12uL * D))) - (T * (200uL + (3uL * D)))) / (600uL * delta * ((2uL * t) + T))
+    val epochs_for_balance_top_ups = N * (200uL + (3uL * D)) / (600uL * Delta)
+    val ws_period_1 = ws_period + max(epochs_for_validator_set_churn, epochs_for_balance_top_ups)
+    ws_period_3 = ws_period_1
   } else {
-    weak_subjectivity_period += SAFETY_DECAY * validator_count / (2uL * 100uL * MIN_PER_EPOCH_CHURN_LIMIT)
+    val ws_period_2 = ws_period + (3uL * N * D * t / (200uL * Delta * (T - t)))
+    ws_period_3 = ws_period_2
   }
-  return weak_subjectivity_period
+  return ws_period_3
 }
 
 fun is_within_weak_subjectivity_period(store: Store, ws_state: BeaconState, ws_checkpoint: Checkpoint): pybool {

@@ -30,6 +30,9 @@ fun Gwei() = Gwei(0uL)
 typealias Root = Bytes32
 fun Root(x: Bytes32): Root = x
 fun Root() = Root(Bytes32())
+typealias Hash32 = Bytes32
+fun Hash32(x: Bytes32): Hash32 = x
+fun Hash32() = Hash32(Bytes32())
 typealias Version = Bytes4
 fun Version(x: Bytes4): Version = x
 fun Version() = Version(Bytes4())
@@ -48,6 +51,9 @@ fun BLSPubkey() = BLSPubkey(Bytes48())
 typealias BLSSignature = Bytes96
 fun BLSSignature(x: Bytes96): BLSSignature = x
 fun BLSSignature() = BLSSignature(Bytes96())
+typealias Ether = uint64
+fun Ether(x: uint64): Ether = x
+fun Ether() = Ether(0uL)
 data class Fork(
     var previous_version: Version = Version(),
     var current_version: Version = Version(),
@@ -92,7 +98,7 @@ data class PendingAttestation(
 data class Eth1Data(
     var deposit_root: Root = Root(),
     var deposit_count: uint64 = 0uL,
-    var block_hash: Bytes32 = Bytes32()
+    var block_hash: Hash32 = Hash32()
 )
 data class HistoricalBatch(
     var block_roots: SSZVector<Root> = SSZVector<Root>(),

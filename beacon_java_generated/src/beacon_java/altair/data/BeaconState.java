@@ -3,6 +3,7 @@ package beacon_java.altair.data;
 import beacon_java.pylib.*;
 import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.phase0.data.*;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class BeaconState {

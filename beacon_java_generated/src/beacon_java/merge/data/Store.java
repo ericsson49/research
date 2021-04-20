@@ -1,4 +1,4 @@
-package beacon_java.altair.data;
+package beacon_java.merge.data;
 
 import beacon_java.phase0.data.*;
 import beacon_java.pylib.*;

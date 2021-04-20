@@ -7,30 +7,29 @@ import beacon_java.pylib.pyint;
 import java.util.Iterator;
 import java.util.function.Function;
 
-/**
- * This is a dummy implementation. The spec is assumed to be executed symbolically.
- */
-public class SSZByteList extends SSZList<pyint> implements pybytes {
-  public SSZByteList() {
-  }
-  public SSZByteList(SSZList<pyint> data) {
-  }
-  public SSZByteList(String data) {
+public class Bytes20 implements pybytes {
+  public Bytes20(Sequence<pyint> value) {
   }
 
-  @Override
-  public pyint get(pyint i) {
+  public Bytes20(pybytes value) {
+  }
+
+  public Bytes20(Bytes32 value) {
+  }
+
+  public Bytes20(String value) {
+  }
+
+  public Bytes20() {
+  }
+
+  public pybytes plus(pybytes b) {
     return null;
   }
 
   @Override
-  public pybytes getSlice(pyint start, pyint upper) {
-    return null;
-  }
+  public void set(pyint i, pyint v) {
 
-  @Override
-  public pybytes join(Sequence<pybytes> s) {
-    return null;
   }
 
   @Override
@@ -59,12 +58,23 @@ public class SSZByteList extends SSZList<pyint> implements pybytes {
   }
 
   @Override
-  public void set(pyint i, pyint v) {
+  public pyint get(pyint index) {
+    return null;
+  }
 
+  @Override
+  public pybytes getSlice(pyint start, pyint upper) {
+    return null;
+  }
+
+  @Override
+  public pybytes join(Sequence<pybytes> s) {
+    return null;
   }
 
   @Override
   public Iterator<pyint> iterator() {
     return null;
   }
+
 }

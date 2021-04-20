@@ -8,9 +8,9 @@ import lombok.*;
 public class Eth1Data {
   public static Root deposit_root_default = new Root();
   public static uint64 deposit_count_default = uint64.ZERO;
-  public static Bytes32 block_hash_default = new Bytes32();
+  public static Hash32 block_hash_default = new Hash32();
   public Root deposit_root = deposit_root_default;
   public uint64 deposit_count = deposit_count_default;
-  public Bytes32 block_hash = block_hash_default;
+  public Hash32 block_hash = block_hash_default;
   public Eth1Data copy() { return this; }
 }

@@ -23,9 +23,9 @@ public class Exports {
   public static <E, T> E max(Sequence<E> a, Function<E,T> b, E def) { return null; }
   public static <T extends pyint> T min(T a, T b) { return null; }
   public static <T, E> T min(Sequence<T> a, Function<T,E> key) { return null; }
-  public static Sequence<pyint> range(pyint b) { return null; }
-  public static <T extends pyint> Sequence<T> range(T a, T b) { return null; }
-  public static <T extends pyint> Sequence<T> range(T a, T b, T c) { return null; }
+  public static Sequence<pyint> range(pyint b) { return new PyList<>(); }
+  public static <T extends pyint> Sequence<T> range(T a, T b) { return new PyList<>(); }
+  public static <T extends pyint> Sequence<T> range(T a, T b, T c) { return new PyList<>(); }
 
 
   public static <T> PyList<T> list(Iterable<T> a) { return null; }

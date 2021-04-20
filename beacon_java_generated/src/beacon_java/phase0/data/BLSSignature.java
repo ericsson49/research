@@ -7,4 +7,5 @@ public class BLSSignature extends Bytes96 {
   public BLSSignature(Bytes96 value) { super(value); }
   public BLSSignature() { super(new Bytes96()); }
   public BLSSignature(String value) { super(value); }
+  public BLSSignature(pybytes value) { super(value); }
 }

@@ -143,7 +143,7 @@ data class VoluntaryExit(
     var epoch: Epoch = Epoch(),
     var validator_index: ValidatorIndex = ValidatorIndex()
 )
-data class BeaconState(
+open class BeaconState(
     var genesis_time: uint64 = 0uL,
     var genesis_validators_root: Root = Root(),
     var slot: Slot = Slot(),
@@ -178,7 +178,7 @@ data class ProposerSlashing(
     var signed_header_1: SignedBeaconBlockHeader = SignedBeaconBlockHeader(),
     var signed_header_2: SignedBeaconBlockHeader = SignedBeaconBlockHeader()
 )
-data class BeaconBlockBody(
+open class BeaconBlockBody(
     var randao_reveal: BLSSignature = BLSSignature(),
     var eth1_data: Eth1Data = Eth1Data(),
     var graffiti: Bytes32 = Bytes32(),

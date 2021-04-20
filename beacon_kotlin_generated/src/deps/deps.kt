@@ -1,6 +1,7 @@
 package deps
 
 import phase0.AggregateAndProof
+import phase0.BeaconState
 import pylib.pyint
 import ssz.Bytes
 import ssz.Bytes32
@@ -12,7 +13,9 @@ fun hash_tree_root(a: Any): Bytes32 = TODO()
 fun hash(a: Any): Bytes32 = TODO()
 fun copy(v: phase0.BeaconBlockHeader) = v.copy()
 fun copy(v: phase0.BeaconBlock) = v.copy()
-fun copy(v: phase0.BeaconState) = v.copy()
+fun <T: phase0.BeaconState> copy(v: T): T = TODO()
+@JvmName("copy1")
+fun <T: phase0.BeaconState> T.copy(): T = copy(this)
 
 data class FQ2(val coeffs: Pair<pyint, pyint>)
 

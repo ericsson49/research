@@ -1,6 +1,6 @@
 package ssz
 
-import phase1.ENDIANNESS
+import phase0.ENDIANNESS
 import pylib.bit_length
 import pylib.pybytes
 import pylib.pyint
@@ -78,8 +78,14 @@ fun int_to_bytes(n: uint64, length: pyint): pybytes {
   return n.to_bytes(length, ENDIANNESS)
 }
 
-fun ceillog2(x: uint64): uint64 {
+fun ceillog2(x: pyint): uint64 {
   if (x < 1uL)
     throw IllegalArgumentException("ceillog2 accepts only positive values, x=${x}")
   return uint64((x - 1uL).bit_length())
+}
+
+fun floorlog2(x: pyint): uint64 {
+  if (x < 1uL)
+    throw IllegalArgumentException("floorlog2 accepts only positive values, x=${x}")
+  return uint64(x.bit_length() - 1uL)
 }

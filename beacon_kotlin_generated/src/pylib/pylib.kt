@@ -3,6 +3,7 @@ package pylib
 import ssz.Bitlist
 import ssz.Bytes
 import ssz.Bytes32
+import ssz.boolean
 import ssz.uint64
 import ssz.uint8
 import java.lang.Long
@@ -17,11 +18,11 @@ typealias pybool = Boolean
 typealias PyList<T> = MutableList<T>
 typealias PyDict<K,V> = MutableMap<K,V>
 
-inline class pyint(val value: BigInteger) {
+inline class pyint(val value: BigInteger): Comparable<pyint> {
   constructor(x: uint8) : this(x.toLong().toBigInteger())
   constructor(x: uint64) : this(x.toLong().toBigInteger())
 
-  operator fun compareTo(b: pyint) = value.compareTo(b.value)
+  override operator fun compareTo(b: pyint) = value.compareTo(b.value)
   operator fun compareTo(b: uint64) = value.compareTo(b.toLong().toBigInteger())
   operator fun rem(b: pyint) = pyint(value.rem(b.value))
   operator fun rem(b: uint64) = rem(pyint(b))
@@ -71,6 +72,9 @@ fun sum(c: Iterable<pyint>): pyint = run {
   }
   return pyint(res)
 }
+
+@JvmName("sum1")
+fun sum(c: Iterable<boolean>): pyint = TODO()
 
 fun range(start: uint64, end: uint64) = start until end
 fun range(start: uint64, end: uint64, st: uint64) = start until end step st.toLong()
@@ -125,6 +129,7 @@ fun <T> Iterable<T>.count(x: T): uint64 {
 }
 
 operator fun Bytes.plus(b: Bytes) = Bytes.concatenate(this, b)
+operator fun Bytes.times(n: uint64) = range(n).fold(Bytes.EMPTY) { a, _ -> a + this }
 
 operator fun uint64.unaryMinus(): Int = -this.toInt()
 
@@ -174,8 +179,8 @@ fun <K, V> Map<K, V>.keys() = this.keys
 fun <K, V> Map<K, V>.items() = this.entries
 
 fun uint64.pow(b: uint64): uint64 = Math.pow(this.toDouble(), b.toDouble()).toULong()
-fun uint64.bit_length(): pyint {
-  return pyint((64 - Long.numberOfLeadingZeros(this.toLong())).toBigInteger())
+fun pyint.bit_length(): pyint {
+  return pyint(this.value.bitLength().toULong())
 }
 
 fun uint64.to_bytes(length: pyint, endiannes: String): pybytes {

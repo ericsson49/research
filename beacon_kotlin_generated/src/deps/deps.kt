@@ -3,6 +3,7 @@ package deps
 import phase0.AggregateAndProof
 import phase0.BeaconState
 import pylib.pyint
+import sharding.BLSCommitment
 import ssz.Bytes
 import ssz.Bytes32
 import ssz.Bytes48
@@ -47,4 +48,6 @@ object bls {
   fun signature_to_G2(signature: Bytes96): Triple<FQ2, FQ2, FQ2> {
     TODO("Not yet implemented")
   }
+
+  fun Pairing(a: BLSCommitment, b: Any): Any = TODO()
 }

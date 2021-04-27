@@ -7,10 +7,10 @@ import ssz.*
 typealias OpaqueTransaction = SSZByteList
 fun OpaqueTransaction(x: SSZByteList): OpaqueTransaction = x
 fun OpaqueTransaction() = OpaqueTransaction(SSZByteList())
-data class BeaconBlockBody(
+open class BeaconBlockBody(
     var execution_payload: ExecutionPayload = ExecutionPayload()
 ): phase0.BeaconBlockBody()
-data class BeaconState(
+open class BeaconState(
     var latest_execution_payload_header: ExecutionPayloadHeader = ExecutionPayloadHeader()
 ): phase0.BeaconState()
 data class ExecutionPayload(

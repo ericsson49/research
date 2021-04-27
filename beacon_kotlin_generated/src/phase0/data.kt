@@ -77,7 +77,7 @@ data class Validator(
     var exit_epoch: Epoch = Epoch(),
     var withdrawable_epoch: Epoch = Epoch()
 )
-data class AttestationData(
+open class AttestationData(
     var slot: Slot = Slot(),
     var index: CommitteeIndex = CommitteeIndex(),
     var beacon_block_root: Root = Root(),
@@ -130,7 +130,7 @@ data class AttesterSlashing(
     var attestation_1: IndexedAttestation = IndexedAttestation(),
     var attestation_2: IndexedAttestation = IndexedAttestation()
 )
-data class Attestation(
+open class Attestation(
     var aggregation_bits: SSZBitlist = SSZBitlist(),
     var data: AttestationData = AttestationData(),
     var signature: BLSSignature = BLSSignature()
@@ -159,8 +159,8 @@ open class BeaconState(
     var balances: SSZList<Gwei> = SSZList<Gwei>(),
     var randao_mixes: SSZVector<Bytes32> = SSZVector<Bytes32>(),
     var slashings: SSZVector<Gwei> = SSZVector<Gwei>(),
-    var previous_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
-    var current_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
+    open var previous_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
+    open var current_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
     var justification_bits: SSZBitvector = SSZBitvector(),
     var previous_justified_checkpoint: Checkpoint = Checkpoint(),
     var current_justified_checkpoint: Checkpoint = Checkpoint(),

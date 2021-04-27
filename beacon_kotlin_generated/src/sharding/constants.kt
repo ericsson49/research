@@ -1,0 +1,27 @@
+package sharding
+
+import deps.*
+import pylib.*
+import ssz.*
+
+val PRIMITIVE_ROOT_OF_UNITY = 5uL
+val DATA_AVAILABILITY_INVERSE_CODING_RATE = 2uL.pow(1uL)
+val POINTS_PER_SAMPLE = uint64(2uL.pow(3uL))
+val MODULUS = pyint("52435875175126190479447740508185965837690552500527637822603658699938581184513".toBigInteger())
+val MAX_SHARDS = uint64(2uL.pow(10uL))
+val INITIAL_ACTIVE_SHARDS = uint64(2uL.pow(6uL))
+val GASPRICE_ADJUSTMENT_COEFFICIENT = uint64(2uL.pow(3uL))
+val MAX_SHARD_HEADERS_PER_SHARD = 4uL
+val MAX_SHARD_PROPOSER_SLASHINGS = 2uL.pow(4uL)
+val MAX_SAMPLES_PER_BLOCK = uint64(2uL.pow(11uL))
+val TARGET_SAMPLES_PER_BLOCK = uint64(2uL.pow(10uL))
+val G1_SETUP = PyList<BLSCommitment>()
+val G2_SETUP = PyList<Sequence<FQ2>>()
+val ROOT_OF_UNITY = pow(pyint(PRIMITIVE_ROOT_OF_UNITY), (MODULUS - pyint(1uL)) / pyint(MAX_SAMPLES_PER_BLOCK * POINTS_PER_SAMPLE), MODULUS)
+val MAX_GASPRICE = phase0.Gwei(2uL.pow(33uL))
+val MIN_GASPRICE = phase0.Gwei(2uL.pow(3uL))
+val SHARD_COMMITTEE_PERIOD = phase0.Epoch(2uL.pow(8uL))
+val DOMAIN_SHARD_PROPOSER = phase0.DomainType("0x80000000")
+val DOMAIN_SHARD_COMMITTEE = phase0.DomainType("0x81000000")
+val DOMAIN_SHARD_HEADER = phase0.DomainType("0x82000000")
+val SHARD_COUNT = 8uL

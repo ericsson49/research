@@ -17,16 +17,18 @@ typealias boolean = Boolean
 typealias uint8 = UByte
 typealias uint32 = UInt
 typealias uint64 = ULong
+typealias uint256 = pyint
 
 typealias Bytes = TuweniBytes
 typealias Bytes1 = Byte
 typealias Bytes4 = TuweniBytes
+typealias Bytes20 = TuweniBytes
 typealias Bytes32 = TuweniBytes32
 typealias Bytes48 = TuweniBytes48
 typealias Bytes96 = TuweniBytes
 
 typealias Bitlist = BooleanArray
-typealias SSZBitlist = List<Boolean>
+typealias SSZBitlist = MutableList<Boolean>
 typealias SSZBitvector = MutableList<Boolean>
 typealias SSZByteList = List<Byte>
 typealias SSZByteVector = List<Byte>
@@ -45,13 +47,16 @@ fun uint32(v: pyint): uint32 = v.value.toInt().toUInt()
 fun uint32(v: uint64): uint32 = v.toUInt()
 fun uint64(v: pyint): uint64 = v.value.toLong().toULong()
 fun uint64(v: ULong): uint64 = v
+fun uint256(): uint256 = pyint(0uL)
 fun Bytes4(): Bytes4 = TuweniBytes.fromHexString("0x00000000")
+fun Bytes20(): Bytes20 = TuweniBytes.fromHexString("0x0000000000000000000000000000000000000000")
 fun Bytes32(): Bytes32 = Bytes32.ZERO
 fun Bytes32(x: List<Byte>): Bytes32 = Bytes32.wrap(x.toByteArray())
 fun Bytes48(): Bytes48 = Bytes48.ZERO
 fun Bytes96(): Bytes96 = TuweniBytes.concatenate(Bytes48.ZERO, Bytes48.ZERO)
 
-fun SSZBitlist() = listOf<Boolean>()
+fun SSZBitlist(): SSZBitlist = mutableListOf()
+fun SSZBitlist(c: List<uint64>): SSZBitlist = c.map { it != 0uL }.toMutableList()
 fun SSZBitvector(): SSZBitvector = mutableListOf<Boolean>()
 fun SSZByteList() = listOf<Byte>()
 fun SSZByteVector() = listOf<Byte>()

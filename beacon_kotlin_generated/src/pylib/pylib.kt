@@ -178,6 +178,7 @@ fun <K,V> PyDict(vararg pairs: Pair<K, V>) = mutableMapOf(*pairs)
 fun <K, V> Map<K, V>.keys() = this.keys
 fun <K, V> Map<K, V>.items() = this.entries
 
+fun pow(a: pyint, b: pyint, c: pyint): pyint = TODO()
 fun uint64.pow(b: uint64): uint64 = Math.pow(this.toDouble(), b.toDouble()).toULong()
 fun pyint.bit_length(): pyint {
   return pyint(this.value.bitLength().toULong())

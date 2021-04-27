@@ -317,7 +317,8 @@ public class Spec {
         if (contains(list(candidates.map((c) -> c.getConfirmed())), pybool.create(true)).v()) {
           continue;
         }
-        var full_committee = get_beacon_committee(state, slot, new CommitteeIndex(shard));
+        var index = compute_committee_index_from_shard(state, slot, shard);
+        var full_committee = get_beacon_committee(state, slot, index);
         var voting_sets = list(candidates.map((c) -> set(enumerate(full_committee).filter((tmp_0) -> {
           var i = tmp_0.first;
           var v = tmp_0.second;
@@ -383,8 +384,9 @@ public class Spec {
     var next_epoch_start_slot = compute_start_slot_at_epoch(next_epoch);
     for (var slot : range(next_epoch_start_slot, plus(next_epoch_start_slot, SLOTS_PER_EPOCH))) {
       for (var index : range(get_committee_count_per_slot(state, next_epoch))) {
-        var shard = compute_shard_from_committee_index(state, slot, new CommitteeIndex(index));
-        var committee_length = len(get_beacon_committee(state, slot, new CommitteeIndex(shard)));
+        var committee_index = new CommitteeIndex(index);
+        var shard = compute_shard_from_committee_index(state, slot, committee_index);
+        var committee_length = len(get_beacon_committee(state, slot, committee_index));
         state.getCurrent_epoch_pending_shard_headers().append(new PendingShardHeader(slot, shard, new DataCommitment(DataCommitment.point_default, DataCommitment.length_default), new Root(), new SSZBitlist(multiply(PyList.of(pyint.create(0L)), committee_length)), new SSZBoolean(false)));
       }
     }

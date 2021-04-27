@@ -300,12 +300,14 @@ fun process_pending_headers(state: BeaconState): Unit {
   val previous_epoch = get_previous_epoch(state)
   val previous_epoch_start_slot = compute_start_slot_at_epoch(previous_epoch)
   for (slot in range(previous_epoch_start_slot, previous_epoch_start_slot + SLOTS_PER_EPOCH)) {
-    for (shard in range(get_active_shard_count(state, previous_epoch))) {
+    for (shard_index in range(get_active_shard_count(state, previous_epoch))) {
+      val shard = Shard(shard_index)
       val candidates = list(state.previous_epoch_pending_shard_headers.filter { c -> Pair(c.slot, c.shard) == Pair(slot, shard) }.map { c -> c })
       if (true in list(candidates.map { c -> c.confirmed })) {
         continue
       }
-      val full_committee = get_beacon_committee(state, slot, shard)
+      val index = compute_committee_index_from_shard(state, slot, shard)
+      val full_committee = get_beacon_committee(state, slot, index)
       val voting_sets = list(candidates.map { c -> set(enumerate(full_committee).filter { (i, v) -> c.votes[i] }.map { (i, v) -> v }) })
       val voting_balances = list(voting_sets.map { voters -> get_total_balance(state, voters) })
       val winning_index: Int
@@ -335,7 +337,8 @@ fun charge_confirmed_header_fees(state: BeaconState): Unit {
   var new_gasprice_2 = new_gasprice
   for (slot in range(previous_epoch_start_slot, previous_epoch_start_slot + SLOTS_PER_EPOCH)) {
     var new_gasprice_3 = new_gasprice_2
-    for (shard in range(SHARD_COUNT)) {
+    for (shard_index in range(SHARD_COUNT)) {
+      val shard = Shard(shard_index)
       val confirmed_candidates = list(state.previous_epoch_pending_shard_headers.filter { c -> Triple(c.slot, c.shard, c.confirmed) == Triple(slot, shard, true) }.map { c -> c })
       if (!any(confirmed_candidates)) {
         new_gasprice_3 = new_gasprice_3
@@ -360,8 +363,9 @@ fun reset_pending_headers(state: BeaconState): Unit {
   val next_epoch_start_slot = compute_start_slot_at_epoch(next_epoch)
   for (slot in range(next_epoch_start_slot, next_epoch_start_slot + SLOTS_PER_EPOCH)) {
     for (index in range(get_committee_count_per_slot(state, next_epoch))) {
-      val shard = compute_shard_from_committee_index(state, slot, index)
-      val committee_length = len(get_beacon_committee(state, slot, shard))
+      val committee_index = CommitteeIndex(index)
+      val shard = compute_shard_from_committee_index(state, slot, committee_index)
+      val committee_length = len(get_beacon_committee(state, slot, committee_index))
       state.current_epoch_pending_shard_headers.append(PendingShardHeader(slot = slot, shard = shard, commitment = DataCommitment(), root = Root(), votes = SSZBitlist(PyList(0uL) * committee_length), confirmed = false))
     }
   }

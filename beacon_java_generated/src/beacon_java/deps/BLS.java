@@ -4,6 +4,7 @@ import beacon_java.pylib.Sequence;
 import beacon_java.pylib.Triple;
 import beacon_java.pylib.pybool;
 import beacon_java.pylib.pyint;
+import beacon_java.sharding.data.BLSCommitment;
 import beacon_java.ssz.Bytes32;
 import beacon_java.ssz.Bytes48;
 import beacon_java.ssz.Bytes96;
@@ -49,6 +50,9 @@ public interface BLS {
     public Triple<FQ2, FQ2, FQ2> signature_to_G2(Bytes96 key_0) {
       return TODO(Triple.class);
     }
+
+    @Override
+    public Object Pairing(Bytes48 p1, Sequence<FQ2> p2) { return TODO(Object.class); }
   };
 
   <T extends Bytes96> T Sign(pyint privkey_0, Bytes32 signing_root_0);
@@ -64,4 +68,6 @@ public interface BLS {
   pybool AggregateVerify(Sequence<? extends Bytes48> pubkeys_0, Sequence<? extends Bytes32> messages_0, Bytes96 signature_0);
 
   Triple<FQ2, FQ2, FQ2> signature_to_G2(Bytes96 key_0);
+
+  Object Pairing(Bytes48 p1, Sequence<FQ2> p2);
 }

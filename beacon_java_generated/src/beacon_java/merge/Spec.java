@@ -155,7 +155,7 @@ public class Spec {
       */
   public static ValidatorIndex compute_proposer_index(BeaconState state, Sequence<ValidatorIndex> indices, Bytes32 seed) {
     pyassert(greater(len(indices), pyint.create(0L)));
-    var MAX_RANDOM_BYTE = minus(power(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
+    var MAX_RANDOM_BYTE = minus(pow(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
     var i = new uint64(pyint.create(0L));
     var total = new uint64(len(indices));
     var i_2 = i;

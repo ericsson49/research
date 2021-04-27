@@ -13,7 +13,10 @@ import static beacon_java.util.Exports.TODO;
  */
 public class Exports {
   public static void pyassert(pybool a) {
-    assert(a.equals(pybool.create(true)));
+    pyassert(a.equals(pybool.create(true)));
+  }
+  public static void pyassert(boolean a) {
+    assert a;
   }
 
   public static <T extends pyint> T max(Sequence<T> a) { return null; }
@@ -74,7 +77,8 @@ public class Exports {
   public static <T extends pyint> T multiply(T a, pyint b) { return null; }
   public static <T extends pyint> T divide(T a, pyint b) { return null; }
   public static <T extends pyint> T modulo(T a, pyint b) { return null; }
-  public static <T extends pyint> T power(T a, pyint b) { return null; }
+  public static <T extends pyint> T pow(T a, pyint b) { return null; }
+  public static <T extends pyint> T pow(T a, pyint b, pyint c) { return null; }
 
   public static <T extends pyint> T rightShift(T a, pyint b) { return null; }
   public static <T extends pyint> T leftShift(T a, pyint b) { return null; }

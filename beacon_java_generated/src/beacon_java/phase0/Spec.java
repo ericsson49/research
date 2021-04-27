@@ -100,7 +100,7 @@ public class Spec {
     var value = leaf;
     var value_3 = value;
     for (var i: range(depth)) {
-      if (pybool(modulo(divide(index, power(pyint.create(2L), i)), pyint.create(2L))).v()) {
+      if (pybool(modulo(divide(index, pow(pyint.create(2L), i)), pyint.create(2L))).v()) {
         var value_1 = hash(plus(branch.get(i), value_3));
         value_3 = value_1;
       } else {
@@ -135,7 +135,7 @@ public class Spec {
       */
   public static ValidatorIndex compute_proposer_index(BeaconState state, Sequence<ValidatorIndex> indices, Bytes32 seed) {
     pyassert(greater(len(indices), pyint.create(0L)));
-    var MAX_RANDOM_BYTE = minus(power(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
+    var MAX_RANDOM_BYTE = minus(pow(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
     var i = new uint64(pyint.create(0L));
     var total = new uint64(len(indices));
     var i_2 = i;

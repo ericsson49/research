@@ -7,7 +7,6 @@ import static beacon_java.altair.Utils.hash_tree_root;
 import static beacon_java.deps.BLS.bls;
 import static beacon_java.altair.Utils.copy;
 import static beacon_java.pylib.Exports.*;
-import static beacon_java.ssz.Exports.truediv;
 import static beacon_java.util.Exports.floorlog2;
 
 import beacon_java.altair.data.BeaconBlock;
@@ -34,12 +33,12 @@ public class Spec {
   }
 
   public static ParticipationFlags add_flag(ParticipationFlags flags, pyint flag_index) {
-    var flag = new ParticipationFlags(power(pyint.create(2L), flag_index));
+    var flag = new ParticipationFlags(pow(pyint.create(2L), flag_index));
     return bitOr(flags, flag);
   }
 
   public static pybool has_flag(ParticipationFlags flags, pyint flag_index) {
-    var flag = new ParticipationFlags(power(pyint.create(2L), flag_index));
+    var flag = new ParticipationFlags(pow(pyint.create(2L), flag_index));
     return eq(bitAnd(flags, flag), flag);
   }
 
@@ -47,7 +46,7 @@ public class Spec {
       Return the sequence of sync committee indices (which may include duplicate indices) for a given state and epoch.
       */
   public static Sequence<ValidatorIndex> get_sync_committee_indices(BeaconState state, Epoch epoch) {
-    var MAX_RANDOM_BYTE = minus(power(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
+    var MAX_RANDOM_BYTE = minus(pow(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
     var base_epoch = new Epoch(multiply(minus(max(divide(epoch, EPOCHS_PER_SYNC_COMMITTEE_PERIOD), pyint.create(1L)), pyint.create(1L)), EPOCHS_PER_SYNC_COMMITTEE_PERIOD));
     var active_validator_indices = get_active_validator_indices(state, base_epoch);
     var active_validator_count = new uint64(len(active_validator_indices));
@@ -463,7 +462,7 @@ public class Spec {
   }
 
   public static uint64 get_subtree_index(GeneralizedIndex generalized_index) {
-    return new uint64(modulo(generalized_index, power(pyint.create(2L), floorlog2(generalized_index))));
+    return new uint64(modulo(generalized_index, pow(pyint.create(2L), floorlog2(generalized_index))));
   }
 
   public static void validate_light_client_update(LightClientSnapshot snapshot, LightClientUpdate update, Root genesis_validators_root) {
@@ -548,7 +547,7 @@ public class Spec {
       */
   public static ValidatorIndex compute_proposer_index(BeaconState state, Sequence<ValidatorIndex> indices, Bytes32 seed) {
     pyassert(greater(len(indices), pyint.create(0L)));
-    var MAX_RANDOM_BYTE = minus(power(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
+    var MAX_RANDOM_BYTE = minus(pow(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
     var i = new uint64(pyint.create(0L));
     var total = new uint64(len(indices));
     var i_2 = i;

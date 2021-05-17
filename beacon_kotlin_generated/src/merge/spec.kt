@@ -8,12 +8,16 @@ import pylib.*
 import ssz.*
 import phase0.*
 
+fun is_execution_enabled(state: BeaconState, block: BeaconBlock): pybool {
+  return is_transition_completed(state) || is_transition_block(state, block)
+}
+
 fun is_transition_completed(state: BeaconState): pybool {
   return state.latest_execution_payload_header != ExecutionPayloadHeader()
 }
 
-fun is_transition_block(state: BeaconState, block_body: BeaconBlockBody): pybool {
-  return !is_transition_completed(state) && (block_body.execution_payload != ExecutionPayload())
+fun is_transition_block(state: BeaconState, block: BeaconBlock): pybool {
+  return !is_transition_completed(state) && (block.body.execution_payload != ExecutionPayload())
 }
 
 fun compute_time_at_slot(state: BeaconState, slot: Slot): uint64 {
@@ -26,23 +30,21 @@ fun process_block(state: BeaconState, block: BeaconBlock) {
   process_randao(state, block.body)
   process_eth1_data(state, block.body)
   process_operations(state, block.body)
-  process_execution_payload(state, block.body)
+  if (is_execution_enabled(state, block)) {
+    process_execution_payload(state, block.body.execution_payload, EXECUTION_ENGINE)
+  }
 }
 
 /*
     Note: This function is designed to be able to be run in parallel with the other `process_block` sub-functions
     */
-fun process_execution_payload(state: BeaconState, body: BeaconBlockBody) {
-  if (!is_transition_completed(state) && !is_transition_block(state, body)) {
-    return
-  }
-  val execution_payload = body.execution_payload
+fun process_execution_payload(state: BeaconState, execution_payload: ExecutionPayload, execution_engine: ExecutionEngine) {
   if (is_transition_completed(state)) {
     assert(execution_payload.parent_hash == state.latest_execution_payload_header.block_hash)
     assert(execution_payload.number == (state.latest_execution_payload_header.number + 1uL))
   }
   assert(execution_payload.timestamp == compute_time_at_slot(state, state.slot))
-  assert(verify_execution_state_transition(execution_payload))
+  assert(execution_engine.new_block(execution_payload))
   state.latest_execution_payload_header = ExecutionPayloadHeader(block_hash = execution_payload.block_hash, parent_hash = execution_payload.parent_hash, coinbase = execution_payload.coinbase, state_root = execution_payload.state_root, number = execution_payload.number, gas_limit = execution_payload.gas_limit, gas_used = execution_payload.gas_used, timestamp = execution_payload.timestamp, receipt_root = execution_payload.receipt_root, logs_bloom = execution_payload.logs_bloom, transactions_root = hash_tree_root(execution_payload.transactions))
 }
 
@@ -59,7 +61,7 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock) {
   val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
   assert(block.slot > finalized_slot)
   assert(get_ancestor(store, block.parent_root, finalized_slot) == store.finalized_checkpoint.root)
-  if (is_transition_block(pre_state, block.body)) {
+  if (is_transition_block(pre_state, block)) {
     val pow_block = get_pow_block(block.body.execution_payload.parent_hash)
     assert(pow_block.is_processed)
     assert(is_valid_transition_block(pow_block))
@@ -92,19 +94,19 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock) {
   }
 }
 
-fun get_execution_payload(state: BeaconState): ExecutionPayload {
+fun get_execution_payload(state: BeaconState, execution_engine: ExecutionEngine): ExecutionPayload {
   if (!is_transition_completed(state)) {
     val pow_block = get_pow_chain_head()
     if (!is_valid_transition_block(pow_block)) {
       return ExecutionPayload()
     } else {
       val timestamp = compute_time_at_slot(state, state.slot)
-      return produce_execution_payload(pow_block.block_hash, timestamp)
+      return execution_engine.assemble_block(pow_block.block_hash, timestamp)
     }
   }
   val execution_parent_hash = state.latest_execution_payload_header.block_hash
   val timestamp_1 = compute_time_at_slot(state, state.slot)
-  return produce_execution_payload(execution_parent_hash, timestamp_1)
+  return execution_engine.assemble_block(execution_parent_hash, timestamp_1)
 }
 
 /*

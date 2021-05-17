@@ -1,12 +1,21 @@
 package beacon_java.altair.data;
 
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.BLSSignature;
+import beacon_java.phase0.data.BeaconBlockHeader;
+import beacon_java.ssz.SSZBitvector;
+import beacon_java.ssz.Bytes32;
+import beacon_java.ssz.Container;
+import static beacon_java.altair.Constants.FINALIZED_ROOT_INDEX;
+import static beacon_java.altair.Constants.NEXT_SYNC_COMMITTEE_INDEX;
+import static beacon_java.altair.Constants.SYNC_COMMITTEE_SIZE;
+import beacon_java.altair.data.SyncCommittee;
+import beacon_java.ssz.SSZVector;
+import beacon_java.phase0.data.Version;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class LightClientUpdate {
+public class LightClientUpdate extends Container {
   public static BeaconBlockHeader header_default = new BeaconBlockHeader();
   public static SyncCommittee next_sync_committee_default = new SyncCommittee();
   public static SSZVector<Bytes32> next_sync_committee_branch_default = new SSZVector<Bytes32>();

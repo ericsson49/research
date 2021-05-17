@@ -1,12 +1,34 @@
 package beacon_java.altair.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
-import beacon_java.phase0.data.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.BeaconBlockHeader;
+import beacon_java.ssz.SSZBitvector;
+import beacon_java.ssz.Bytes32;
+import beacon_java.phase0.data.Checkpoint;
+import beacon_java.ssz.Container;
+import static beacon_java.phase0.Constants.EPOCHS_PER_ETH1_VOTING_PERIOD;
+import static beacon_java.phase0.Constants.EPOCHS_PER_HISTORICAL_VECTOR;
+import static beacon_java.phase0.Constants.EPOCHS_PER_SLASHINGS_VECTOR;
+import beacon_java.phase0.data.Eth1Data;
+import beacon_java.phase0.data.Fork;
+import beacon_java.phase0.data.Gwei;
+import static beacon_java.phase0.Constants.HISTORICAL_ROOTS_LIMIT;
+import static beacon_java.phase0.Constants.JUSTIFICATION_BITS_LENGTH;
+import beacon_java.ssz.SSZList;
+import beacon_java.altair.data.ParticipationFlags;
+import beacon_java.phase0.data.Root;
+import static beacon_java.phase0.Constants.SLOTS_PER_EPOCH;
+import static beacon_java.phase0.Constants.SLOTS_PER_HISTORICAL_ROOT;
+import beacon_java.phase0.data.Slot;
+import beacon_java.altair.data.SyncCommittee;
+import static beacon_java.phase0.Constants.VALIDATOR_REGISTRY_LIMIT;
+import beacon_java.phase0.data.Validator;
+import beacon_java.ssz.SSZVector;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class BeaconState {
+public class BeaconState extends Container {
   public static uint64 genesis_time_default = uint64.ZERO;
   public static Root genesis_validators_root_default = new Root();
   public static Slot slot_default = new Slot();

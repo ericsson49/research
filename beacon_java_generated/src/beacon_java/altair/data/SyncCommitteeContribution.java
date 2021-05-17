@@ -1,12 +1,18 @@
 package beacon_java.altair.data;
 
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.BLSSignature;
+import beacon_java.ssz.SSZBitvector;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Root;
+import static beacon_java.altair.Constants.SYNC_COMMITTEE_SIZE;
+import static beacon_java.altair.Constants.SYNC_COMMITTEE_SUBNET_COUNT;
+import beacon_java.phase0.data.Slot;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class SyncCommitteeContribution {
+public class SyncCommitteeContribution extends Container {
   public static Slot slot_default = new Slot();
   public static Root beacon_block_root_default = new Root();
   public static uint64 subcommittee_index_default = uint64.ZERO;

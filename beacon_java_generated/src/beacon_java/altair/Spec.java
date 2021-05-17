@@ -28,29 +28,34 @@ public class Spec {
     return bls.FastAggregateVerify(pubkeys, message, signature);
   }
 
-  public static Sequence<Pair<pyint,uint64>> get_flag_indices_and_weights() {
-    return Triple.of(new Pair<>(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), new Pair<>(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), new Pair<>(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT));
-  }
-
+  /*
+      Return a new ``ParticipationFlags`` adding ``flag_index`` to ``flags``.
+      */
   public static ParticipationFlags add_flag(ParticipationFlags flags, pyint flag_index) {
     var flag = new ParticipationFlags(pow(pyint.create(2L), flag_index));
     return bitOr(flags, flag);
   }
 
+  /*
+      Return whether ``flags`` has ``flag_index`` set.
+      */
   public static pybool has_flag(ParticipationFlags flags, pyint flag_index) {
     var flag = new ParticipationFlags(pow(pyint.create(2L), flag_index));
     return eq(bitAnd(flags, flag), flag);
   }
 
   /*
-      Return the sequence of sync committee indices (which may include duplicate indices) for a given state and epoch.
+      Return the sequence of sync committee indices (which may include duplicate indices)
+      for the next sync committee, given a ``state`` at a sync committee period boundary.
+
+      Note: Committee can contain duplicate indices for small validator sets (< SYNC_COMMITTEE_SIZE + 128)
       */
-  public static Sequence<ValidatorIndex> get_sync_committee_indices(BeaconState state, Epoch epoch) {
+  public static Sequence<ValidatorIndex> get_next_sync_committee_indices(BeaconState state) {
+    var epoch = new Epoch(plus(get_current_epoch(state), pyint.create(1L)));
     var MAX_RANDOM_BYTE = minus(pow(pyint.create(2L), pyint.create(8L)), pyint.create(1L));
-    var base_epoch = new Epoch(multiply(minus(max(divide(epoch, EPOCHS_PER_SYNC_COMMITTEE_PERIOD), pyint.create(1L)), pyint.create(1L)), EPOCHS_PER_SYNC_COMMITTEE_PERIOD));
-    var active_validator_indices = get_active_validator_indices(state, base_epoch);
+    var active_validator_indices = get_active_validator_indices(state, epoch);
     var active_validator_count = new uint64(len(active_validator_indices));
-    var seed = get_seed(state, base_epoch, DOMAIN_SYNC_COMMITTEE);
+    var seed = get_seed(state, epoch, DOMAIN_SYNC_COMMITTEE);
     var i = pyint.create(0L);
     PyList<ValidatorIndex> sync_committee_indices = PyList.of();
     var i_2 = i;
@@ -69,27 +74,44 @@ public class Spec {
   }
 
   /*
-      Return the sync committee for a given state and epoch.
+      Return the *next* sync committee for a given ``state``.
+
+      ``SyncCommittee`` contains an aggregate pubkey that enables
+      resource-constrained clients to save some computation when verifying
+      the sync committee's signature.
+
+      ``SyncCommittee`` can also contain duplicate pubkeys, when ``get_next_sync_committee_indices``
+      returns duplicate indices. Implementations must take care when handling
+      optimizations relating to aggregation and verification in the presence of duplicates.
+
+      Note: This function should only be called at sync committee period boundaries by ``process_sync_committee_updates``
+      as ``get_next_sync_committee_indices`` is not stable within a given period.
       */
-  public static SyncCommittee get_sync_committee(BeaconState state, Epoch epoch) {
-    var indices = get_sync_committee_indices(state, epoch);
+  public static SyncCommittee get_next_sync_committee(BeaconState state) {
+    var indices = get_next_sync_committee_indices(state);
     var pubkeys = list(indices.map((index) -> state.getValidators().get(index).getPubkey()));
-    var partition = list(range(pyint.create(0L), len(pubkeys), SYNC_PUBKEYS_PER_AGGREGATE).map((i) -> pubkeys.getSlice(i, plus(i, SYNC_PUBKEYS_PER_AGGREGATE))));
-    var pubkey_aggregates = list(partition.map((preaggregate) -> bls.AggregatePKs(preaggregate)));
-    return new SyncCommittee(new SSZVector<>(pubkeys), new SSZVector<>(pubkey_aggregates));
+    var aggregate_pubkey = bls.AggregatePKs(pubkeys);
+    return new SyncCommittee(new SSZVector<>(pubkeys), aggregate_pubkey);
   }
 
   public static Gwei get_base_reward_per_increment(BeaconState state) {
     return new Gwei(divide(multiply(EFFECTIVE_BALANCE_INCREMENT, BASE_REWARD_FACTOR), integer_squareroot(get_total_active_balance(state))));
   }
 
+  /*
+      Return the base reward for the validator defined by ``index`` with respect to the current ``state``.
+
+      Note: An optimally performing validator can earn one base reward per epoch over a long time horizon.
+      This takes into account both per-epoch (e.g. attestation) and intermittent duties (e.g. block proposal
+      and sync committees).
+      */
   public static Gwei get_base_reward(BeaconState state, ValidatorIndex index) {
     var increments = divide(state.getValidators().get(index).getEffective_balance(), EFFECTIVE_BALANCE_INCREMENT);
     return new Gwei(multiply(increments, get_base_reward_per_increment(state)));
   }
 
   /*
-      Return the active and unslashed validator indices for the given epoch and flag index.
+      Return the set of validator indices that are both active and unslashed for the given ``flag_index`` and ``epoch``.
       */
   public static Set<ValidatorIndex> get_unslashed_participating_indices(BeaconState state, pyint flag_index, Epoch epoch) {
     pyassert(contains(new Pair<>(get_previous_epoch(state), get_current_epoch(state)), epoch));
@@ -107,26 +129,57 @@ public class Spec {
   }
 
   /*
-      Return the deltas for a given flag index by scanning through the participation flags.
+      Return the flag indices that are satisfied by an attestation.
       */
-  public static Pair<Sequence<Gwei>,Sequence<Gwei>> get_flag_index_deltas(BeaconState state, pyint flag_index, uint64 weight) {
+  public static Sequence<pyint> get_attestation_participation_flag_indices(BeaconState state, AttestationData data, uint64 inclusion_delay) {
+    Checkpoint justified_checkpoint_2;
+    if (eq(data.getTarget().getEpoch(), get_current_epoch(state)).v()) {
+      var justified_checkpoint = state.getCurrent_justified_checkpoint();
+      justified_checkpoint_2 = justified_checkpoint;
+    } else {
+      var justified_checkpoint_1 = state.getPrevious_justified_checkpoint();
+      justified_checkpoint_2 = justified_checkpoint_1;
+    }
+    var is_matching_source = eq(data.getSource(), justified_checkpoint_2);
+    var is_matching_target = and(is_matching_source, eq(data.getTarget().getRoot(), get_block_root(state, data.getTarget().getEpoch())));
+    var is_matching_head = and(is_matching_target, eq(data.getBeacon_block_root(), get_block_root_at_slot(state, data.getSlot())));
+    pyassert(is_matching_source);
+    var participation_flag_indices = new PyList<pyint>();
+    if (and(is_matching_source, lessOrEqual(inclusion_delay, integer_squareroot(SLOTS_PER_EPOCH))).v()) {
+      participation_flag_indices.append(TIMELY_SOURCE_FLAG_INDEX);
+    }
+    if (and(is_matching_target, lessOrEqual(inclusion_delay, SLOTS_PER_EPOCH)).v()) {
+      participation_flag_indices.append(TIMELY_TARGET_FLAG_INDEX);
+    }
+    if (and(is_matching_head, eq(inclusion_delay, MIN_ATTESTATION_INCLUSION_DELAY)).v()) {
+      participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX);
+    }
+    return participation_flag_indices;
+  }
+
+  /*
+      Return the deltas for a given ``flag_index`` by scanning through the participation flags.
+      */
+  public static Pair<Sequence<Gwei>,Sequence<Gwei>> get_flag_index_deltas(BeaconState state, pyint flag_index) {
     var rewards = multiply(PyList.of(new Gwei(pyint.create(0L))), len(state.getValidators()));
     var penalties = multiply(PyList.of(new Gwei(pyint.create(0L))), len(state.getValidators()));
-    var unslashed_participating_indices = get_unslashed_participating_indices(state, flag_index, get_previous_epoch(state));
-    var increment = EFFECTIVE_BALANCE_INCREMENT;
-    var unslashed_participating_increments = divide(get_total_balance(state, unslashed_participating_indices), increment);
-    var active_increments = divide(get_total_active_balance(state), increment);
+    var previous_epoch = get_previous_epoch(state);
+    var unslashed_participating_indices = get_unslashed_participating_indices(state, flag_index, previous_epoch);
+    var weight = PARTICIPATION_FLAG_WEIGHTS.get(flag_index);
+    var unslashed_participating_balance = get_total_balance(state, unslashed_participating_indices);
+    var unslashed_participating_increments = divide(unslashed_participating_balance, EFFECTIVE_BALANCE_INCREMENT);
+    var active_increments = divide(get_total_active_balance(state), EFFECTIVE_BALANCE_INCREMENT);
     for (var index: get_eligible_validator_indices(state)) {
       var base_reward = get_base_reward(state, index);
       if (contains(unslashed_participating_indices, index).v()) {
-        if (is_in_inactivity_leak(state).v()) {
-          rewards.set(index, plus(rewards.get(index), new Gwei(divide(multiply(base_reward, weight), WEIGHT_DENOMINATOR))));
-        } else {
+        if (not(is_in_inactivity_leak(state)).v()) {
           var reward_numerator = multiply(multiply(base_reward, weight), unslashed_participating_increments);
           rewards.set(index, plus(rewards.get(index), new Gwei(divide(reward_numerator, multiply(active_increments, WEIGHT_DENOMINATOR)))));
         }
       } else {
-        penalties.set(index, plus(penalties.get(index), new Gwei(divide(multiply(base_reward, weight), WEIGHT_DENOMINATOR))));
+        if (not(eq(flag_index, TIMELY_HEAD_FLAG_INDEX)).v()) {
+          penalties.set(index, plus(penalties.get(index), new Gwei(divide(multiply(base_reward, weight), WEIGHT_DENOMINATOR))));
+        }
       }
     }
     return new Pair<>(rewards, penalties);
@@ -138,20 +191,13 @@ public class Spec {
   public static Pair<Sequence<Gwei>,Sequence<Gwei>> get_inactivity_penalty_deltas(BeaconState state) {
     var rewards = list(range(len(state.getValidators())).map((_0) -> new Gwei(pyint.create(0L))));
     var penalties = list(range(len(state.getValidators())).map((_0) -> new Gwei(pyint.create(0L))));
-    if (is_in_inactivity_leak(state).v()) {
-      var previous_epoch = get_previous_epoch(state);
-      var matching_target_indices = get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, previous_epoch);
-      for (var index: get_eligible_validator_indices(state)) {
-        for (var tmp_0: get_flag_indices_and_weights()) {
-          var __ = tmp_0.first;
-          var weight = tmp_0.second;
-          penalties.set(index, plus(penalties.get(index), new Gwei(divide(multiply(get_base_reward(state, index), weight), WEIGHT_DENOMINATOR))));
-        }
-        if (not(contains(matching_target_indices, index)).v()) {
-          var penalty_numerator = multiply(state.getValidators().get(index).getEffective_balance(), state.getInactivity_scores().get(index));
-          var penalty_denominator = multiply(INACTIVITY_SCORE_BIAS, INACTIVITY_PENALTY_QUOTIENT_ALTAIR);
-          penalties.set(index, plus(penalties.get(index), new Gwei(divide(penalty_numerator, penalty_denominator))));
-        }
+    var previous_epoch = get_previous_epoch(state);
+    var matching_target_indices = get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, previous_epoch);
+    for (var index: get_eligible_validator_indices(state)) {
+      if (not(contains(matching_target_indices, index)).v()) {
+        var penalty_numerator = multiply(state.getValidators().get(index).getEffective_balance(), state.getInactivity_scores().get(index));
+        var penalty_denominator = multiply(INACTIVITY_SCORE_BIAS, INACTIVITY_PENALTY_QUOTIENT_ALTAIR);
+        penalties.set(index, plus(penalties.get(index), new Gwei(divide(penalty_numerator, penalty_denominator))));
       }
     }
     return new Pair<>(rewards, penalties);
@@ -164,7 +210,7 @@ public class Spec {
     var epoch = get_current_epoch(state);
     initiate_validator_exit(state, slashed_index);
     var validator = state.getValidators().get(slashed_index);
-    validator.setSlashed(new SSZBoolean(pybool.create(true)));
+    validator.setSlashed(new beacon_java.ssz.SSZBoolean(pybool.create(true)));
     validator.setWithdrawable_epoch(max(validator.getWithdrawable_epoch(), new Epoch(plus(epoch, EPOCHS_PER_SLASHINGS_VECTOR))));
     state.getSlashings().set(modulo(epoch, EPOCHS_PER_SLASHINGS_VECTOR), plus(state.getSlashings().get(modulo(epoch, EPOCHS_PER_SLASHINGS_VECTOR)), validator.getEffective_balance()));
     decrease_balance(state, slashed_index, divide(validator.getEffective_balance(), MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR));
@@ -198,41 +244,23 @@ public class Spec {
     pyassert(less(data.getIndex(), get_committee_count_per_slot(state, data.getTarget().getEpoch())));
     var committee = get_beacon_committee(state, data.getSlot(), data.getIndex());
     pyassert(eq(len(attestation.getAggregation_bits()), len(committee)));
+    var participation_flag_indices = get_attestation_participation_flag_indices(state, data, minus(state.getSlot(), data.getSlot()));
+    pyassert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)));
     SSZList<ParticipationFlags> epoch_participation_2;
-    Checkpoint justified_checkpoint_2;
     if (eq(data.getTarget().getEpoch(), get_current_epoch(state)).v()) {
       var epoch_participation = state.getCurrent_epoch_participation();
-      var justified_checkpoint = state.getCurrent_justified_checkpoint();
       epoch_participation_2 = epoch_participation;
-      justified_checkpoint_2 = justified_checkpoint;
     } else {
       var epoch_participation_1 = state.getPrevious_epoch_participation();
-      var justified_checkpoint_1 = state.getPrevious_justified_checkpoint();
       epoch_participation_2 = epoch_participation_1;
-      justified_checkpoint_2 = justified_checkpoint_1;
-    }
-    var is_matching_head = eq(data.getBeacon_block_root(), get_block_root_at_slot(state, data.getSlot()));
-    var is_matching_source = eq(data.getSource(), justified_checkpoint_2);
-    var is_matching_target = eq(data.getTarget().getRoot(), get_block_root(state, data.getTarget().getEpoch()));
-    pyassert(is_matching_source);
-    pyassert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)));
-    var participation_flag_indices = new PyList<pyint>();
-    if (and(is_matching_head, is_matching_target, eq(state.getSlot(), plus(data.getSlot(), MIN_ATTESTATION_INCLUSION_DELAY))).v()) {
-      participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX);
-    }
-    if (and(is_matching_source, lessOrEqual(state.getSlot(), plus(data.getSlot(), integer_squareroot(SLOTS_PER_EPOCH)))).v()) {
-      participation_flag_indices.append(TIMELY_SOURCE_FLAG_INDEX);
-    }
-    if (and(is_matching_target, lessOrEqual(state.getSlot(), plus(data.getSlot(), SLOTS_PER_EPOCH))).v()) {
-      participation_flag_indices.append(TIMELY_TARGET_FLAG_INDEX);
     }
     var proposer_reward_numerator = pyint.create(0L);
     var proposer_reward_numerator_2 = proposer_reward_numerator;
     for (var index: get_attesting_indices(state, data, attestation.getAggregation_bits())) {
       var proposer_reward_numerator_3 = proposer_reward_numerator_2;
-      for (var tmp_1: get_flag_indices_and_weights()) {
-        var flag_index = tmp_1.first;
-        var weight = tmp_1.second;
+      for (var tmp_0: enumerate(PARTICIPATION_FLAG_WEIGHTS)) {
+        var flag_index = tmp_0.first;
+        var weight = tmp_0.second;
         if (and(contains(participation_flag_indices, flag_index), not(has_flag(epoch_participation_2.get(index), flag_index))).v()) {
           epoch_participation_2.set(index, add_flag(epoch_participation_2.get(index), flag_index));
           var proposer_reward_numerator_1 = plus(proposer_reward_numerator_3, multiply(get_base_reward(state, index), weight));
@@ -273,7 +301,7 @@ public class Spec {
 
   public static void process_sync_committee(BeaconState state, SyncAggregate aggregate) {
     var committee_pubkeys = state.getCurrent_sync_committee().getPubkeys();
-    var participant_pubkeys = list(zip(committee_pubkeys, aggregate.getSync_committee_bits()).filter((tmp_2) -> { var pubkey = tmp_2.first; var bit = tmp_2.second; return bit; }).map((tmp_3) -> { var pubkey = tmp_3.first; var bit = tmp_3.second; return pubkey; }));
+    var participant_pubkeys = list(zip(committee_pubkeys, aggregate.getSync_committee_bits()).filter((tmp_1) -> { var pubkey = tmp_1.first; var bit = tmp_1.second; return bit; }).map((tmp_2) -> { var pubkey = tmp_2.first; var bit = tmp_2.second; return pubkey; }));
     var previous_slot = minus(max(state.getSlot(), new Slot(pyint.create(1L))), new Slot(pyint.create(1L)));
     var domain = get_domain(state, DOMAIN_SYNC_COMMITTEE, compute_epoch_at_slot(previous_slot));
     var signing_root = compute_signing_root(get_block_root_at_slot(state, previous_slot), domain);
@@ -283,8 +311,9 @@ public class Spec {
     var max_participant_rewards = new Gwei(divide(divide(multiply(total_base_rewards, SYNC_REWARD_WEIGHT), WEIGHT_DENOMINATOR), SLOTS_PER_EPOCH));
     var participant_reward = new Gwei(divide(max_participant_rewards, SYNC_COMMITTEE_SIZE));
     var proposer_reward = new Gwei(divide(multiply(participant_reward, PROPOSER_WEIGHT), minus(WEIGHT_DENOMINATOR, PROPOSER_WEIGHT)));
-    var committee_indices = get_sync_committee_indices(state, get_current_epoch(state));
-    var participant_indices = list(zip(committee_indices, aggregate.getSync_committee_bits()).filter((tmp_4) -> { var index = tmp_4.first; var bit = tmp_4.second; return bit; }).map((tmp_5) -> { var index = tmp_5.first; var bit = tmp_5.second; return index; }));
+    var all_pubkeys = list(state.getValidators().map((v) -> v.getPubkey()));
+    var committee_indices = list(state.getCurrent_sync_committee().getPubkeys().map((pubkey) -> new ValidatorIndex(all_pubkeys.index(pubkey))));
+    var participant_indices = list(zip(committee_indices, aggregate.getSync_committee_bits()).filter((tmp_3) -> { var index = tmp_3.first; var bit = tmp_3.second; return bit; }).map((tmp_4) -> { var index = tmp_4.first; var bit = tmp_4.second; return index; }));
     for (var participant_index: participant_indices) {
       increase_balance(state, participant_index, participant_reward);
       increase_balance(state, get_beacon_proposer_index(state), proposer_reward);
@@ -319,15 +348,17 @@ public class Spec {
   }
 
   public static void process_inactivity_updates(BeaconState state) {
+    if (eq(get_current_epoch(state), GENESIS_EPOCH).v()) {
+      return;
+    }
     for (var index: get_eligible_validator_indices(state)) {
       if (contains(get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, get_previous_epoch(state)), index).v()) {
-        if (greater(state.getInactivity_scores().get(index), pyint.create(0L)).v()) {
-          state.getInactivity_scores().set(index, minus(state.getInactivity_scores().get(index), pyint.create(1L)));
-        }
+        state.getInactivity_scores().set(index, minus(state.getInactivity_scores().get(index), min(pyint.create(1L), state.getInactivity_scores().get(index))));
       } else {
-        if (is_in_inactivity_leak(state).v()) {
-          state.getInactivity_scores().set(index, plus(state.getInactivity_scores().get(index), INACTIVITY_SCORE_BIAS));
-        }
+        state.getInactivity_scores().set(index, plus(state.getInactivity_scores().get(index), INACTIVITY_SCORE_BIAS));
+      }
+      if (not(is_in_inactivity_leak(state)).v()) {
+        state.getInactivity_scores().set(index, minus(state.getInactivity_scores().get(index), min(INACTIVITY_SCORE_RECOVERY_RATE, state.getInactivity_scores().get(index))));
       }
     }
   }
@@ -336,12 +367,11 @@ public class Spec {
     if (eq(get_current_epoch(state), GENESIS_EPOCH).v()) {
       return;
     }
-    var flag_indices_and_numerators = get_flag_indices_and_weights();
-    var flag_deltas = list(flag_indices_and_numerators.map((tmp_6) -> { var index = tmp_6.first; var numerator = tmp_6.second; return get_flag_index_deltas(state, index, numerator); }));
+    var flag_deltas = list(range(len(PARTICIPATION_FLAG_WEIGHTS)).map((flag_index) -> get_flag_index_deltas(state, flag_index)));
     var deltas = plus(flag_deltas, PyList.of(get_inactivity_penalty_deltas(state)));
-    for (var tmp_7: deltas) {
-      var rewards = tmp_7.first;
-      var penalties = tmp_7.second;
+    for (var tmp_5: deltas) {
+      var rewards = tmp_5.first;
+      var penalties = tmp_5.second;
       for (var index: range(len(state.getValidators()))) {
         increase_balance(state, new ValidatorIndex(index), rewards.get(index));
         decrease_balance(state, new ValidatorIndex(index), penalties.get(index));
@@ -353,9 +383,9 @@ public class Spec {
     var epoch = get_current_epoch(state);
     var total_balance = get_total_active_balance(state);
     var adjusted_total_slashing_balance = min(multiply(sum(state.getSlashings()), PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR), total_balance);
-    for (var tmp_8: enumerate(state.getValidators())) {
-      var index = tmp_8.first;
-      var validator = tmp_8.second;
+    for (var tmp_6: enumerate(state.getValidators())) {
+      var index = tmp_6.first;
+      var validator = tmp_6.second;
       if (and(validator.getSlashed(), eq(plus(epoch, divide(EPOCHS_PER_SLASHINGS_VECTOR, pyint.create(2L))), validator.getWithdrawable_epoch())).v()) {
         var increment = EFFECTIVE_BALANCE_INCREMENT;
         var penalty_numerator = multiply(divide(validator.getEffective_balance(), increment), adjusted_total_slashing_balance);
@@ -374,15 +404,57 @@ public class Spec {
     var next_epoch = plus(get_current_epoch(state), new Epoch(pyint.create(1L)));
     if (eq(modulo(next_epoch, EPOCHS_PER_SYNC_COMMITTEE_PERIOD), pyint.create(0L)).v()) {
       state.setCurrent_sync_committee(state.getNext_sync_committee());
-      state.setNext_sync_committee(get_sync_committee(state, plus(next_epoch, EPOCHS_PER_SYNC_COMMITTEE_PERIOD)));
+      state.setNext_sync_committee(get_next_sync_committee(state));
     }
   }
 
-  public static BeaconState upgrade_to_altair(BeaconState pre) {
-    var epoch = get_current_epoch(pre);
+  public static BeaconState initialize_beacon_state_from_eth1(Bytes32 eth1_block_hash, uint64 eth1_timestamp, Sequence<Deposit> deposits) {
+    var fork = new Fork(GENESIS_FORK_VERSION, ALTAIR_FORK_VERSION, GENESIS_EPOCH);
+    var state = new BeaconState(plus(eth1_timestamp, GENESIS_DELAY), BeaconState.genesis_validators_root_default, BeaconState.slot_default, fork, new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, hash_tree_root(new BeaconBlockBody(BeaconBlockBody.randao_reveal_default, BeaconBlockBody.eth1_data_default, BeaconBlockBody.graffiti_default, BeaconBlockBody.proposer_slashings_default, BeaconBlockBody.attester_slashings_default, BeaconBlockBody.attestations_default, BeaconBlockBody.deposits_default, BeaconBlockBody.voluntary_exits_default, BeaconBlockBody.sync_aggregate_default))), BeaconState.block_roots_default, BeaconState.state_roots_default, BeaconState.historical_roots_default, new Eth1Data(Eth1Data.deposit_root_default, new uint64(len(deposits)), new Hash32(eth1_block_hash)), BeaconState.eth1_data_votes_default, BeaconState.eth1_deposit_index_default, BeaconState.validators_default, BeaconState.balances_default, new SSZVector<>(multiply(PyList.of(eth1_block_hash), EPOCHS_PER_HISTORICAL_VECTOR)), BeaconState.slashings_default, BeaconState.previous_epoch_participation_default, BeaconState.current_epoch_participation_default, BeaconState.justification_bits_default, BeaconState.previous_justified_checkpoint_default, BeaconState.current_justified_checkpoint_default, BeaconState.finalized_checkpoint_default, BeaconState.inactivity_scores_default, BeaconState.current_sync_committee_default, BeaconState.next_sync_committee_default);
+    var leaves = list(map((deposit) -> deposit.getData(), deposits));
+    for (var tmp_7: enumerate(deposits)) {
+      var index = tmp_7.first;
+      var deposit = tmp_7.second;
+      var deposit_data_list = new SSZList<DepositData>(leaves.getSlice(null, plus(index, pyint.create(1L))));
+      state.getEth1_data().setDeposit_root(hash_tree_root(deposit_data_list));
+      process_deposit(state, deposit);
+    }
+    for (var tmp_8: enumerate(state.getValidators())) {
+      var index_1 = tmp_8.first;
+      var validator = tmp_8.second;
+      var balance = state.getBalances().get(index_1);
+      validator.setEffective_balance(min(minus(balance, modulo(balance, EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE));
+      if (eq(validator.getEffective_balance(), MAX_EFFECTIVE_BALANCE).v()) {
+        validator.setActivation_eligibility_epoch(GENESIS_EPOCH);
+        validator.setActivation_epoch(GENESIS_EPOCH);
+      }
+    }
+    state.setGenesis_validators_root(hash_tree_root(state.getValidators()));
+    state.setCurrent_sync_committee(get_next_sync_committee(state));
+    state.setNext_sync_committee(get_next_sync_committee(state));
+    return state;
+  }
+
+  public static void translate_participation(BeaconState state, Sequence<beacon_java.phase0.data.PendingAttestation> pending_attestations) {
+    for (var attestation: pending_attestations) {
+      var data = attestation.getData();
+      var inclusion_delay = attestation.getInclusion_delay();
+      var participation_flag_indices = get_attestation_participation_flag_indices(state, data, inclusion_delay);
+      var epoch_participation = state.getPrevious_epoch_participation();
+      for (var index: get_attesting_indices(state, data, attestation.getAggregation_bits())) {
+        for (var flag_index: participation_flag_indices) {
+          epoch_participation.set(index, add_flag(epoch_participation.get(index), flag_index));
+        }
+      }
+    }
+  }
+
+  public static BeaconState upgrade_to_altair(beacon_java.phase0.data.BeaconState pre) {
+    var epoch = beacon_java.phase0.Spec.get_current_epoch(pre);
     var post = new BeaconState(pre.getGenesis_time(), pre.getGenesis_validators_root(), pre.getSlot(), new Fork(pre.getFork().getCurrent_version(), ALTAIR_FORK_VERSION, epoch), pre.getLatest_block_header(), pre.getBlock_roots(), pre.getState_roots(), pre.getHistorical_roots(), pre.getEth1_data(), pre.getEth1_data_votes(), pre.getEth1_deposit_index(), pre.getValidators(), pre.getBalances(), pre.getRandao_mixes(), pre.getSlashings(), new SSZList<>(list(range(len(pre.getValidators())).map((_0) -> new ParticipationFlags(pyint.create(0L))))), new SSZList<>(list(range(len(pre.getValidators())).map((_0) -> new ParticipationFlags(pyint.create(0L))))), pre.getJustification_bits(), pre.getPrevious_justified_checkpoint(), pre.getCurrent_justified_checkpoint(), pre.getFinalized_checkpoint(), new SSZList<>(list(range(len(pre.getValidators())).map((_0) -> new uint64(pyint.create(0L))))), BeaconState.current_sync_committee_default, BeaconState.next_sync_committee_default);
-    post.setCurrent_sync_committee(get_sync_committee(post, get_current_epoch(post)));
-    post.setNext_sync_committee(get_sync_committee(post, plus(get_current_epoch(post), EPOCHS_PER_SYNC_COMMITTEE_PERIOD)));
+    translate_participation(post, pre.getPrevious_epoch_attestations());
+    post.setCurrent_sync_committee(get_next_sync_committee(post));
+    post.setNext_sync_committee(get_next_sync_committee(post));
     return post;
   }
 
@@ -407,14 +479,15 @@ public class Spec {
   public static void process_sync_committee_contributions(BeaconBlock block, Set<SyncCommitteeContribution> contributions) {
     var sync_aggregate = new SyncAggregate(SyncAggregate.sync_committee_bits_default, SyncAggregate.sync_committee_signature_default);
     var signatures = new PyList<BLSSignature>();
+    var sync_subcommittee_size = divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT);
     for (var contribution: contributions) {
       var subcommittee_index = contribution.getSubcommittee_index();
       for (var tmp_9: enumerate(contribution.getAggregation_bits())) {
         var index = tmp_9.first;
         var participated = tmp_9.second;
         if (pybool(participated).v()) {
-          var participant_index = plus(multiply(divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT), subcommittee_index), index);
-          sync_aggregate.getSync_committee_bits().set(participant_index, new SSZBoolean(pybool.create(true)));
+          var participant_index = plus(multiply(sync_subcommittee_size, subcommittee_index), index);
+          sync_aggregate.getSync_committee_bits().set(participant_index, new beacon_java.ssz.SSZBoolean(pybool.create(true)));
         }
       }
       signatures.append(contribution.getSignature());
@@ -431,15 +504,24 @@ public class Spec {
     return new SyncCommitteeSignature(state.getSlot(), SyncCommitteeSignature.beacon_block_root_default, validator_index, signature);
   }
 
-  public static Sequence<uint64> compute_subnets_for_sync_committee(BeaconState state, ValidatorIndex validator_index) {
+  public static Set<uint64> compute_subnets_for_sync_committee(BeaconState state, ValidatorIndex validator_index) {
+    var next_slot_epoch = compute_epoch_at_slot(new Slot(plus(state.getSlot(), pyint.create(1L))));
+    SyncCommittee sync_committee_2;
+    if (eq(compute_sync_committee_period(get_current_epoch(state)), compute_sync_committee_period(next_slot_epoch)).v()) {
+      var sync_committee = state.getCurrent_sync_committee();
+      sync_committee_2 = sync_committee;
+    } else {
+      var sync_committee_1 = state.getNext_sync_committee();
+      sync_committee_2 = sync_committee_1;
+    }
     var target_pubkey = state.getValidators().get(validator_index).getPubkey();
-    var sync_committee_indices = list(enumerate(state.getCurrent_sync_committee().getPubkeys()).filter((tmp_10) -> { var index = tmp_10.first; var pubkey = tmp_10.second; return eq(pubkey, target_pubkey); }).map((tmp_11) -> { var index = tmp_11.first; var pubkey = tmp_11.second; return index; }));
-    return list(sync_committee_indices.map((index) -> new uint64(divide(index, divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT)))));
+    var sync_committee_indices = list(enumerate(sync_committee_2.getPubkeys()).filter((tmp_10) -> { var index = tmp_10.first; var pubkey = tmp_10.second; return eq(pubkey, target_pubkey); }).map((tmp_11) -> { var index = tmp_11.first; var pubkey = tmp_11.second; return index; }));
+    return set(list(sync_committee_indices.map((index) -> new uint64(divide(index, divide(SYNC_COMMITTEE_SIZE, SYNC_COMMITTEE_SUBNET_COUNT))))));
   }
 
   public static BLSSignature get_sync_committee_selection_proof(BeaconState state, Slot slot, uint64 subcommittee_index, pyint privkey) {
     var domain = get_domain(state, DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF, compute_epoch_at_slot(slot));
-    var signing_data = new SyncCommitteeSigningData(slot, subcommittee_index);
+    var signing_data = new SyncAggregatorSelectionData(slot, subcommittee_index);
     var signing_root = compute_signing_root(signing_data, domain);
     return bls.Sign(privkey, signing_root);
   }
@@ -509,14 +591,15 @@ public class Spec {
 
   public static void process_light_client_update(LightClientStore store, LightClientUpdate update, Slot current_slot, Root genesis_validators_root) {
     validate_light_client_update(store.getSnapshot(), update, genesis_validators_root);
-    store.getValid_updates().append(update);
-    if (and(greater(multiply(sum(update.getSync_committee_bits()), pyint.create(3L)), multiply(len(update.getSync_committee_bits()), pyint.create(2L))), not(eq(update.getFinality_header(), new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, BeaconBlockHeader.body_root_default)))).v()) {
+    store.getValid_updates().add(update);
+    var update_timeout = multiply(SLOTS_PER_EPOCH, EPOCHS_PER_SYNC_COMMITTEE_PERIOD);
+    if (and(greaterOrEqual(multiply(sum(update.getSync_committee_bits()), pyint.create(3L)), multiply(len(update.getSync_committee_bits()), pyint.create(2L))), not(eq(update.getFinality_header(), new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, BeaconBlockHeader.body_root_default)))).v()) {
       apply_light_client_update(store.getSnapshot(), update);
-      store.setValid_updates(new SSZList<LightClientUpdate>());
+      store.setValid_updates(new Set<LightClientUpdate>());
     } else {
-      if (greater(current_slot, plus(store.getSnapshot().getHeader().getSlot(), LIGHT_CLIENT_UPDATE_TIMEOUT)).v()) {
+      if (greater(current_slot, plus(store.getSnapshot().getHeader().getSlot(), update_timeout)).v()) {
         apply_light_client_update(store.getSnapshot(), max(store.getValid_updates(), (update_) -> sum(update_.getSync_committee_bits())));
-        store.setValid_updates(new SSZList<LightClientUpdate>());
+        store.setValid_updates(new Set<LightClientUpdate>());
       }
     }
   }
@@ -734,14 +817,14 @@ public class Spec {
     var old_current_justified_checkpoint = state.getCurrent_justified_checkpoint();
     state.setPrevious_justified_checkpoint(state.getCurrent_justified_checkpoint());
     state.getJustification_bits().setSlice(pyint.create(1L), null, state.getJustification_bits().getSlice(null, minus(JUSTIFICATION_BITS_LENGTH, pyint.create(1L))));
-    state.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(0L)));
+    state.getJustification_bits().set(pyint.create(0L), new beacon_java.ssz.SSZBoolean(pyint.create(0L)));
     if (greaterOrEqual(multiply(previous_epoch_target_balance, pyint.create(3L)), multiply(total_active_balance, pyint.create(2L))).v()) {
       state.setCurrent_justified_checkpoint(new Checkpoint(previous_epoch, get_block_root(state, previous_epoch)));
-      state.getJustification_bits().set(pyint.create(1L), new SSZBoolean(pyint.create(1L)));
+      state.getJustification_bits().set(pyint.create(1L), new beacon_java.ssz.SSZBoolean(pyint.create(1L)));
     }
     if (greaterOrEqual(multiply(current_epoch_target_balance, pyint.create(3L)), multiply(total_active_balance, pyint.create(2L))).v()) {
       state.setCurrent_justified_checkpoint(new Checkpoint(current_epoch, get_block_root(state, current_epoch)));
-      state.getJustification_bits().set(pyint.create(0L), new SSZBoolean(pyint.create(1L)));
+      state.getJustification_bits().set(pyint.create(0L), new beacon_java.ssz.SSZBoolean(pyint.create(1L)));
     }
     var bits = state.getJustification_bits();
     if (and(all(bits.getSlice(pyint.create(1L), pyint.create(4L))), eq(plus(old_previous_justified_checkpoint.getEpoch(), pyint.create(3L)), current_epoch)).v()) {

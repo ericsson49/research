@@ -1,12 +1,17 @@
 package beacon_java.altair.data;
 
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.altair.data.BeaconBlock;
+import beacon_java.altair.data.BeaconState;
+import beacon_java.phase0.data.Checkpoint;
+import beacon_java.phase0.data.LatestMessage;
+import beacon_java.phase0.data.Root;
+import beacon_java.phase0.data.ValidatorIndex;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class Store {
+public class Store extends Object {
   public static uint64 time_default = uint64.ZERO;
   public static uint64 genesis_time_default = uint64.ZERO;
   public static Checkpoint justified_checkpoint_default = new Checkpoint();

@@ -1,7 +1,8 @@
 package beacon_java.altair.data;
 
+import lombok.*;
 import beacon_java.pylib.*;
-import beacon_java.ssz.*;
+import beacon_java.ssz.uint8;
 
 public class ParticipationFlags extends uint8 {
   public ParticipationFlags(uint8 value) { super(value); }

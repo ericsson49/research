@@ -1,12 +1,15 @@
 package beacon_java.altair.data;
 
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.BLSSignature;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Root;
+import beacon_java.phase0.data.Slot;
+import beacon_java.phase0.data.ValidatorIndex;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class SyncCommitteeSignature {
+public class SyncCommitteeSignature extends Container {
   public static Slot slot_default = new Slot();
   public static Root beacon_block_root_default = new Root();
   public static ValidatorIndex validator_index_default = new ValidatorIndex();

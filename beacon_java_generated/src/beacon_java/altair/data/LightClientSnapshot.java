@@ -1,12 +1,13 @@
 package beacon_java.altair.data;
 
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.BeaconBlockHeader;
+import beacon_java.ssz.Container;
+import beacon_java.altair.data.SyncCommittee;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class LightClientSnapshot {
+public class LightClientSnapshot extends Container {
   public static BeaconBlockHeader header_default = new BeaconBlockHeader();
   public static SyncCommittee current_sync_committee_default = new SyncCommittee();
   public static SyncCommittee next_sync_committee_default = new SyncCommittee();

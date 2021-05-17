@@ -1,11 +1,15 @@
 package beacon_java.phase0.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.Checkpoint;
+import beacon_java.phase0.data.CommitteeIndex;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Root;
+import beacon_java.phase0.data.Slot;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class AttestationData {
+public class AttestationData extends Container {
   public static Slot slot_default = new Slot();
   public static CommitteeIndex index_default = new CommitteeIndex();
   public static Root beacon_block_root_default = new Root();

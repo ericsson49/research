@@ -41,7 +41,7 @@ public class Spec {
       Return the integer deserialization of ``data`` interpreted as ``ENDIANNESS``-endian.
       */
   public static uint64 bytes_to_uint64(pybytes data) {
-    return new uint64(from_bytes(data, ENDIANNESS));
+    return new uint64(pyint.from_bytes(data, ENDIANNESS));
   }
 
   /*
@@ -1050,7 +1050,7 @@ public class Spec {
       To address the bouncing attack, only update conflicting justified
       checkpoints in the fork choice if in the early slots of the epoch.
       Otherwise, delay incorporation of new justified checkpoint until next epoch boundary.
-  
+
       See https://ethresear.ch/t/prevention-of-bouncing-attack-on-ffg/6114 for more detailed analysis and discussion.
       */
   public static pybool should_update_justified_checkpoint(Store store, Checkpoint new_justified_checkpoint) {
@@ -1148,7 +1148,7 @@ public class Spec {
 
   /*
       Run ``on_attestation`` upon receiving a new ``attestation`` from either within a block or directly on the wire.
-  
+
       An ``attestation`` that is asserted as invalid may be valid at a later time,
       consider scheduling it for later processing in such case.
       */
@@ -1172,7 +1172,7 @@ public class Spec {
           * ``assignmentlistOf(0)`` is the list of validators in the committee
           * ``assignmentlistOf(1)`` is the index to which the committee is assigned
           * ``assignmentlistOf(2)`` is the slot at which the committee is assigned
-      Return void if no assignment.
+      Return None if no assignment.
       */
   public static Triple<Sequence<ValidatorIndex>,CommitteeIndex,Slot> get_committee_assignment(BeaconState state, Epoch epoch, ValidatorIndex validator_index) {
     var next_epoch = new Epoch(plus(get_current_epoch(state), pyint.create(1L)));

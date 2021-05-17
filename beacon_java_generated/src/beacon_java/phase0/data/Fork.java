@@ -1,11 +1,13 @@
 package beacon_java.phase0.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Epoch;
+import beacon_java.phase0.data.Version;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class Fork {
+public class Fork extends Container {
   public static Version previous_version_default = new Version();
   public static Version current_version_default = new Version();
   public static Epoch epoch_default = new Epoch();

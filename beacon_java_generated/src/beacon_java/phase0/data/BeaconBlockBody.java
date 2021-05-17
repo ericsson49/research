@@ -1,11 +1,25 @@
 package beacon_java.phase0.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.Attestation;
+import beacon_java.phase0.data.AttesterSlashing;
+import beacon_java.phase0.data.BLSSignature;
+import beacon_java.ssz.Bytes32;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Deposit;
+import beacon_java.phase0.data.Eth1Data;
+import beacon_java.ssz.SSZList;
+import static beacon_java.phase0.Constants.MAX_ATTESTATIONS;
+import static beacon_java.phase0.Constants.MAX_ATTESTER_SLASHINGS;
+import static beacon_java.phase0.Constants.MAX_DEPOSITS;
+import static beacon_java.phase0.Constants.MAX_PROPOSER_SLASHINGS;
+import static beacon_java.phase0.Constants.MAX_VOLUNTARY_EXITS;
+import beacon_java.phase0.data.ProposerSlashing;
+import beacon_java.phase0.data.SignedVoluntaryExit;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class BeaconBlockBody {
+public class BeaconBlockBody extends Container {
   public static BLSSignature randao_reveal_default = new BLSSignature();
   public static Eth1Data eth1_data_default = new Eth1Data();
   public static Bytes32 graffiti_default = new Bytes32();

@@ -7,6 +7,7 @@ import ssz.*
 
 typealias GeneralizedIndex = pyint
 typealias ParticipationFlags = uint8
+fun ParticipationFlags(x: ULong): ParticipationFlags = uint8(x)
 fun ParticipationFlags(x: uint8): ParticipationFlags = x
 fun ParticipationFlags() = ParticipationFlags(0u.toUByte())
 data class BeaconBlockBody(
@@ -52,7 +53,7 @@ data class SyncAggregate(
 )
 data class SyncCommittee(
     var pubkeys: SSZVector<BLSPubkey> = SSZVector<BLSPubkey>(),
-    var pubkey_aggregates: SSZVector<BLSPubkey> = SSZVector<BLSPubkey>()
+    var aggregate_pubkey: BLSPubkey = BLSPubkey()
 )
 data class SyncCommitteeSignature(
     var slot: Slot = Slot(),
@@ -76,7 +77,7 @@ data class SignedContributionAndProof(
     var message: ContributionAndProof = ContributionAndProof(),
     var signature: BLSSignature = BLSSignature()
 )
-data class SyncCommitteeSigningData(
+data class SyncAggregatorSelectionData(
     var slot: Slot = Slot(),
     var subcommittee_index: uint64 = 0uL
 )
@@ -97,7 +98,7 @@ data class LightClientUpdate(
 )
 data class LightClientStore(
     var snapshot: LightClientSnapshot = LightClientSnapshot(),
-    var valid_updates: SSZList<LightClientUpdate> = SSZList<LightClientUpdate>()
+    var valid_updates: MutableSet<LightClientUpdate> = mutableSetOf<LightClientUpdate>()
 )
 data class BeaconBlock(
     var slot: Slot = Slot(),

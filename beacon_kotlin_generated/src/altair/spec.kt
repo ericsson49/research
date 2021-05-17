@@ -17,31 +17,36 @@ fun eth2_fast_aggregate_verify(pubkeys: Sequence<BLSPubkey>, message: Bytes32, s
   return bls.FastAggregateVerify(pubkeys, message, signature)
 }
 
-fun get_flag_indices_and_weights(): Sequence<Pair<pyint, uint64>> {
-  return listOf(Pair(TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT), Pair(TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT), Pair(TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT))
-}
-
+/*
+    Return a new ``ParticipationFlags`` adding ``flag_index`` to ``flags``.
+    */
 fun add_flag(flags: ParticipationFlags, flag_index: pyint): ParticipationFlags {
   val flag = ParticipationFlags(uint8(2uL.pow(uint64(flag_index))))
   return flags or flag
 }
 
+/*
+    Return whether ``flags`` has ``flag_index`` set.
+    */
 fun has_flag(flags: ParticipationFlags, flag_index: pyint): pybool {
   val flag = ParticipationFlags(uint8(2uL.pow(uint64(flag_index))))
   return (flags and flag) == flag
 }
 
 /*
-    Return the sequence of sync committee indices (which may include duplicate indices) for a given state and epoch.
+    Return the sequence of sync committee indices (which may include duplicate indices)
+    for the next sync committee, given a ``state`` at a sync committee period boundary.
+
+    Note: Committee can contain duplicate indices for small validator sets (< SYNC_COMMITTEE_SIZE + 128)
     */
-fun get_sync_committee_indices(state: BeaconState, epoch: Epoch): Sequence<ValidatorIndex> {
+fun get_next_sync_committee_indices(state: BeaconState): Sequence<ValidatorIndex> {
+  val epoch = Epoch(get_current_epoch(state) + 1uL)
   val MAX_RANDOM_BYTE = 2uL.pow(8uL) - 1uL
-  val base_epoch = Epoch((max(epoch / EPOCHS_PER_SYNC_COMMITTEE_PERIOD, 1uL) - 1uL) * EPOCHS_PER_SYNC_COMMITTEE_PERIOD)
-  val active_validator_indices = get_active_validator_indices(state, base_epoch)
+  val active_validator_indices = get_active_validator_indices(state, epoch)
   val active_validator_count = uint64(len(active_validator_indices))
-  val seed = get_seed(state, base_epoch, DOMAIN_SYNC_COMMITTEE)
+  val seed = get_seed(state, epoch, DOMAIN_SYNC_COMMITTEE)
   val i = 0uL
-  val sync_committee_indices: PyList<ValidatorIndex> = PyList()
+  val sync_committee_indices: SSZList<ValidatorIndex> = PyList()
   var i_2 = i
   while (len(sync_committee_indices) < SYNC_COMMITTEE_SIZE) {
     val shuffled_index = compute_shuffled_index(uint64(i_2 % active_validator_count), active_validator_count, seed)
@@ -58,27 +63,44 @@ fun get_sync_committee_indices(state: BeaconState, epoch: Epoch): Sequence<Valid
 }
 
 /*
-    Return the sync committee for a given state and epoch.
+    Return the *next* sync committee for a given ``state``.
+
+    ``SyncCommittee`` contains an aggregate pubkey that enables
+    resource-constrained clients to save some computation when verifying
+    the sync committee's signature.
+
+    ``SyncCommittee`` can also contain duplicate pubkeys, when ``get_next_sync_committee_indices``
+    returns duplicate indices. Implementations must take care when handling
+    optimizations relating to aggregation and verification in the presence of duplicates.
+
+    Note: This function should only be called at sync committee period boundaries by ``process_sync_committee_updates``
+    as ``get_next_sync_committee_indices`` is not stable within a given period.
     */
-fun get_sync_committee(state: BeaconState, epoch: Epoch): SyncCommittee {
-  val indices = get_sync_committee_indices(state, epoch)
+fun get_next_sync_committee(state: BeaconState): SyncCommittee {
+  val indices = get_next_sync_committee_indices(state)
   val pubkeys = list(indices.map { index -> state.validators[index].pubkey })
-  val partition = list(range(0uL, len(pubkeys), SYNC_PUBKEYS_PER_AGGREGATE).map { i -> pubkeys[i until (i + SYNC_PUBKEYS_PER_AGGREGATE)] })
-  val pubkey_aggregates = list(partition.map { preaggregate -> bls.AggregatePKs(preaggregate) })
-  return SyncCommittee(pubkeys = pubkeys, pubkey_aggregates = pubkey_aggregates)
+  val aggregate_pubkey = bls.AggregatePKs(pubkeys)
+  return SyncCommittee(pubkeys = pubkeys, aggregate_pubkey = aggregate_pubkey)
 }
 
 fun get_base_reward_per_increment(state: BeaconState): Gwei {
   return Gwei(EFFECTIVE_BALANCE_INCREMENT * BASE_REWARD_FACTOR / integer_squareroot(get_total_active_balance(state)))
 }
 
+/*
+    Return the base reward for the validator defined by ``index`` with respect to the current ``state``.
+
+    Note: An optimally performing validator can earn one base reward per epoch over a long time horizon.
+    This takes into account both per-epoch (e.g. attestation) and intermittent duties (e.g. block proposal
+    and sync committees).
+    */
 fun get_base_reward(state: BeaconState, index: ValidatorIndex): Gwei {
   val increments = state.validators[index].effective_balance / EFFECTIVE_BALANCE_INCREMENT
   return Gwei(increments * get_base_reward_per_increment(state))
 }
 
 /*
-    Return the active and unslashed validator indices for the given epoch and flag index.
+    Return the set of validator indices that are both active and unslashed for the given ``flag_index`` and ``epoch``.
     */
 fun get_unslashed_participating_indices(state: BeaconState, flag_index: pyint, epoch: Epoch): Set<ValidatorIndex> {
   assert(epoch in Pair(get_previous_epoch(state), get_current_epoch(state)))
@@ -96,26 +118,57 @@ fun get_unslashed_participating_indices(state: BeaconState, flag_index: pyint, e
 }
 
 /*
-    Return the deltas for a given flag index by scanning through the participation flags.
+    Return the flag indices that are satisfied by an attestation.
     */
-fun get_flag_index_deltas(state: BeaconState, flag_index: pyint, weight: uint64): Pair<Sequence<Gwei>, Sequence<Gwei>> {
+fun get_attestation_participation_flag_indices(state: BeaconState, data: AttestationData, inclusion_delay: uint64): Sequence<pyint> {
+  val justified_checkpoint_2: Checkpoint
+  if (data.target.epoch == get_current_epoch(state)) {
+    val justified_checkpoint = state.current_justified_checkpoint
+    justified_checkpoint_2 = justified_checkpoint
+  } else {
+    val justified_checkpoint_1 = state.previous_justified_checkpoint
+    justified_checkpoint_2 = justified_checkpoint_1
+  }
+  val is_matching_source = data.source == justified_checkpoint_2
+  val is_matching_target = is_matching_source && (data.target.root == get_block_root(state, data.target.epoch))
+  val is_matching_head = is_matching_target && (data.beacon_block_root == get_block_root_at_slot(state, data.slot))
+  assert(is_matching_source)
+  val participation_flag_indices = PyList<pyint>()
+  if (is_matching_source && (inclusion_delay <= integer_squareroot(SLOTS_PER_EPOCH))) {
+    participation_flag_indices.append(TIMELY_SOURCE_FLAG_INDEX)
+  }
+  if (is_matching_target && (inclusion_delay <= SLOTS_PER_EPOCH)) {
+    participation_flag_indices.append(TIMELY_TARGET_FLAG_INDEX)
+  }
+  if (is_matching_head && (inclusion_delay == MIN_ATTESTATION_INCLUSION_DELAY)) {
+    participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX)
+  }
+  return participation_flag_indices
+}
+
+/*
+    Return the deltas for a given ``flag_index`` by scanning through the participation flags.
+    */
+fun get_flag_index_deltas(state: BeaconState, flag_index: pyint): Pair<Sequence<Gwei>, Sequence<Gwei>> {
   val rewards = PyList(Gwei(0uL)) * len(state.validators)
   val penalties = PyList(Gwei(0uL)) * len(state.validators)
-  val unslashed_participating_indices = get_unslashed_participating_indices(state, flag_index, get_previous_epoch(state))
-  val increment = EFFECTIVE_BALANCE_INCREMENT
-  val unslashed_participating_increments = get_total_balance(state, unslashed_participating_indices) / increment
-  val active_increments = get_total_active_balance(state) / increment
+  val previous_epoch = get_previous_epoch(state)
+  val unslashed_participating_indices = get_unslashed_participating_indices(state, flag_index, previous_epoch)
+  val weight = PARTICIPATION_FLAG_WEIGHTS[uint64(flag_index)]
+  val unslashed_participating_balance = get_total_balance(state, unslashed_participating_indices)
+  val unslashed_participating_increments = unslashed_participating_balance / EFFECTIVE_BALANCE_INCREMENT
+  val active_increments = get_total_active_balance(state) / EFFECTIVE_BALANCE_INCREMENT
   for (index in get_eligible_validator_indices(state)) {
     val base_reward = get_base_reward(state, index)
     if (index in unslashed_participating_indices) {
-      if (is_in_inactivity_leak(state)) {
-        rewards[index] = rewards[index] + Gwei(base_reward * weight / WEIGHT_DENOMINATOR)
-      } else {
+      if (!is_in_inactivity_leak(state)) {
         val reward_numerator = base_reward * weight * unslashed_participating_increments
         rewards[index] = rewards[index] + Gwei(reward_numerator / (active_increments * WEIGHT_DENOMINATOR))
       }
     } else {
-      penalties[index] = penalties[index] + Gwei(base_reward * weight / WEIGHT_DENOMINATOR)
+      if (flag_index != TIMELY_HEAD_FLAG_INDEX) {
+        penalties[index] = penalties[index] + Gwei(base_reward * weight / WEIGHT_DENOMINATOR)
+      }
     }
   }
   return Pair(rewards, penalties)
@@ -127,18 +180,13 @@ fun get_flag_index_deltas(state: BeaconState, flag_index: pyint, weight: uint64)
 fun get_inactivity_penalty_deltas(state: BeaconState): Pair<Sequence<Gwei>, Sequence<Gwei>> {
   val rewards = list(range(len(state.validators)).map { _ -> Gwei(0uL) })
   val penalties = list(range(len(state.validators)).map { _ -> Gwei(0uL) })
-  if (is_in_inactivity_leak(state)) {
-    val previous_epoch = get_previous_epoch(state)
-    val matching_target_indices = get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, previous_epoch)
-    for (index in get_eligible_validator_indices(state)) {
-      for ((_, weight) in get_flag_indices_and_weights()) {
-        penalties[index] = penalties[index] + Gwei(get_base_reward(state, index) * weight / WEIGHT_DENOMINATOR)
-      }
-      if (index !in matching_target_indices) {
-        val penalty_numerator = state.validators[index].effective_balance * state.inactivity_scores[index]
-        val penalty_denominator = INACTIVITY_SCORE_BIAS * INACTIVITY_PENALTY_QUOTIENT_ALTAIR
-        penalties[index] = penalties[index] + Gwei(penalty_numerator / penalty_denominator)
-      }
+  val previous_epoch = get_previous_epoch(state)
+  val matching_target_indices = get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, previous_epoch)
+  for (index in get_eligible_validator_indices(state)) {
+    if (index !in matching_target_indices) {
+      val penalty_numerator = state.validators[index].effective_balance * state.inactivity_scores[index]
+      val penalty_denominator = INACTIVITY_SCORE_BIAS * INACTIVITY_PENALTY_QUOTIENT_ALTAIR
+      penalties[index] = penalties[index] + Gwei(penalty_numerator / penalty_denominator)
     }
   }
   return Pair(rewards, penalties)
@@ -185,41 +233,23 @@ fun process_attestation(state: BeaconState, attestation: Attestation) {
   assert(data.index < get_committee_count_per_slot(state, data.target.epoch))
   val committee = get_beacon_committee(state, data.slot, data.index)
   assert(len(attestation.aggregation_bits) == len(committee))
+  val participation_flag_indices = get_attestation_participation_flag_indices(state, data, state.slot - data.slot)
+  assert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)))
   val epoch_participation_2: SSZList<ParticipationFlags>
-  val justified_checkpoint_2: Checkpoint
   if (data.target.epoch == get_current_epoch(state)) {
     val epoch_participation = state.current_epoch_participation
-    val justified_checkpoint = state.current_justified_checkpoint
     epoch_participation_2 = epoch_participation
-    justified_checkpoint_2 = justified_checkpoint
   } else {
     val epoch_participation_1 = state.previous_epoch_participation
-    val justified_checkpoint_1 = state.previous_justified_checkpoint
     epoch_participation_2 = epoch_participation_1
-    justified_checkpoint_2 = justified_checkpoint_1
-  }
-  val is_matching_head = data.beacon_block_root == get_block_root_at_slot(state, data.slot)
-  val is_matching_source = data.source == justified_checkpoint_2
-  val is_matching_target = data.target.root == get_block_root(state, data.target.epoch)
-  assert(is_matching_source)
-  assert(is_valid_indexed_attestation(state, get_indexed_attestation(state, attestation)))
-  val participation_flag_indices = PyList<pyint>()
-  if (is_matching_head && is_matching_target && (state.slot == (data.slot + MIN_ATTESTATION_INCLUSION_DELAY))) {
-    participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX)
-  }
-  if (is_matching_source && (state.slot <= (data.slot + integer_squareroot(SLOTS_PER_EPOCH)))) {
-    participation_flag_indices.append(TIMELY_SOURCE_FLAG_INDEX)
-  }
-  if (is_matching_target && (state.slot <= (data.slot + SLOTS_PER_EPOCH))) {
-    participation_flag_indices.append(TIMELY_TARGET_FLAG_INDEX)
   }
   val proposer_reward_numerator = 0uL
   var proposer_reward_numerator_2 = proposer_reward_numerator
   for (index in get_attesting_indices(state, data, attestation.aggregation_bits)) {
     var proposer_reward_numerator_3 = proposer_reward_numerator_2
-    for ((flag_index, weight) in get_flag_indices_and_weights()) {
-      if ((flag_index in participation_flag_indices) && !has_flag(epoch_participation_2[index], flag_index)) {
-        epoch_participation_2[index] = add_flag(epoch_participation_2[index], flag_index)
+    for ((flag_index, weight) in enumerate(PARTICIPATION_FLAG_WEIGHTS)) {
+      if ((flag_index in participation_flag_indices) && !has_flag(epoch_participation_2[index], pyint(flag_index))) {
+        epoch_participation_2[index] = add_flag(epoch_participation_2[index], pyint(flag_index))
         val proposer_reward_numerator_1 = proposer_reward_numerator_3 + (get_base_reward(state, index) * weight)
         proposer_reward_numerator_3 = proposer_reward_numerator_1
       } else {
@@ -268,7 +298,8 @@ fun process_sync_committee(state: BeaconState, aggregate: SyncAggregate) {
   val max_participant_rewards = Gwei(total_base_rewards * SYNC_REWARD_WEIGHT / WEIGHT_DENOMINATOR / SLOTS_PER_EPOCH)
   val participant_reward = Gwei(max_participant_rewards / SYNC_COMMITTEE_SIZE)
   val proposer_reward = Gwei(participant_reward * PROPOSER_WEIGHT / (WEIGHT_DENOMINATOR - PROPOSER_WEIGHT))
-  val committee_indices = get_sync_committee_indices(state, get_current_epoch(state))
+  val all_pubkeys = list(state.validators.map { v -> v.pubkey })
+  val committee_indices = list(state.current_sync_committee.pubkeys.map { pubkey -> ValidatorIndex(all_pubkeys.index(pubkey)) })
   val participant_indices = list(zip(committee_indices, aggregate.sync_committee_bits).filter { (index, bit) -> bit }.map { (index, bit) -> index })
   for (participant_index in participant_indices) {
     increase_balance(state, participant_index, participant_reward)
@@ -304,15 +335,17 @@ fun process_justification_and_finalization(state: BeaconState) {
 }
 
 fun process_inactivity_updates(state: BeaconState) {
+  if (get_current_epoch(state) == GENESIS_EPOCH) {
+    return
+  }
   for (index in get_eligible_validator_indices(state)) {
     if (index in get_unslashed_participating_indices(state, TIMELY_TARGET_FLAG_INDEX, get_previous_epoch(state))) {
-      if (state.inactivity_scores[index] > 0uL) {
-        state.inactivity_scores[index] = state.inactivity_scores[index] - 1uL
-      }
+      state.inactivity_scores[index] = state.inactivity_scores[index] - min(1uL, state.inactivity_scores[index])
     } else {
-      if (is_in_inactivity_leak(state)) {
-        state.inactivity_scores[index] = state.inactivity_scores[index] + INACTIVITY_SCORE_BIAS
-      }
+      state.inactivity_scores[index] = state.inactivity_scores[index] + INACTIVITY_SCORE_BIAS
+    }
+    if (!is_in_inactivity_leak(state)) {
+      state.inactivity_scores[index] = state.inactivity_scores[index] - min(INACTIVITY_SCORE_RECOVERY_RATE, state.inactivity_scores[index])
     }
   }
 }
@@ -321,8 +354,7 @@ fun process_rewards_and_penalties(state: BeaconState) {
   if (get_current_epoch(state) == GENESIS_EPOCH) {
     return
   }
-  val flag_indices_and_numerators = get_flag_indices_and_weights()
-  val flag_deltas = list(flag_indices_and_numerators.map { (index, numerator) -> get_flag_index_deltas(state, index, numerator) })
+  val flag_deltas = list(range(len(PARTICIPATION_FLAG_WEIGHTS)).map { flag_index -> get_flag_index_deltas(state, pyint(flag_index)) })
   val deltas = flag_deltas + PyList(get_inactivity_penalty_deltas(state))
   for ((rewards, penalties) in deltas) {
     for (index in range(len(state.validators))) {
@@ -348,22 +380,61 @@ fun process_slashings(state: BeaconState) {
 
 fun process_participation_flag_updates(state: BeaconState) {
   state.previous_epoch_participation = state.current_epoch_participation
-  state.current_epoch_participation = SSZList<ParticipationFlags>(list(range(len(state.validators)).map { _ -> ParticipationFlags(uint8(0uL)) }))
+  state.current_epoch_participation = SSZList<ParticipationFlags>(list(range(len(state.validators)).map { _ -> ParticipationFlags(0uL) }))
 }
 
 fun process_sync_committee_updates(state: BeaconState) {
   val next_epoch = get_current_epoch(state) + Epoch(1uL)
   if ((next_epoch % EPOCHS_PER_SYNC_COMMITTEE_PERIOD) == 0uL) {
     state.current_sync_committee = state.next_sync_committee
-    state.next_sync_committee = get_sync_committee(state, next_epoch + EPOCHS_PER_SYNC_COMMITTEE_PERIOD)
+    state.next_sync_committee = get_next_sync_committee(state)
   }
 }
 
-fun upgrade_to_altair(pre: BeaconState): BeaconState {
+fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: uint64, deposits: Sequence<Deposit>): BeaconState {
+  val fork = Fork(previous_version = GENESIS_FORK_VERSION, current_version = ALTAIR_FORK_VERSION, epoch = GENESIS_EPOCH)
+  val state = BeaconState(genesis_time = eth1_timestamp + GENESIS_DELAY, fork = fork, eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = uint64(len(deposits))), latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())), randao_mixes = PyList(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR)
+  val leaves = list(map({ deposit -> deposit.data }, deposits))
+  for ((index, deposit) in enumerate(deposits)) {
+    val deposit_data_list = SSZList<DepositData>(*leaves[0uL until (index + 1uL)].toTypedArray())
+    state.eth1_data.deposit_root = hash_tree_root(deposit_data_list)
+    process_deposit(state, deposit)
+  }
+  for ((index_1, validator) in enumerate(state.validators)) {
+    val balance = state.balances[index_1]
+    validator.effective_balance = min(balance - (balance % EFFECTIVE_BALANCE_INCREMENT), MAX_EFFECTIVE_BALANCE)
+    if (validator.effective_balance == MAX_EFFECTIVE_BALANCE) {
+      validator.activation_eligibility_epoch = GENESIS_EPOCH
+      validator.activation_epoch = GENESIS_EPOCH
+    }
+  }
+  state.genesis_validators_root = hash_tree_root(state.validators)
+  state.current_sync_committee = get_next_sync_committee(state)
+  state.next_sync_committee = get_next_sync_committee(state)
+  return state
+}
+
+fun translate_participation(state: BeaconState, pending_attestations: Sequence<PendingAttestation>) {
+  for (attestation in pending_attestations) {
+    val data = attestation.data
+    val inclusion_delay = attestation.inclusion_delay
+    val participation_flag_indices = get_attestation_participation_flag_indices(state, data, inclusion_delay)
+    val epoch_participation = state.previous_epoch_participation
+    for (index in get_attesting_indices(state, data, attestation.aggregation_bits)) {
+      for (flag_index in participation_flag_indices) {
+        epoch_participation[index] = add_flag(epoch_participation[index], flag_index)
+      }
+    }
+  }
+}
+
+fun upgrade_to_altair(pre: phase0.BeaconState): BeaconState {
   val epoch = get_current_epoch(pre)
-  val post = BeaconState(genesis_time = pre.genesis_time, genesis_validators_root = pre.genesis_validators_root, slot = pre.slot, fork = Fork(previous_version = pre.fork.current_version, current_version = ALTAIR_FORK_VERSION, epoch = epoch), latest_block_header = pre.latest_block_header, block_roots = pre.block_roots, state_roots = pre.state_roots, historical_roots = pre.historical_roots, eth1_data = pre.eth1_data, eth1_data_votes = pre.eth1_data_votes, eth1_deposit_index = pre.eth1_deposit_index, validators = pre.validators, balances = pre.balances, randao_mixes = pre.randao_mixes, slashings = pre.slashings, previous_epoch_participation = list(range(len(pre.validators)).map { _ -> ParticipationFlags(uint8(0uL)) }), current_epoch_participation = list(range(len(pre.validators)).map { _ -> ParticipationFlags(uint8(0uL)) }), justification_bits = pre.justification_bits, previous_justified_checkpoint = pre.previous_justified_checkpoint, current_justified_checkpoint = pre.current_justified_checkpoint, finalized_checkpoint = pre.finalized_checkpoint, inactivity_scores = list(range(len(pre.validators)).map { _ -> uint64(0uL) }))
-  post.current_sync_committee = get_sync_committee(post, get_current_epoch(post))
-  post.next_sync_committee = get_sync_committee(post, get_current_epoch(post) + EPOCHS_PER_SYNC_COMMITTEE_PERIOD)
+  val post = BeaconState(genesis_time = pre.genesis_time, genesis_validators_root = pre.genesis_validators_root, slot = pre.slot, fork = Fork(previous_version = pre.fork.current_version, current_version = ALTAIR_FORK_VERSION, epoch = epoch), latest_block_header = pre.latest_block_header, block_roots = pre.block_roots, state_roots = pre.state_roots, historical_roots = pre.historical_roots, eth1_data = pre.eth1_data, eth1_data_votes = pre.eth1_data_votes, eth1_deposit_index = pre.eth1_deposit_index, validators = pre.validators, balances = pre.balances, randao_mixes = pre.randao_mixes, slashings = pre.slashings, previous_epoch_participation = list(range(len(pre.validators))
+      .map { _ -> ParticipationFlags(0uL) }), current_epoch_participation = list(range(len(pre.validators)).map { _ -> ParticipationFlags(0uL) }), justification_bits = pre.justification_bits, previous_justified_checkpoint = pre.previous_justified_checkpoint, current_justified_checkpoint = pre.current_justified_checkpoint, finalized_checkpoint = pre.finalized_checkpoint, inactivity_scores = list(range(len(pre.validators)).map { _ -> uint64(0uL) }))
+  translate_participation(post, pre.previous_epoch_attestations)
+  post.current_sync_committee = get_next_sync_committee(post)
+  post.next_sync_committee = get_next_sync_committee(post)
   return post
 }
 
@@ -388,11 +459,12 @@ fun is_assigned_to_sync_committee(state: BeaconState, epoch: Epoch, validator_in
 fun process_sync_committee_contributions(block: BeaconBlock, contributions: Set<SyncCommitteeContribution>) {
   val sync_aggregate = SyncAggregate()
   val signatures = PyList<BLSSignature>()
+  val sync_subcommittee_size = SYNC_COMMITTEE_SIZE / SYNC_COMMITTEE_SUBNET_COUNT
   for (contribution in contributions) {
     val subcommittee_index = contribution.subcommittee_index
     for ((index, participated) in enumerate(contribution.aggregation_bits)) {
       if (pybool(participated)) {
-        val participant_index = (SYNC_COMMITTEE_SIZE / SYNC_COMMITTEE_SUBNET_COUNT * subcommittee_index) + index
+        val participant_index = (sync_subcommittee_size * subcommittee_index) + index
         sync_aggregate.sync_committee_bits[participant_index] = true
       }
     }
@@ -410,15 +482,24 @@ fun get_sync_committee_signature(state: BeaconState, block_root: Root, validator
   return SyncCommitteeSignature(slot = state.slot, validator_index = validator_index, signature = signature)
 }
 
-fun compute_subnets_for_sync_committee(state: BeaconState, validator_index: ValidatorIndex): Sequence<uint64> {
+fun compute_subnets_for_sync_committee(state: BeaconState, validator_index: ValidatorIndex): Set<uint64> {
+  val next_slot_epoch = compute_epoch_at_slot(Slot(state.slot + 1uL))
+  val sync_committee_2: SyncCommittee
+  if (compute_sync_committee_period(get_current_epoch(state)) == compute_sync_committee_period(next_slot_epoch)) {
+    val sync_committee = state.current_sync_committee
+    sync_committee_2 = sync_committee
+  } else {
+    val sync_committee_1 = state.next_sync_committee
+    sync_committee_2 = sync_committee_1
+  }
   val target_pubkey = state.validators[validator_index].pubkey
-  val sync_committee_indices = list(enumerate(state.current_sync_committee.pubkeys).filter { (index, pubkey) -> pubkey == target_pubkey }.map { (index, pubkey) -> index })
-  return list(sync_committee_indices.map { index -> uint64(index / (SYNC_COMMITTEE_SIZE / SYNC_COMMITTEE_SUBNET_COUNT)) })
+  val sync_committee_indices = list(enumerate(sync_committee_2.pubkeys).filter { (index, pubkey) -> pubkey == target_pubkey }.map { (index, pubkey) -> index })
+  return set(list(sync_committee_indices.map { index -> uint64(index / (SYNC_COMMITTEE_SIZE / SYNC_COMMITTEE_SUBNET_COUNT)) }))
 }
 
 fun get_sync_committee_selection_proof(state: BeaconState, slot: Slot, subcommittee_index: uint64, privkey: pyint): BLSSignature {
   val domain = get_domain(state, DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF, compute_epoch_at_slot(slot))
-  val signing_data = SyncCommitteeSigningData(slot = slot, subcommittee_index = subcommittee_index)
+  val signing_data = SyncAggregatorSelectionData(slot = slot, subcommittee_index = subcommittee_index)
   val signing_root = compute_signing_root(signing_data, domain)
   return bls.Sign(privkey, signing_root)
 }
@@ -488,14 +569,15 @@ fun apply_light_client_update(snapshot: LightClientSnapshot, update: LightClient
 
 fun process_light_client_update(store: LightClientStore, update: LightClientUpdate, current_slot: Slot, genesis_validators_root: Root) {
   validate_light_client_update(store.snapshot, update, genesis_validators_root)
-  store.valid_updates.append(update)
-  if (((sum(update.sync_committee_bits) * 3uL) > (len(update.sync_committee_bits) * 2uL)) && (update.finality_header != BeaconBlockHeader())) {
+  store.valid_updates.add(update)
+  val update_timeout = SLOTS_PER_EPOCH * EPOCHS_PER_SYNC_COMMITTEE_PERIOD
+  if (((sum(update.sync_committee_bits) * 3uL) >= (len(update.sync_committee_bits) * 2uL)) && (update.finality_header != BeaconBlockHeader())) {
     apply_light_client_update(store.snapshot, update)
-    store.valid_updates = SSZList<LightClientUpdate>()
+    store.valid_updates = mutableSetOf<LightClientUpdate>()
   } else {
-    if (current_slot > (store.snapshot.header.slot + LIGHT_CLIENT_UPDATE_TIMEOUT)) {
+    if (current_slot > (store.snapshot.header.slot + update_timeout)) {
       apply_light_client_update(store.snapshot, max(store.valid_updates, key = { update -> sum(update.sync_committee_bits) }))
-      store.valid_updates = SSZList<LightClientUpdate>()
+      store.valid_updates = mutableSetOf<LightClientUpdate>()
     }
   }
 }

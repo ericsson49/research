@@ -2,9 +2,18 @@ package beacon_java.sharding.data;
 
 import beacon_java.phase0.data.Gwei;
 import beacon_java.phase0.data.PendingAttestation;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.sharding.data.DataCommitment;
+import beacon_java.ssz.SSZList;
+import static beacon_java.phase0.Constants.MAX_ATTESTATIONS;
+import static beacon_java.sharding.Constants.MAX_SHARDS;
+import static beacon_java.sharding.Constants.MAX_SHARD_HEADERS_PER_SHARD;
+import beacon_java.sharding.data.PendingShardHeader;
+import static beacon_java.phase0.Constants.SLOTS_PER_EPOCH;
+import beacon_java.sharding.data.Shard;
+import beacon_java.ssz.SSZVector;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class BeaconState extends beacon_java.merge.data.BeaconState {

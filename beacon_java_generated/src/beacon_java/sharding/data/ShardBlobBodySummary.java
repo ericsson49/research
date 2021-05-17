@@ -1,12 +1,14 @@
 package beacon_java.sharding.data;
 
-import beacon_java.phase0.data.Root;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.sharding.data.BLSCommitment;
+import beacon_java.ssz.Container;
+import beacon_java.sharding.data.DataCommitment;
+import beacon_java.phase0.data.Root;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class ShardBlobBodySummary {
+public class ShardBlobBodySummary extends Container {
   public static DataCommitment commitment_default = new DataCommitment();
   public static BLSCommitment degree_proof_default = new BLSCommitment();
   public static Root data_root_default = new Root();

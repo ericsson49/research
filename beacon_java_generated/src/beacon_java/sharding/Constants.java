@@ -1,12 +1,20 @@
 package beacon_java.sharding;
 
 import beacon_java.deps.FQ2;
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
+import beacon_java.pylib.PyList;
+import beacon_java.pylib.Sequence;
+import beacon_java.pylib.pyint;
 import beacon_java.sharding.data.BLSCommitment;
-import beacon_java.ssz.*;
+import beacon_java.phase0.data.DomainType;
+import beacon_java.phase0.data.Epoch;
+import beacon_java.phase0.data.Gwei;
 
 import static beacon_java.pylib.Exports.*;
+import static beacon_java.sharding.Constants.MAX_SAMPLES_PER_BLOCK;
+import static beacon_java.sharding.Constants.MODULUS;
+import static beacon_java.sharding.Constants.POINTS_PER_SAMPLE;
+import static beacon_java.sharding.Constants.PRIMITIVE_ROOT_OF_UNITY;
+import beacon_java.ssz.uint64;
 
 public interface Constants {
   pyint PRIMITIVE_ROOT_OF_UNITY = pyint.create(5L);
@@ -28,6 +36,4 @@ public interface Constants {
   Epoch SHARD_COMMITTEE_PERIOD = new Epoch(pow(pyint.create(2L), pyint.create(8L)));
   DomainType DOMAIN_SHARD_PROPOSER = new DomainType("0x80000000");
   DomainType DOMAIN_SHARD_COMMITTEE = new DomainType("0x81000000");
-  DomainType DOMAIN_SHARD_HEADER = new DomainType("0x82000000");
-  pyint SHARD_COUNT = pyint.create(8L);
 }

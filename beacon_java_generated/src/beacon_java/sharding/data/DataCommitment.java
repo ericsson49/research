@@ -1,11 +1,13 @@
 package beacon_java.sharding.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.sharding.data.BLSCommitment;
+import beacon_java.ssz.Container;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class DataCommitment {
+public class DataCommitment extends Container {
   public static BLSCommitment point_default = new BLSCommitment();
   public static uint64 length_default = uint64.ZERO;
   public BLSCommitment point = point_default;

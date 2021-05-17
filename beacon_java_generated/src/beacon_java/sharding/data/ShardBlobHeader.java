@@ -1,13 +1,15 @@
 package beacon_java.sharding.data;
 
+import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.ssz.Container;
+import beacon_java.sharding.data.Shard;
+import beacon_java.sharding.data.ShardBlobBodySummary;
 import beacon_java.phase0.data.Slot;
 import beacon_java.phase0.data.ValidatorIndex;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
-import lombok.*;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class ShardBlobHeader {
+public class ShardBlobHeader extends Container {
   public static Slot slot_default = new Slot();
   public static Shard shard_default = new Shard();
   public static ShardBlobBodySummary body_summary_default = new ShardBlobBodySummary();

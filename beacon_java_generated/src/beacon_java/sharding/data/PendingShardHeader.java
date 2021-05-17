@@ -1,13 +1,18 @@
 package beacon_java.sharding.data;
 
-import beacon_java.phase0.data.Root;
-import beacon_java.phase0.data.Slot;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.ssz.SSZBitlist;
+import beacon_java.ssz.Container;
+import beacon_java.sharding.data.DataCommitment;
+import static beacon_java.phase0.Constants.MAX_VALIDATORS_PER_COMMITTEE;
+import beacon_java.phase0.data.Root;
+import beacon_java.sharding.data.Shard;
+import beacon_java.phase0.data.Slot;
+import beacon_java.ssz.SSZBoolean;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class PendingShardHeader {
+public class PendingShardHeader extends Container {
   public static Slot slot_default = new Slot();
   public static Shard shard_default = new Shard();
   public static DataCommitment commitment_default = new DataCommitment();

@@ -1,8 +1,13 @@
 package beacon_java.sharding.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.ssz.SSZList;
+import static beacon_java.sharding.Constants.MAX_SHARDS;
+import static beacon_java.sharding.Constants.MAX_SHARD_HEADERS_PER_SHARD;
+import static beacon_java.sharding.Constants.MAX_SHARD_PROPOSER_SLASHINGS;
+import beacon_java.sharding.data.ShardProposerSlashing;
+import beacon_java.sharding.data.SignedShardBlobHeader;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class BeaconBlockBody extends beacon_java.merge.data.BeaconBlockBody {

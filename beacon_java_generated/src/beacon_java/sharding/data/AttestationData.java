@@ -1,9 +1,8 @@
 package beacon_java.sharding.data;
 
-import beacon_java.phase0.data.Root;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.phase0.data.Root;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class AttestationData extends beacon_java.phase0.data.AttestationData {

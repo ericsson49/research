@@ -23,5 +23,3 @@ val MIN_GASPRICE = phase0.Gwei(2uL.pow(3uL))
 val SHARD_COMMITTEE_PERIOD = phase0.Epoch(2uL.pow(8uL))
 val DOMAIN_SHARD_PROPOSER = phase0.DomainType("0x80000000")
 val DOMAIN_SHARD_COMMITTEE = phase0.DomainType("0x81000000")
-val DOMAIN_SHARD_HEADER = phase0.DomainType("0x82000000")
-val SHARD_COUNT = 8uL

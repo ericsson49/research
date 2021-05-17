@@ -100,8 +100,8 @@ fun compute_proposer_index(beacon_state: BeaconState, indices: Sequence<Validato
 fun get_shard_proposer_index(beacon_state: BeaconState, slot: Slot, shard: Shard): ValidatorIndex {
   val epoch = compute_epoch_at_slot(slot)
   val committee = get_shard_committee(beacon_state, epoch, shard)
-  val seed = hash(get_seed(beacon_state, epoch, DOMAIN_BEACON_PROPOSER) + uint_to_bytes(slot))
-  val EFFECTIVE_BALANCE_MAX_DOWNWARD_DEVIATION = (EFFECTIVE_BALANCE_INCREMENT - EFFECTIVE_BALANCE_INCREMENT) * HYSTERESIS_DOWNWARD_MULTIPLIER / HYSTERESIS_QUOTIENT
+  val seed = hash(get_seed(beacon_state, epoch, DOMAIN_SHARD_PROPOSER) + uint_to_bytes(slot))
+  val EFFECTIVE_BALANCE_MAX_DOWNWARD_DEVIATION = EFFECTIVE_BALANCE_INCREMENT - (EFFECTIVE_BALANCE_INCREMENT * HYSTERESIS_DOWNWARD_MULTIPLIER / HYSTERESIS_QUOTIENT)
   val min_effective_balance = (beacon_state.shard_gasprice * MAX_SAMPLES_PER_BLOCK / TARGET_SAMPLES_PER_BLOCK) + EFFECTIVE_BALANCE_MAX_DOWNWARD_DEVIATION
   return compute_proposer_index(beacon_state, committee, seed, min_effective_balance)
 }
@@ -149,19 +149,15 @@ fun compute_committee_index_from_shard(state: BeaconState, slot: Slot, shard: Sh
   return CommitteeIndex((active_shards + shard - get_start_shard(state, slot)) % active_shards)
 }
 
-fun process_block(state: BeaconState, block: BeaconBlock): Unit {
+fun process_block(state: BeaconState, block: BeaconBlock) {
   process_block_header(state, block)
   process_randao(state, block.body)
   process_eth1_data(state, block.body)
   process_operations(state, block.body)
-  process_execution_payload(state, block.body)
+  process_execution_payload(state, block.body.execution_payload, EXECUTION_ENGINE)
 }
 
-//fun process_attester_slashing(state: BeaconState, attester_slashing: AttesterSlashing): Unit {
-//  process_attester_slashing(state, attester_slashing)
-//}
-
-fun process_operations(state: BeaconState, body: BeaconBlockBody): Unit {
+fun process_operations(state: BeaconState, body: BeaconBlockBody) {
   assert(len(body.deposits) == min(MAX_DEPOSITS, state.eth1_data.deposit_count - state.eth1_deposit_index))
   for (operation in body.proposer_slashings) {
     process_proposer_slashing(state, operation)
@@ -202,18 +198,17 @@ fun update_pending_votes(state: BeaconState, attestation: Attestation): Unit {
     val pending_headers_1 = state.previous_epoch_pending_shard_headers
     pending_headers_2 = pending_headers_1
   }
+  val attestation_shard = compute_shard_from_committee_index(state, attestation.data.slot, attestation.data.index)
   val pending_header: PendingShardHeader? = null
   var pending_header_2 = pending_header
   for (header in pending_headers_2) {
     val data = attestation.data as AttestationData
-    if (header.root == data.shard_header_root) {
+    if ((header.root == data.shard_header_root) && (header.slot == data.slot) && (header.shard == attestation_shard)) {
       pending_header_2 = header
     }
   }
   assert(pending_header_2 != null)
-  assert(pending_header_2!!.slot == attestation.data.slot)
-  assert(pending_header_2.shard == compute_shard_from_committee_index(state, attestation.data.slot, attestation.data.index))
-  for (i in range(len(pending_header_2.votes))) {
+  for (i in range(len(pending_header_2!!.votes))) {
     pending_header_2.votes[i] = pending_header_2.votes[i] || attestation.aggregation_bits[i]
   }
   val all_candidates = list(pending_headers_2.filter { c -> Pair(c.slot, c.shard) == Pair(pending_header_2.slot, pending_header_2.shard) }.map { c -> c })
@@ -237,7 +232,7 @@ fun process_shard_header(state: BeaconState, signed_header: SignedShardBlobHeade
   assert(header.shard < get_active_shard_count(state, header_epoch))
   assert(header.body_summary.beacon_block_root == get_block_root_at_slot(state, header.slot - 1uL))
   assert(header.proposer_index == get_shard_proposer_index(state, header.slot, header.shard))
-  val signing_root = compute_signing_root(header, get_domain(state, DOMAIN_SHARD_HEADER))
+  val signing_root = compute_signing_root(header, get_domain(state, DOMAIN_SHARD_PROPOSER))
   assert(bls.Verify(state.validators[header.proposer_index].pubkey, signing_root, signed_header.signature))
   val body_summary = header.body_summary
   if (body_summary.commitment.length == 0uL) {
@@ -320,7 +315,7 @@ fun process_pending_headers(state: BeaconState): Unit {
     }
   }
   for (slot_index in range(SLOTS_PER_EPOCH)) {
-    for (shard_1 in range(SHARD_COUNT)) {
+    for (shard_1 in range(MAX_SHARDS)) {
       state.grandparent_epoch_confirmed_commitments[shard_1][slot_index] = DataCommitment()
     }
   }
@@ -332,12 +327,13 @@ fun process_pending_headers(state: BeaconState): Unit {
 
 fun charge_confirmed_header_fees(state: BeaconState): Unit {
   val new_gasprice = state.shard_gasprice
-  val adjustment_quotient = get_active_shard_count(state, get_current_epoch(state)) * SLOTS_PER_EPOCH * GASPRICE_ADJUSTMENT_COEFFICIENT
-  val previous_epoch_start_slot = compute_start_slot_at_epoch(get_previous_epoch(state))
+  val previous_epoch = get_previous_epoch(state)
+  val adjustment_quotient = get_active_shard_count(state, previous_epoch) * SLOTS_PER_EPOCH * GASPRICE_ADJUSTMENT_COEFFICIENT
+  val previous_epoch_start_slot = compute_start_slot_at_epoch(previous_epoch)
   var new_gasprice_2 = new_gasprice
   for (slot in range(previous_epoch_start_slot, previous_epoch_start_slot + SLOTS_PER_EPOCH)) {
     var new_gasprice_3 = new_gasprice_2
-    for (shard_index in range(SHARD_COUNT)) {
+    for (shard_index in range(get_active_shard_count(state, previous_epoch))) {
       val shard = Shard(shard_index)
       val confirmed_candidates = list(state.previous_epoch_pending_shard_headers.filter { c -> Triple(c.slot, c.shard, c.confirmed) == Triple(slot, shard, true) }.map { c -> c })
       if (!any(confirmed_candidates)) {

@@ -1,8 +1,8 @@
 package beacon_java.merge.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.merge.data.ExecutionPayloadHeader;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class BeaconState extends beacon_java.phase0.data.BeaconState {

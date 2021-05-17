@@ -1,12 +1,14 @@
 package beacon_java.merge.data;
 
-import beacon_java.phase0.data.Hash32;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Hash32;
+import beacon_java.ssz.SSZBoolean;
+import beacon_java.ssz.uint256;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class PowBlock {
+public class PowBlock extends Container {
   public static Hash32 block_hash_default = new Hash32();
   public static SSZBoolean is_processed_default = new SSZBoolean();
   public static SSZBoolean is_valid_default = new SSZBoolean();

@@ -1,8 +1,8 @@
 package beacon_java.merge.data;
 
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import beacon_java.merge.data.ExecutionPayload;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class BeaconBlockBody extends beacon_java.phase0.data.BeaconBlockBody {

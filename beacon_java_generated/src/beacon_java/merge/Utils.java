@@ -11,4 +11,21 @@ public class Utils {
   public static pybool verify_execution_state_transition(ExecutionPayload payload) { return null; }
   public static PowBlock get_pow_chain_head() { return null; }
   public static PowBlock get_pow_block(Hash32 block_hash) { return null; }
+
+  public interface ExecutionEngine {
+    pybool new_block(ExecutionPayload execution_payload);
+    ExecutionPayload assemble_block(Hash32 block_hash, uint64 timestamp);
+  }
+
+  public final static ExecutionEngine EXECUTION_ENGINE = new ExecutionEngine() {
+    @Override
+    public pybool new_block(ExecutionPayload execution_payload) {
+      return null;
+    }
+
+    @Override
+    public ExecutionPayload assemble_block(Hash32 block_hash, uint64 timestamp) {
+      return null;
+    }
+  };
 }

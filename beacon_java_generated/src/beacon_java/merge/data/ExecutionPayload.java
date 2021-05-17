@@ -1,12 +1,20 @@
 package beacon_java.merge.data;
 
-import beacon_java.phase0.data.*;
-import beacon_java.pylib.*;
-import beacon_java.ssz.*;
 import lombok.*;
+import beacon_java.pylib.*;
+import static beacon_java.merge.Constants.BYTES_PER_LOGS_BLOOM;
+import beacon_java.ssz.SSZByteVector;
+import beacon_java.ssz.Bytes20;
+import beacon_java.ssz.Bytes32;
+import beacon_java.ssz.Container;
+import beacon_java.phase0.data.Hash32;
+import beacon_java.ssz.SSZList;
+import static beacon_java.merge.Constants.MAX_EXECUTION_TRANSACTIONS;
+import beacon_java.merge.data.OpaqueTransaction;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class ExecutionPayload {
+public class ExecutionPayload extends Container {
   public static Hash32 block_hash_default = new Hash32();
   public static Hash32 parent_hash_default = new Hash32();
   public static Bytes20 coinbase_default = new Bytes20();

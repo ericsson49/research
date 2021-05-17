@@ -15,6 +15,8 @@ public class Set<E> implements Iterable<E> {
     return null;
   }
 
+  public void add(E e) {}
+
   public <V> Set<V> map(Function<E, V> f) {
     return null;
   }

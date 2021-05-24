@@ -1,13 +1,10 @@
 package beacon_java.merge;
 
-import beacon_java.merge.data.BeaconBlock;
 import beacon_java.merge.data.BeaconBlockBody;
 import beacon_java.merge.data.BeaconState;
 import beacon_java.merge.data.ExecutionPayload;
 import beacon_java.merge.data.ExecutionPayloadHeader;
 import beacon_java.merge.data.PowBlock;
-import beacon_java.merge.data.SignedBeaconBlock;
-import beacon_java.merge.data.Store;
 import beacon_java.phase0.data.*;
 import beacon_java.pylib.Pair;
 import beacon_java.pylib.PyList;
@@ -39,7 +36,7 @@ public class Spec {
   }
 
   public static pybool is_transition_block(BeaconState state, BeaconBlock block) {
-    return and(not(is_transition_completed(state)), not(eq(block.getBody().getExecution_payload(), new ExecutionPayload(ExecutionPayload.block_hash_default, ExecutionPayload.parent_hash_default, ExecutionPayload.coinbase_default, ExecutionPayload.state_root_default, ExecutionPayload.number_default, ExecutionPayload.gas_limit_default, ExecutionPayload.gas_used_default, ExecutionPayload.timestamp_default, ExecutionPayload.receipt_root_default, ExecutionPayload.logs_bloom_default, ExecutionPayload.transactions_default))));
+    return and(not(is_transition_completed(state)), not(eq(((BeaconBlockBody)block.getBody()).getExecution_payload(), new ExecutionPayload(ExecutionPayload.block_hash_default, ExecutionPayload.parent_hash_default, ExecutionPayload.coinbase_default, ExecutionPayload.state_root_default, ExecutionPayload.number_default, ExecutionPayload.gas_limit_default, ExecutionPayload.gas_used_default, ExecutionPayload.timestamp_default, ExecutionPayload.receipt_root_default, ExecutionPayload.logs_bloom_default, ExecutionPayload.transactions_default))));
   }
 
   public static uint64 compute_time_at_slot(BeaconState state, Slot slot) {
@@ -49,11 +46,12 @@ public class Spec {
 
   public static void process_block(BeaconState state, BeaconBlock block) {
     process_block_header(state, block);
-    process_randao(state, block.getBody());
-    process_eth1_data(state, block.getBody());
-    process_operations(state, block.getBody());
+    BeaconBlockBody body = (BeaconBlockBody) block.getBody();
+    process_randao(state, body);
+    process_eth1_data(state, body);
+    process_operations(state, body);
     if (is_execution_enabled(state, block).v()) {
-      process_execution_payload(state, block.getBody().getExecution_payload(), EXECUTION_ENGINE);
+      process_execution_payload(state, body.getExecution_payload(), EXECUTION_ENGINE);
     }
   }
 
@@ -78,13 +76,13 @@ public class Spec {
   public static void on_block(Store store, SignedBeaconBlock signed_block) {
     var block = signed_block.getMessage();
     pyassert(contains(store.getBlock_states(), block.getParent_root()));
-    var pre_state = copy(store.getBlock_states().get(block.getParent_root()));
+    var pre_state = copy((BeaconState) store.getBlock_states().get(block.getParent_root()));
     pyassert(greaterOrEqual(get_current_slot(store), block.getSlot()));
     var finalized_slot = compute_start_slot_at_epoch(store.getFinalized_checkpoint().getEpoch());
     pyassert(greater(block.getSlot(), finalized_slot));
     pyassert(eq(get_ancestor(store, block.getParent_root(), finalized_slot), store.getFinalized_checkpoint().getRoot()));
     if (is_transition_block(pre_state, block).v()) {
-      var pow_block = get_pow_block(block.getBody().getExecution_payload().getParent_hash());
+      var pow_block = get_pow_block(((BeaconBlockBody)block.getBody()).getExecution_payload().getParent_hash());
       pyassert(pow_block.getIs_processed());
       pyassert(is_valid_transition_block(pow_block));
     }

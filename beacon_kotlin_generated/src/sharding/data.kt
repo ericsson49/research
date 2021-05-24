@@ -20,7 +20,7 @@ fun BLSPoint() = BLSPoint(uint256())
 data class AttestationData(
     var shard_header_root: Root = Root()
 ): phase0.AttestationData()
-class BeaconBlockBody(
+data class BeaconBlockBody(
     var shard_proposer_slashings: SSZList<ShardProposerSlashing> = SSZList<ShardProposerSlashing>(),
     var shard_headers: SSZList<SignedShardBlobHeader> = SSZList<SignedShardBlobHeader>()
 ): merge.BeaconBlockBody()

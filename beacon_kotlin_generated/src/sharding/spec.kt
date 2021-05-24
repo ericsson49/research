@@ -154,7 +154,9 @@ fun process_block(state: BeaconState, block: BeaconBlock) {
   process_randao(state, block.body)
   process_eth1_data(state, block.body)
   process_operations(state, block.body)
-  process_execution_payload(state, block.body.execution_payload, EXECUTION_ENGINE)
+  if (is_execution_enabled(state, block)) {
+    process_execution_payload(state, block.body.execution_payload, EXECUTION_ENGINE)
+  }
 }
 
 fun process_operations(state: BeaconState, body: BeaconBlockBody) {
@@ -357,8 +359,9 @@ fun reset_pending_headers(state: BeaconState): Unit {
   state.current_epoch_pending_shard_headers = SSZList<PendingShardHeader>()
   val next_epoch = get_current_epoch(state) + 1uL
   val next_epoch_start_slot = compute_start_slot_at_epoch(next_epoch)
+  val committees_per_slot = get_committee_count_per_slot(state, next_epoch)
   for (slot in range(next_epoch_start_slot, next_epoch_start_slot + SLOTS_PER_EPOCH)) {
-    for (index in range(get_committee_count_per_slot(state, next_epoch))) {
+    for (index in range(committees_per_slot)) {
       val committee_index = CommitteeIndex(index)
       val shard = compute_shard_from_committee_index(state, slot, committee_index)
       val committee_length = len(get_beacon_committee(state, slot, committee_index))
@@ -511,14 +514,6 @@ fun process_shard_epoch_increment(state: BeaconState): Unit {
 //  val epoch_1 = if (epoch == null) get_current_epoch(state) else epoch
 //  val fork_version = if (epoch_1 < state.fork.epoch) state.fork.previous_version else state.fork.current_version
 //  return compute_domain(domain_type, fork_version, state.genesis_validators_root)
-//}
-//
-///*
-//    Return the set of attesting indices corresponding to ``data`` and ``bits``.
-//    */
-//fun get_attesting_indices(state: BeaconState, data: AttestationData, bits: SSZBitlist): Set<ValidatorIndex> {
-//  val committee = get_beacon_committee(state, data.slot, data.index)
-//  return set(enumerate(committee).filter { (i, index) -> bits[i] }.map { (i, index) -> index })
 //}
 //
 ///*

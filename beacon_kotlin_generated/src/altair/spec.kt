@@ -46,7 +46,7 @@ fun get_next_sync_committee_indices(state: BeaconState): Sequence<ValidatorIndex
   val active_validator_count = uint64(len(active_validator_indices))
   val seed = get_seed(state, epoch, DOMAIN_SYNC_COMMITTEE)
   val i = 0uL
-  val sync_committee_indices: SSZList<ValidatorIndex> = PyList()
+  val sync_committee_indices: PyList<ValidatorIndex> = PyList()
   var i_2 = i
   while (len(sync_committee_indices) < SYNC_COMMITTEE_SIZE) {
     val shuffled_index = compute_shuffled_index(uint64(i_2 % active_validator_count), active_validator_count, seed)
@@ -276,8 +276,8 @@ fun process_deposit(state: BeaconState, deposit: Deposit) {
     if (bls.Verify(pubkey, signing_root, deposit.data.signature)) {
       state.validators.append(get_validator_from_deposit(state, deposit))
       state.balances.append(amount)
-      state.previous_epoch_participation.append(ParticipationFlags(0uL.toUByte()))
-      state.current_epoch_participation.append(ParticipationFlags(0uL.toUByte()))
+      state.previous_epoch_participation.append(ParticipationFlags(0uL))
+      state.current_epoch_participation.append(ParticipationFlags(0uL))
       state.inactivity_scores.append(uint64(0uL))
     }
   } else {
@@ -430,8 +430,7 @@ fun translate_participation(state: BeaconState, pending_attestations: Sequence<P
 
 fun upgrade_to_altair(pre: phase0.BeaconState): BeaconState {
   val epoch = get_current_epoch(pre)
-  val post = BeaconState(genesis_time = pre.genesis_time, genesis_validators_root = pre.genesis_validators_root, slot = pre.slot, fork = Fork(previous_version = pre.fork.current_version, current_version = ALTAIR_FORK_VERSION, epoch = epoch), latest_block_header = pre.latest_block_header, block_roots = pre.block_roots, state_roots = pre.state_roots, historical_roots = pre.historical_roots, eth1_data = pre.eth1_data, eth1_data_votes = pre.eth1_data_votes, eth1_deposit_index = pre.eth1_deposit_index, validators = pre.validators, balances = pre.balances, randao_mixes = pre.randao_mixes, slashings = pre.slashings, previous_epoch_participation = list(range(len(pre.validators))
-      .map { _ -> ParticipationFlags(0uL) }), current_epoch_participation = list(range(len(pre.validators)).map { _ -> ParticipationFlags(0uL) }), justification_bits = pre.justification_bits, previous_justified_checkpoint = pre.previous_justified_checkpoint, current_justified_checkpoint = pre.current_justified_checkpoint, finalized_checkpoint = pre.finalized_checkpoint, inactivity_scores = list(range(len(pre.validators)).map { _ -> uint64(0uL) }))
+  val post = BeaconState(genesis_time = pre.genesis_time, genesis_validators_root = pre.genesis_validators_root, slot = pre.slot, fork = Fork(previous_version = pre.fork.current_version, current_version = ALTAIR_FORK_VERSION, epoch = epoch), latest_block_header = pre.latest_block_header, block_roots = pre.block_roots, state_roots = pre.state_roots, historical_roots = pre.historical_roots, eth1_data = pre.eth1_data, eth1_data_votes = pre.eth1_data_votes, eth1_deposit_index = pre.eth1_deposit_index, validators = pre.validators, balances = pre.balances, randao_mixes = pre.randao_mixes, slashings = pre.slashings, previous_epoch_participation = list(range(len(pre.validators)).map { _ -> ParticipationFlags(0uL) }), current_epoch_participation = list(range(len(pre.validators)).map { _ -> ParticipationFlags(0uL) }), justification_bits = pre.justification_bits, previous_justified_checkpoint = pre.previous_justified_checkpoint, current_justified_checkpoint = pre.current_justified_checkpoint, finalized_checkpoint = pre.finalized_checkpoint, inactivity_scores = list(range(len(pre.validators)).map { _ -> uint64(0uL) }))
   translate_participation(post, pre.previous_epoch_attestations)
   post.current_sync_committee = get_next_sync_committee(post)
   post.next_sync_committee = get_next_sync_committee(post)

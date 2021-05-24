@@ -13,6 +13,7 @@ import beacon_java.sharding.data.BeaconState;
 import beacon_java.ssz.*;
 
 import static beacon_java.deps.BLS.bls;
+import static beacon_java.merge.Spec.is_execution_enabled;
 import static beacon_java.merge.Spec.process_execution_payload;
 import static beacon_java.merge.Utils.EXECUTION_ENGINE;
 import static beacon_java.merge.Utils.verify_execution_state_transition;
@@ -21,7 +22,6 @@ import static beacon_java.phase0.Spec.*;
 import static beacon_java.phase0.Utils.hash_tree_root;
 import static beacon_java.pylib.Exports.*;
 import static beacon_java.sharding.Constants.*;
-import static beacon_java.sharding.Constants.SHARD_COMMITTEE_PERIOD;
 
 public class Spec {
   public static pyint next_power_of_two(pyint x) {
@@ -172,7 +172,9 @@ public class Spec {
     process_randao(state, body);
     process_eth1_data(state, body);
     process_operations(state, body);
-    process_execution_payload(state, body.getExecution_payload(), EXECUTION_ENGINE);
+    if (is_execution_enabled(state, block).v()) {
+      process_execution_payload(state, body.getExecution_payload(), EXECUTION_ENGINE);
+    }
   }
 
   public static void process_operations(BeaconState state, BeaconBlockBody body) {
@@ -380,8 +382,9 @@ public class Spec {
     state.setCurrent_epoch_pending_shard_headers(new SSZList<PendingShardHeader>());
     var next_epoch = plus(get_current_epoch(state), pyint.create(1L));
     var next_epoch_start_slot = compute_start_slot_at_epoch(next_epoch);
+    var committees_per_slot = get_committee_count_per_slot(state, next_epoch);
     for (var slot: range(next_epoch_start_slot, plus(next_epoch_start_slot, SLOTS_PER_EPOCH))) {
-      for (var index: range(get_committee_count_per_slot(state, next_epoch))) {
+      for (var index: range(committees_per_slot)) {
         var committee_index = new CommitteeIndex(index);
         var shard = compute_shard_from_committee_index(state, slot, committee_index);
         var committee_length = len(get_beacon_committee(state, slot, committee_index));

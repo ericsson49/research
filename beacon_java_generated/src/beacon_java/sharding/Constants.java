@@ -33,7 +33,6 @@ public interface Constants {
   pyint ROOT_OF_UNITY = pow(PRIMITIVE_ROOT_OF_UNITY, divide(minus(MODULUS, pyint.create(1L)), pyint.create(multiply(MAX_SAMPLES_PER_BLOCK, POINTS_PER_SAMPLE))), MODULUS);
   Gwei MAX_GASPRICE = new Gwei(pow(pyint.create(2L), pyint.create(33L)));
   Gwei MIN_GASPRICE = new Gwei(pow(pyint.create(2L), pyint.create(3L)));
-  Epoch SHARD_COMMITTEE_PERIOD = new Epoch(pow(pyint.create(2L), pyint.create(8L)));
   DomainType DOMAIN_SHARD_PROPOSER = new DomainType("0x80000000");
   DomainType DOMAIN_SHARD_COMMITTEE = new DomainType("0x81000000");
 }

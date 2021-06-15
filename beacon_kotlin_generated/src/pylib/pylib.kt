@@ -82,14 +82,14 @@ fun range(n: uint64) = range(0uL, n)
 
 fun max(a: uint64, b: uint64) = kotlin.math.max(a, b)
 fun max(a: uint64?, b: uint64) = if (a == null) b else kotlin.math.max(a, b)
-fun <T : Comparable<T>> max(c: Iterable<T>): T = c.max()!!
+fun <T : Comparable<T>> max(c: Iterable<T>): T = c.maxOrNull()!!
 fun <T : Comparable<T>> max(a: T, b: T): T = if (a > b) a else b
-fun <T, K : Comparable<K>> max(c: Iterable<T>, key: (T) -> K): T = c.maxBy(key)!!
-fun <T, K : Comparable<K>> max(c: Iterable<T>, key: (T) -> K, default: T) = c.maxBy(key) ?: default
+fun <T, K : Comparable<K>> max(c: Iterable<T>, key: (T) -> K): T = c.maxByOrNull(key)!!
+fun <T, K : Comparable<K>> max(c: Iterable<T>, key: (T) -> K, default: T) = c.maxByOrNull(key) ?: default
 
 fun min(a: uint64, b: uint64) = kotlin.math.min(a, b)
-fun <T : Comparable<T>> min(c: Iterable<T>): T = c.min()!!
-fun <T, K : Comparable<K>> min(c: Iterable<T>, key: (T) -> K): T = c.minBy(key)!!
+fun <T : Comparable<T>> min(c: Iterable<T>): T = c.minOrNull()!!
+fun <T, K : Comparable<K>> min(c: Iterable<T>, key: (T) -> K): T = c.minByOrNull(key)!!
 fun <T : Comparable<T>> min(a: T, b: T): T = if (a < b) a else b
 
 fun <T> enumerate(c: Collection<T>) = c.mapIndexed { a, b -> Pair(a.toULong(), b) }

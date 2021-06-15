@@ -48,12 +48,34 @@ fun process_execution_payload(state: BeaconState, execution_payload: ExecutionPa
   state.latest_execution_payload_header = ExecutionPayloadHeader(block_hash = execution_payload.block_hash, parent_hash = execution_payload.parent_hash, coinbase = execution_payload.coinbase, state_root = execution_payload.state_root, number = execution_payload.number, gas_limit = execution_payload.gas_limit, gas_used = execution_payload.gas_used, timestamp = execution_payload.timestamp, receipt_root = execution_payload.receipt_root, logs_bloom = execution_payload.logs_bloom, transactions_root = hash_tree_root(execution_payload.transactions))
 }
 
-fun is_valid_transition_block(block: PowBlock): pybool {
-  val is_total_difficulty_reached = block.total_difficulty >= TRANSITION_TOTAL_DIFFICULTY
+fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: uint64, deposits: Sequence<Deposit>): BeaconState {
+  val fork = Fork(previous_version = GENESIS_FORK_VERSION, current_version = MERGE_FORK_VERSION, epoch = GENESIS_EPOCH)
+  val state = BeaconState(genesis_time = eth1_timestamp + GENESIS_DELAY, fork = fork, eth1_data = Eth1Data(block_hash = eth1_block_hash, deposit_count = uint64(len(deposits))), latest_block_header = BeaconBlockHeader(body_root = hash_tree_root(BeaconBlockBody())), randao_mixes = PyList(eth1_block_hash) * EPOCHS_PER_HISTORICAL_VECTOR)
+  val leaves = list(map({ deposit -> deposit.data }, deposits))
+  for ((index, deposit) in enumerate(deposits)) {
+    val deposit_data_list = SSZList<DepositData>(*leaves[0uL until (index + 1uL)].toTypedArray())
+    state.eth1_data.deposit_root = hash_tree_root(deposit_data_list)
+    process_deposit(state, deposit)
+  }
+  for ((index_1, validator) in enumerate(state.validators)) {
+    val balance = state.balances[index_1]
+    validator.effective_balance = min(balance - (balance % EFFECTIVE_BALANCE_INCREMENT), MAX_EFFECTIVE_BALANCE)
+    if (validator.effective_balance == MAX_EFFECTIVE_BALANCE) {
+      validator.activation_eligibility_epoch = GENESIS_EPOCH
+      validator.activation_epoch = GENESIS_EPOCH
+    }
+  }
+  state.genesis_validators_root = hash_tree_root(state.validators)
+  state.latest_execution_payload_header = ExecutionPayloadHeader(block_hash = eth1_block_hash, parent_hash = Hash32(), coinbase = Bytes20(), state_root = Bytes32(), number = uint64(0uL), gas_limit = uint64(0uL), gas_used = uint64(0uL), timestamp = eth1_timestamp, receipt_root = Bytes32(), logs_bloom = SSZByteVector(), transactions_root = Root())
+  return state
+}
+
+fun is_valid_terminal_pow_block(transition_store: TransitionStore, block: PowBlock): pybool {
+  val is_total_difficulty_reached = block.total_difficulty >= transition_store.transition_total_difficulty
   return block.is_valid && is_total_difficulty_reached
 }
 
-fun on_block(store: Store, signed_block: SignedBeaconBlock) {
+fun on_block(store: Store, signed_block: SignedBeaconBlock, transition_store: TransitionStore? = null) {
   val block = signed_block.message
   assert(block.parent_root in store.block_states)
   val pre_state = copy(store.block_states[block.parent_root]!!)
@@ -61,10 +83,10 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock) {
   val finalized_slot = compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)
   assert(block.slot > finalized_slot)
   assert(get_ancestor(store, block.parent_root, finalized_slot) == store.finalized_checkpoint.root)
-  if (is_transition_block(pre_state, block)) {
+  if ((transition_store != null) && is_transition_block(pre_state, block)) {
     val pow_block = get_pow_block(block.body.execution_payload.parent_hash)
     assert(pow_block.is_processed)
-    assert(is_valid_transition_block(pow_block))
+    assert(is_valid_terminal_pow_block(transition_store, pow_block))
   }
   val state = pre_state.copy()
   state_transition(state, signed_block, true)
@@ -94,10 +116,35 @@ fun on_block(store: Store, signed_block: SignedBeaconBlock) {
   }
 }
 
-fun get_execution_payload(state: BeaconState, execution_engine: ExecutionEngine): ExecutionPayload {
+fun upgrade_to_merge(pre: BeaconState): BeaconState {
+  val epoch = get_current_epoch(pre)
+  val post = BeaconState(genesis_time = pre.genesis_time, genesis_validators_root = pre.genesis_validators_root, slot = pre.slot, fork = Fork(previous_version = pre.fork.current_version, current_version = MERGE_FORK_VERSION, epoch = epoch), latest_block_header = pre.latest_block_header, block_roots = pre.block_roots, state_roots = pre.state_roots, historical_roots = pre.historical_roots, eth1_data = pre.eth1_data, eth1_data_votes = pre.eth1_data_votes, eth1_deposit_index = pre.eth1_deposit_index, validators = pre.validators, balances = pre.balances, randao_mixes = pre.randao_mixes, slashings = pre.slashings, previous_epoch_attestations = pre.previous_epoch_attestations, current_epoch_attestations = pre.current_epoch_attestations, justification_bits = pre.justification_bits, previous_justified_checkpoint = pre.previous_justified_checkpoint, current_justified_checkpoint = pre.current_justified_checkpoint, finalized_checkpoint = pre.finalized_checkpoint, latest_execution_payload_header = ExecutionPayloadHeader())
+  return post
+}
+
+fun compute_transition_total_difficulty(anchor_pow_block: PowBlock): uint256 {
+  val seconds_per_voting_period = EPOCHS_PER_ETH1_VOTING_PERIOD * SLOTS_PER_EPOCH * SECONDS_PER_SLOT
+  val pow_blocks_per_voting_period = seconds_per_voting_period / SECONDS_PER_ETH1_BLOCK
+  val pow_blocks_to_merge = TARGET_SECONDS_TO_MERGE / SECONDS_PER_ETH1_BLOCK
+  val pow_blocks_after_anchor_block = ETH1_FOLLOW_DISTANCE + pow_blocks_per_voting_period + pow_blocks_to_merge
+  val anchor_difficulty = max(MIN_ANCHOR_POW_BLOCK_DIFFICULTY, anchor_pow_block.difficulty)
+  return anchor_pow_block.total_difficulty + (anchor_difficulty * pow_blocks_after_anchor_block)
+}
+
+fun get_transition_store(anchor_pow_block: PowBlock): TransitionStore {
+  val transition_total_difficulty = compute_transition_total_difficulty(anchor_pow_block)
+  return TransitionStore(transition_total_difficulty = transition_total_difficulty)
+}
+
+fun initialize_transition_store(state: BeaconState): TransitionStore {
+  val pow_block = get_pow_block(state.eth1_data.block_hash)
+  return get_transition_store(pow_block)
+}
+
+fun get_execution_payload(state: BeaconState, transition_store: TransitionStore, execution_engine: ExecutionEngine): ExecutionPayload {
   if (!is_transition_completed(state)) {
     val pow_block = get_pow_chain_head()
-    if (!is_valid_transition_block(pow_block)) {
+    if (!is_valid_terminal_pow_block(transition_store, pow_block)) {
       return ExecutionPayload()
     } else {
       val timestamp = compute_time_at_slot(state, state.slot)

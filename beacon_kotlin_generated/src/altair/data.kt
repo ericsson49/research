@@ -55,7 +55,7 @@ data class SyncCommittee(
     var pubkeys: SSZVector<BLSPubkey> = SSZVector<BLSPubkey>(),
     var aggregate_pubkey: BLSPubkey = BLSPubkey()
 )
-data class SyncCommitteeSignature(
+data class SyncCommitteeMessage(
     var slot: Slot = Slot(),
     var beacon_block_root: Root = Root(),
     var validator_index: ValidatorIndex = ValidatorIndex(),

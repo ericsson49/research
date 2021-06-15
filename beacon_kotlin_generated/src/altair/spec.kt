@@ -1,21 +1,12 @@
 package altair
 
 import deps.bls
+import deps.copy
 import deps.hash
 import deps.hash_tree_root
 import phase0.*
 import pylib.*
 import ssz.*
-
-/*
-    Wrapper to ``bls.FastAggregateVerify`` accepting the ``G2_POINT_AT_INFINITY`` signature when ``pubkeys`` is empty.
-    */
-fun eth2_fast_aggregate_verify(pubkeys: Sequence<BLSPubkey>, message: Bytes32, signature: BLSSignature): pybool {
-  if ((len(pubkeys) == 0uL) && (signature == G2_POINT_AT_INFINITY)) {
-    return true
-  }
-  return bls.FastAggregateVerify(pubkeys, message, signature)
-}
 
 /*
     Return a new ``ParticipationFlags`` adding ``flag_index`` to ``flags``.
@@ -34,10 +25,7 @@ fun has_flag(flags: ParticipationFlags, flag_index: pyint): pybool {
 }
 
 /*
-    Return the sequence of sync committee indices (which may include duplicate indices)
-    for the next sync committee, given a ``state`` at a sync committee period boundary.
-
-    Note: Committee can contain duplicate indices for small validator sets (< SYNC_COMMITTEE_SIZE + 128)
+    Return the sync committee indices, with possible duplicates, for the next sync committee.
     */
 fun get_next_sync_committee_indices(state: BeaconState): Sequence<ValidatorIndex> {
   val epoch = Epoch(get_current_epoch(state) + 1uL)
@@ -63,23 +51,12 @@ fun get_next_sync_committee_indices(state: BeaconState): Sequence<ValidatorIndex
 }
 
 /*
-    Return the *next* sync committee for a given ``state``.
-
-    ``SyncCommittee`` contains an aggregate pubkey that enables
-    resource-constrained clients to save some computation when verifying
-    the sync committee's signature.
-
-    ``SyncCommittee`` can also contain duplicate pubkeys, when ``get_next_sync_committee_indices``
-    returns duplicate indices. Implementations must take care when handling
-    optimizations relating to aggregation and verification in the presence of duplicates.
-
-    Note: This function should only be called at sync committee period boundaries by ``process_sync_committee_updates``
-    as ``get_next_sync_committee_indices`` is not stable within a given period.
+    Return the next sync committee, with possible pubkey duplicates.
     */
 fun get_next_sync_committee(state: BeaconState): SyncCommittee {
   val indices = get_next_sync_committee_indices(state)
   val pubkeys = list(indices.map { index -> state.validators[index].pubkey })
-  val aggregate_pubkey = bls.AggregatePKs(pubkeys)
+  val aggregate_pubkey = eth2_aggregate_pubkeys(pubkeys)
   return SyncCommittee(pubkeys = pubkeys, aggregate_pubkey = aggregate_pubkey)
 }
 
@@ -89,10 +66,6 @@ fun get_base_reward_per_increment(state: BeaconState): Gwei {
 
 /*
     Return the base reward for the validator defined by ``index`` with respect to the current ``state``.
-
-    Note: An optimally performing validator can earn one base reward per epoch over a long time horizon.
-    This takes into account both per-epoch (e.g. attestation) and intermittent duties (e.g. block proposal
-    and sync committees).
     */
 fun get_base_reward(state: BeaconState, index: ValidatorIndex): Gwei {
   val increments = state.validators[index].effective_balance / EFFECTIVE_BALANCE_INCREMENT
@@ -222,7 +195,7 @@ fun process_block(state: BeaconState, block: BeaconBlock) {
   process_randao(state, block.body)
   process_eth1_data(state, block.body)
   process_operations(state, block.body)
-  process_sync_committee(state, block.body.sync_aggregate)
+  process_sync_aggregate(state, block.body.sync_aggregate)
 }
 
 fun process_attestation(state: BeaconState, attestation: Attestation) {
@@ -248,7 +221,7 @@ fun process_attestation(state: BeaconState, attestation: Attestation) {
   for (index in get_attesting_indices(state, data, attestation.aggregation_bits)) {
     var proposer_reward_numerator_3 = proposer_reward_numerator_2
     for ((flag_index, weight) in enumerate(PARTICIPATION_FLAG_WEIGHTS)) {
-      if ((flag_index in participation_flag_indices) && !has_flag(epoch_participation_2[index], pyint(flag_index))) {
+      if ((pyint(flag_index) in participation_flag_indices) && !has_flag(epoch_participation_2[index], pyint(flag_index))) {
         epoch_participation_2[index] = add_flag(epoch_participation_2[index], pyint(flag_index))
         val proposer_reward_numerator_1 = proposer_reward_numerator_3 + (get_base_reward(state, index) * weight)
         proposer_reward_numerator_3 = proposer_reward_numerator_1
@@ -286,13 +259,13 @@ fun process_deposit(state: BeaconState, deposit: Deposit) {
   }
 }
 
-fun process_sync_committee(state: BeaconState, aggregate: SyncAggregate) {
+fun process_sync_aggregate(state: BeaconState, sync_aggregate: SyncAggregate) {
   val committee_pubkeys = state.current_sync_committee.pubkeys
-  val participant_pubkeys = list(zip(committee_pubkeys, aggregate.sync_committee_bits).filter { (pubkey, bit) -> bit }.map { (pubkey, bit) -> pubkey })
+  val participant_pubkeys = list(zip(committee_pubkeys, sync_aggregate.sync_committee_bits).filter { (pubkey, bit) -> bit }.map { (pubkey, bit) -> pubkey })
   val previous_slot = max(state.slot, Slot(1uL)) - Slot(1uL)
   val domain = get_domain(state, DOMAIN_SYNC_COMMITTEE, compute_epoch_at_slot(previous_slot))
   val signing_root = compute_signing_root(get_block_root_at_slot(state, previous_slot), domain)
-  assert(eth2_fast_aggregate_verify(participant_pubkeys, signing_root, aggregate.sync_committee_signature))
+  assert(eth2_fast_aggregate_verify(participant_pubkeys, signing_root, sync_aggregate.sync_committee_signature))
   val total_active_increments = get_total_active_balance(state) / EFFECTIVE_BALANCE_INCREMENT
   val total_base_rewards = Gwei(get_base_reward_per_increment(state) * total_active_increments)
   val max_participant_rewards = Gwei(total_base_rewards * SYNC_REWARD_WEIGHT / WEIGHT_DENOMINATOR / SLOTS_PER_EPOCH)
@@ -300,10 +273,13 @@ fun process_sync_committee(state: BeaconState, aggregate: SyncAggregate) {
   val proposer_reward = Gwei(participant_reward * PROPOSER_WEIGHT / (WEIGHT_DENOMINATOR - PROPOSER_WEIGHT))
   val all_pubkeys = list(state.validators.map { v -> v.pubkey })
   val committee_indices = list(state.current_sync_committee.pubkeys.map { pubkey -> ValidatorIndex(all_pubkeys.index(pubkey)) })
-  val participant_indices = list(zip(committee_indices, aggregate.sync_committee_bits).filter { (index, bit) -> bit }.map { (index, bit) -> index })
-  for (participant_index in participant_indices) {
-    increase_balance(state, participant_index, participant_reward)
-    increase_balance(state, get_beacon_proposer_index(state), proposer_reward)
+  for ((participant_index, participation_bit) in zip(committee_indices, sync_aggregate.sync_committee_bits)) {
+    if (pybool(participation_bit)) {
+      increase_balance(state, participant_index, participant_reward)
+      increase_balance(state, get_beacon_proposer_index(state), proposer_reward)
+    } else {
+      decrease_balance(state, participant_index, participant_reward)
+    }
   }
 }
 
@@ -414,6 +390,33 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
   return state
 }
 
+/*
+    Return the aggregate public key for the public keys in ``pubkeys``.
+
+    NOTE: the ``+`` operation should be interpreted as elliptic curve point addition, which takes as input
+    elliptic curve points that must be decoded from the input ``BLSPubkey``s.
+    This implementation is for demonstrative purposes only and ignores encoding/decoding concerns.
+    Refer to the BLS signature draft standard for more information.
+    */
+fun eth2_aggregate_pubkeys(pubkeys: Sequence<BLSPubkey>): BLSPubkey {
+  assert(len(pubkeys) > 0uL)
+  var result = copy(pubkeys[0uL])
+  for (pubkey in pubkeys[1uL until len(pubkeys)]) {
+    result = bls_plus(result, pubkey)
+  }
+  return result
+}
+
+/*
+    Wrapper to ``bls.FastAggregateVerify`` accepting the ``G2_POINT_AT_INFINITY`` signature when ``pubkeys`` is empty.
+    */
+fun eth2_fast_aggregate_verify(pubkeys: Sequence<BLSPubkey>, message: Bytes32, signature: BLSSignature): pybool {
+  if ((len(pubkeys) == 0uL) && (signature == G2_POINT_AT_INFINITY)) {
+    return true
+  }
+  return bls.FastAggregateVerify(pubkeys, message, signature)
+}
+
 fun translate_participation(state: BeaconState, pending_attestations: Sequence<PendingAttestation>) {
   for (attestation in pending_attestations) {
     val data = attestation.data
@@ -473,12 +476,12 @@ fun process_sync_committee_contributions(block: BeaconBlock, contributions: Set<
   block.body.sync_aggregate = sync_aggregate
 }
 
-fun get_sync_committee_signature(state: BeaconState, block_root: Root, validator_index: ValidatorIndex, privkey: pyint): SyncCommitteeSignature {
+fun get_sync_committee_message(state: BeaconState, block_root: Root, validator_index: ValidatorIndex, privkey: pyint): SyncCommitteeMessage {
   val epoch = get_current_epoch(state)
   val domain = get_domain(state, DOMAIN_SYNC_COMMITTEE, epoch)
   val signing_root = compute_signing_root(block_root, domain)
   val signature = bls.Sign(privkey, signing_root)
-  return SyncCommitteeSignature(slot = state.slot, validator_index = validator_index, signature = signature)
+  return SyncCommitteeMessage(slot = state.slot, beacon_block_root = block_root, validator_index = validator_index, signature = signature)
 }
 
 fun compute_subnets_for_sync_committee(state: BeaconState, validator_index: ValidatorIndex): Set<uint64> {

@@ -18,6 +18,8 @@ fun <T: phase0.BeaconState> copy(v: T): T = TODO()
 @JvmName("copy1")
 fun <T: phase0.BeaconState> T.copy(): T = copy(this)
 
+fun copy(k: phase0.BLSPubkey): phase0.BLSPubkey = TODO()
+
 data class FQ2(val coeffs: Pair<pyint, pyint>)
 
 object bls {

@@ -1,5 +1,6 @@
 package pylib
 
+import phase0.BLSPubkey
 import ssz.Bitlist
 import ssz.Bytes
 import ssz.Bytes32
@@ -127,6 +128,8 @@ fun <T> MutableList<T>.update(index: uint64, updF: (uint64,T) -> T) {
 fun <T> Iterable<T>.count(x: T): uint64 {
   return this.filter { it == x }.count().toULong()
 }
+
+fun bls_plus(a: BLSPubkey, b: BLSPubkey): BLSPubkey = TODO()
 
 operator fun Bytes.plus(b: Bytes) = Bytes.concatenate(this, b)
 operator fun Bytes.times(n: uint64) = range(n).fold(Bytes.EMPTY) { a, _ -> a + this }

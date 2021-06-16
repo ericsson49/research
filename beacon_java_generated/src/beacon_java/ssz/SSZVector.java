@@ -30,6 +30,9 @@ public class SSZVector<E> implements Sequence<E> {
   }
 
   @Override
+  public Sequence<E> getSlice(pyint start, pyint upper, pyint step) { return null; }
+
+  @Override
   public void setSlice(pyint start, pyint upper, Sequence<E> v) {
 
   }

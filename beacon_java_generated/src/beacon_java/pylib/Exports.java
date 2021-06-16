@@ -1,5 +1,6 @@
 package beacon_java.pylib;
 
+import beacon_java.phase0.data.BLSPubkey;
 import beacon_java.ssz.Bytes32;
 import beacon_java.ssz.uint;
 import beacon_java.ssz.uint64;
@@ -102,4 +103,6 @@ public class Exports {
 
   public static <A> Sequence<A> plus(Sequence<A> a, Sequence<A> b) { return null; }
   public static <A extends Sequence<?>> A multiply(A a, pyint b) { return null; }
+
+  public static BLSPubkey bls_plus(BLSPubkey a, BLSPubkey b) { return null; }
 }

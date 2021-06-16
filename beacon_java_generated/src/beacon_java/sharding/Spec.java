@@ -132,7 +132,7 @@ public class Spec {
     Shard shard_3;
     if (greater(slot, current_epoch_start_slot).v()) {
       var shard_5 = shard;
-      for (var _slot: range(current_epoch_start_slot, slot)) {
+      for (var _slot : range(current_epoch_start_slot, slot)) {
         var committee_count = get_committee_count_per_slot(state, compute_epoch_at_slot(new Slot(_slot)));
         var active_shard_count = get_active_shard_count(state, compute_epoch_at_slot(new Slot(_slot)));
         var shard_1 = modulo(plus(shard_5, committee_count), active_shard_count);
@@ -142,7 +142,7 @@ public class Spec {
     } else {
       if (less(slot, current_epoch_start_slot).v()) {
         var shard_4 = shard;
-        for (var _slot_1: list(range(slot, current_epoch_start_slot)).getSlice(null, null)) {
+        for (var _slot_1 : list(range(slot, current_epoch_start_slot)).getSlice(null, null, uminus(pyint.create(1L)))) {
           var committee_count_1 = get_committee_count_per_slot(state, compute_epoch_at_slot(new Slot(_slot_1)));
           var active_shard_count_1 = get_active_shard_count(state, compute_epoch_at_slot(new Slot(_slot_1)));
           var shard_2 = modulo(minus(plus(shard_4, active_shard_count_1), committee_count_1), active_shard_count_1);
@@ -158,12 +158,16 @@ public class Spec {
 
   public static Shard compute_shard_from_committee_index(BeaconState state, Slot slot, CommitteeIndex index) {
     var active_shards = get_active_shard_count(state, compute_epoch_at_slot(slot));
+    pyassert(less(index, active_shards));
     return new Shard(modulo(plus(index, get_start_shard(state, slot)), active_shards));
   }
 
   public static CommitteeIndex compute_committee_index_from_shard(BeaconState state, Slot slot, Shard shard) {
-    var active_shards = get_active_shard_count(state, compute_epoch_at_slot(slot));
-    return new CommitteeIndex(modulo(minus(plus(active_shards, shard), get_start_shard(state, slot)), active_shards));
+    var epoch = compute_epoch_at_slot(slot);
+    var active_shards = get_active_shard_count(state, epoch);
+    var index = new CommitteeIndex(modulo(minus(plus(active_shards, shard), get_start_shard(state, slot)), active_shards));
+    pyassert(less(index, get_committee_count_per_slot(state, epoch)));
+    return index;
   }
 
   public static void process_block(BeaconState state, BeaconBlock block) {
@@ -179,71 +183,84 @@ public class Spec {
 
   public static void process_operations(BeaconState state, BeaconBlockBody body) {
     pyassert(eq(len(body.getDeposits()), min(MAX_DEPOSITS, minus(state.getEth1_data().getDeposit_count(), state.getEth1_deposit_index()))));
-    for (var operation: body.getProposer_slashings()) {
+    for (var operation : body.getProposer_slashings()) {
       process_proposer_slashing(state, operation);
     }
-    for (var operation_1: body.getAttester_slashings()) {
+    for (var operation_1 : body.getAttester_slashings()) {
       process_attester_slashing(state, operation_1);
     }
-    for (var operation_2: body.getShard_proposer_slashings()) {
+    for (var operation_2 : body.getShard_proposer_slashings()) {
       process_shard_proposer_slashing(state, operation_2);
     }
     pyassert(lessOrEqual(len(body.getShard_headers()), multiply(MAX_SHARD_HEADERS_PER_SHARD, get_active_shard_count(state, get_current_epoch(state)))));
-    for (var operation_3: body.getShard_headers()) {
+    for (var operation_3 : body.getShard_headers()) {
       process_shard_header(state, operation_3);
     }
-    for (var operation_4: body.getAttestations()) {
+    for (var operation_4 : body.getAttestations()) {
       process_attestation(state, operation_4);
     }
-    for (var operation_5: body.getDeposits()) {
+    for (var operation_5 : body.getDeposits()) {
       process_deposit(state, operation_5);
     }
-    for (var operation_6: body.getVoluntary_exits()) {
+    for (var operation_6 : body.getVoluntary_exits()) {
       process_voluntary_exit(state, operation_6);
     }
   }
 
   public static void process_attestation(BeaconState state, beacon_java.phase0.data.Attestation attestation) {
     beacon_java.phase0.Spec.process_attestation(state, attestation);
-    update_pending_votes(state, attestation);
+    update_pending_shard_work(state, attestation);
   }
 
-  public static void update_pending_votes(BeaconState state, beacon_java.phase0.data.Attestation attestation) {
-    AttestationData attestation_data = (AttestationData) attestation.getData();
-    SSZList<PendingShardHeader> pending_headers_2;
-    if (eq(compute_epoch_at_slot(attestation_data.getSlot()), get_current_epoch(state)).v()) {
-      var pending_headers = state.getCurrent_epoch_pending_shard_headers();
-      pending_headers_2 = pending_headers;
-    } else {
-      var pending_headers_1 = state.getPrevious_epoch_pending_shard_headers();
-      pending_headers_2 = pending_headers_1;
-    }
-    var attestation_shard = compute_shard_from_committee_index(state, attestation_data.getSlot(), attestation_data.getIndex());
-    PendingShardHeader pending_header = null;
-    var pending_header_2 = pending_header;
-    for (var header: pending_headers_2) {
-      if (and(eq(header.getRoot(), attestation_data.getShard_header_root()), eq(header.getSlot(), attestation_data.getSlot()), eq(header.getShard(), attestation_shard)).v()) {
-        var pending_header_1 = header;
-        pending_header_2 = pending_header_1;
-      } else {
-        pending_header_2 = pending_header_2;
-      }
-    }
-    pyassert(pending_header_2 != null);
-    for (var i: range(len(pending_header_2.getVotes()))) {
-      pending_header_2.getVotes().set(i, new beacon_java.ssz.SSZBoolean(or(pending_header_2.getVotes().get(i), attestation.getAggregation_bits().get(i))));
-    }
-    PendingShardHeader finalPending_header_ = pending_header_2;
-    var all_candidates = list(pending_headers_2.filter((c) -> eq(new Pair<>(c.getSlot(), c.getShard()), new Pair<>(finalPending_header_.getSlot(), finalPending_header_.getShard()))).map((c) -> c));
-    if (contains(list(all_candidates.map((c) -> c.getConfirmed())), pybool.create(true)).v()) {
+  public static void update_pending_shard_work(BeaconState state, beacon_java.phase0.data.Attestation attestation) {
+    var attestation_shard = compute_shard_from_committee_index(state, attestation.getData().getSlot(), attestation.getData().getIndex());
+    var buffer_index = modulo(attestation.getData().getSlot(), SHARD_STATE_MEMORY_SLOTS);
+    var committee_work = state.getShard_buffer().get(buffer_index).get(attestation_shard);
+    if (not(eq(committee_work.getStatus().getSelector(), SHARD_WORK_PENDING)).v()) {
       return;
     }
-    var participants = get_attesting_indices(state, attestation_data, pending_header_2.getVotes());
-    var participants_balance = get_total_balance(state, participants);
-    var full_committee = get_beacon_committee(state, attestation_data.getSlot(), attestation_data.getIndex());
-    var full_committee_balance = get_total_balance(state, set(full_committee));
-    if (greaterOrEqual(multiply(participants_balance, pyint.create(3L)), multiply(full_committee_balance, pyint.create(2L))).v()) {
-      pending_header_2.setConfirmed(new beacon_java.ssz.SSZBoolean(pybool.create(true)));
+    Sequence<PendingShardHeader> current_headers = ((ShardWorkStatus_2)committee_work.getStatus()).getValue();
+    AttestationData attestation_data = (AttestationData) attestation.getData();
+    var header_index = list(current_headers.map((header) -> header.getRoot())).index(attestation_data.getShard_header_root());
+    PendingShardHeader pending_header = current_headers.get(header_index);
+    var full_committee = get_beacon_committee(state, attestation.getData().getSlot(), attestation.getData().getIndex());
+    if (and(not(eq(pending_header.getWeight(), pyint.create(0L))), less(compute_epoch_at_slot(pending_header.getUpdate_slot()), get_current_epoch(state))).v()) {
+      pending_header.setWeight(sum(zip(full_committee, pending_header.getVotes()).filter((tmp_0) -> {
+        var index = tmp_0.first;
+        var bit = tmp_0.second;
+        return bit;
+      }).map((tmp_1) -> {
+        var index = tmp_1.first;
+        var bit = tmp_1.second;
+        return state.getValidators().get(index).getEffective_balance();
+      })));
+    }
+    pending_header.setUpdate_slot(state.getSlot());
+    var full_committee_balance = new Gwei(pyint.create(0L));
+    var full_committee_balance_2 = full_committee_balance;
+    for (var tmp_2 : enumerate(attestation.getAggregation_bits())) {
+      var i = tmp_2.first;
+      var bit = tmp_2.second;
+      var weight = state.getValidators().get(full_committee.get(i)).getEffective_balance();
+      var full_committee_balance_1 = plus(full_committee_balance_2, weight);
+      if (pybool(bit).v()) {
+        if (not(pending_header.getVotes().get(i)).v()) {
+          pending_header.setWeight(plus(pending_header.getWeight(), weight));
+          pending_header.getVotes().set(i, new beacon_java.ssz.SSZBoolean(pybool.create(true)));
+          full_committee_balance_2 = full_committee_balance_1;
+        } else {
+          full_committee_balance_2 = full_committee_balance_1;
+        }
+      } else {
+        full_committee_balance_2 = full_committee_balance_1;
+      }
+    }
+    if (greaterOrEqual(multiply(pending_header.getWeight(), pyint.create(3L)), multiply(full_committee_balance_2, pyint.create(2L))).v()) {
+      if (eq(pending_header.getCommitment(), new DataCommitment(DataCommitment.point_default, DataCommitment.length_default)).v()) {
+        state.getShard_buffer().get(buffer_index).get(attestation_shard).setStatus(new ShardWorkStatus_0(ShardWorkStatus_0.value_default));
+      } else {
+        state.getShard_buffer().get(buffer_index).get(attestation_shard).setStatus(new ShardWorkStatus_1(pending_header.getCommitment()));
+      }
     }
   }
 
@@ -254,6 +271,12 @@ public class Spec {
     pyassert(contains(PyList.of(get_previous_epoch(state), get_current_epoch(state)), header_epoch));
     pyassert(less(header.getShard(), get_active_shard_count(state, header_epoch)));
     pyassert(eq(header.getBody_summary().getBeacon_block_root(), get_block_root_at_slot(state, minus(header.getSlot(), pyint.create(1L)))));
+    var committee_work = state.getShard_buffer().get(modulo(header.getSlot(), SHARD_STATE_MEMORY_SLOTS)).get(header.getShard());
+    pyassert(eq(committee_work.getStatus().getSelector(), SHARD_WORK_PENDING));
+    ShardWorkStatus_2 pending_headers_status = (ShardWorkStatus_2) committee_work.getStatus();
+    SSZList<PendingShardHeader> current_headers = pending_headers_status.getValue();
+    var header_root = hash_tree_root(header);
+    pyassert(not(contains(list(current_headers.map((pending_header) -> pending_header.getRoot())), header_root)));
     pyassert(eq(header.getProposer_index(), get_shard_proposer_index(state, header.getSlot(), header.getShard())));
     var signing_root = compute_signing_root(header, get_domain(state, DOMAIN_SHARD_PROPOSER, null));
     pyassert(bls.Verify(state.getValidators().get(header.getProposer_index()).getPubkey(), signing_root, signed_header.getSignature()));
@@ -262,19 +285,11 @@ public class Spec {
       pyassert(eq(body_summary.getDegree_proof(), G1_SETUP.get(pyint.create(0L))));
     }
     pyassert(eq(bls.Pairing(body_summary.getDegree_proof(), G2_SETUP.get(pyint.create(0L))), bls.Pairing(body_summary.getCommitment().getPoint(), G2_SETUP.get(uminus(body_summary.getCommitment().getLength())))));
-    SSZList<PendingShardHeader> pending_headers_2;
-    if (eq(header_epoch, get_current_epoch(state)).v()) {
-      var pending_headers = state.getCurrent_epoch_pending_shard_headers();
-      pending_headers_2 = pending_headers;
-    } else {
-      var pending_headers_1 = state.getPrevious_epoch_pending_shard_headers();
-      pending_headers_2 = pending_headers_1;
-    }
-    var header_root = hash_tree_root(header);
-    pyassert(not(contains(list(pending_headers_2.map((pending_header) -> pending_header.getRoot())), header_root)));
     var index = compute_committee_index_from_shard(state, header.getSlot(), header.getShard());
     var committee_length = len(get_beacon_committee(state, header.getSlot(), index));
-    pending_headers_2.append(new PendingShardHeader(header.getSlot(), header.getShard(), body_summary.getCommitment(), header_root, new SSZBitlist(multiply(PyList.of(pyint.create(0L)), committee_length)), new SSZBoolean(false)));
+    var initial_votes = new SSZBitlist(multiply(PyList.of(pyint.create(0L)), committee_length));
+    var pending_header = new PendingShardHeader(body_summary.getCommitment(), header_root, initial_votes, new Gwei(pyint.create(0L)), state.getSlot());
+    current_headers.append(pending_header);
   }
 
   public static void process_shard_proposer_slashing(BeaconState state, ShardProposerSlashing proposer_slashing) {
@@ -286,7 +301,7 @@ public class Spec {
     pyassert(not(eq(reference_1, reference_2)));
     var proposer = state.getValidators().get(reference_1.getProposer_index());
     pyassert(is_slashable_validator(proposer, get_current_epoch(state)));
-    for (var signed_header: Pair.of(proposer_slashing.getSigned_reference_1(), proposer_slashing.getSigned_reference_2())) {
+    for (var signed_header : Pair.of(proposer_slashing.getSigned_reference_1(), proposer_slashing.getSigned_reference_2())) {
       var domain = get_domain(state, DOMAIN_SHARD_PROPOSER, compute_epoch_at_slot(signed_header.getMessage().getSlot()));
       var signing_root = compute_signing_root(signed_header.getMessage(), domain);
       pyassert(bls.Verify(proposer.getPubkey(), signing_root, signed_header.getSignature()));
@@ -295,13 +310,13 @@ public class Spec {
   }
 
   public static void process_epoch(BeaconState state) {
+    process_pending_shard_confirmations(state);
+    charge_confirmed_shard_fees(state);
+    reset_pending_shard_work(state);
     process_justification_and_finalization(state);
     process_rewards_and_penalties(state);
     process_registry_updates(state);
     process_slashings(state);
-    process_pending_headers(state);
-    charge_confirmed_header_fees(state);
-    reset_pending_headers(state);
     process_eth1_data_reset(state);
     process_effective_balance_updates(state);
     process_slashings_reset(state);
@@ -311,84 +326,69 @@ public class Spec {
     process_shard_epoch_increment(state);
   }
 
-  public static void process_pending_headers(BeaconState state) {
+  public static void process_pending_shard_confirmations(BeaconState state) {
     if (eq(get_current_epoch(state), GENESIS_EPOCH).v()) {
       return;
     }
     var previous_epoch = get_previous_epoch(state);
     var previous_epoch_start_slot = compute_start_slot_at_epoch(previous_epoch);
-    for (var slot: range(previous_epoch_start_slot, plus(previous_epoch_start_slot, SLOTS_PER_EPOCH))) {
-      for (var shard_index: range(get_active_shard_count(state, previous_epoch))) {
-        var shard = new Shard(shard_index);
-        var candidates = list(state.getPrevious_epoch_pending_shard_headers().filter((c) -> eq(new Pair<>(c.getSlot(), c.getShard()), new Pair<>(slot, shard))).map((c) -> c));
-        if (contains(list(candidates.map((c) -> c.getConfirmed())), pybool.create(true)).v()) {
-          continue;
+    for (var slot : range(previous_epoch_start_slot, plus(previous_epoch_start_slot, SLOTS_PER_EPOCH))) {
+      var buffer_index = modulo(slot, SHARD_STATE_MEMORY_SLOTS);
+      for (var shard_index : range(len(state.getShard_buffer().get(buffer_index)))) {
+        var committee_work = state.getShard_buffer().get(buffer_index).get(shard_index);
+        if (eq(committee_work.getStatus().getSelector(), SHARD_WORK_PENDING).v()) {
+          ShardWorkStatus_2 pending_headers_status = (ShardWorkStatus_2) committee_work.getStatus();
+          var winning_header = max(pending_headers_status.getValue(), (header) -> header.getWeight());
+          if (eq(winning_header.getCommitment(), new DataCommitment(DataCommitment.point_default, DataCommitment.length_default)).v()) {
+            committee_work.setStatus(new ShardWorkStatus_0(ShardWorkStatus_0.value_default));
+          } else {
+            committee_work.setStatus(new ShardWorkStatus_1(winning_header.getCommitment()));
+          }
         }
-        var index = compute_committee_index_from_shard(state, slot, shard);
-        var full_committee = get_beacon_committee(state, slot, index);
-        var voting_sets = list(candidates.map((c) -> set(enumerate(full_committee).filter((tmp_0) -> { var i = tmp_0.first; var v = tmp_0.second; return c.getVotes().get(i); }).map((tmp_1) -> { var i = tmp_1.first; var v = tmp_1.second; return v; }))));
-        var voting_balances = list(voting_sets.map((voters) -> get_total_balance(state, voters)));
-        pyint winning_index_2;
-        if (greater(max(voting_balances), pyint.create(0L)).v()) {
-          var winning_index = voting_balances.index(max(voting_balances));
-          winning_index_2 = winning_index;
-        } else {
-          var winning_index_1 = list(candidates.map((c) -> c.getRoot())).index(new Root());
-          winning_index_2 = winning_index_1;
-        }
-        candidates.get(winning_index_2).setConfirmed(new beacon_java.ssz.SSZBoolean(pybool.create(true)));
       }
-    }
-    for (var slot_index: range(SLOTS_PER_EPOCH)) {
-      for (var shard_1: range(MAX_SHARDS)) {
-        state.getGrandparent_epoch_confirmed_commitments().get(shard_1).set(slot_index, new DataCommitment(DataCommitment.point_default, DataCommitment.length_default));
-      }
-    }
-    var confirmed_headers = list(state.getPrevious_epoch_pending_shard_headers().filter((candidate) -> candidate.getConfirmed()).map((candidate) -> candidate));
-    for (var header: confirmed_headers) {
-      state.getGrandparent_epoch_confirmed_commitments().get(header.getShard()).set(modulo(header.getSlot(), SLOTS_PER_EPOCH), header.getCommitment());
     }
   }
 
-  public static void charge_confirmed_header_fees(BeaconState state) {
+  public static void charge_confirmed_shard_fees(BeaconState state) {
     var new_gasprice = state.getShard_gasprice();
     var previous_epoch = get_previous_epoch(state);
-    var adjustment_quotient = multiply(multiply(get_active_shard_count(state, previous_epoch), SLOTS_PER_EPOCH), GASPRICE_ADJUSTMENT_COEFFICIENT);
     var previous_epoch_start_slot = compute_start_slot_at_epoch(previous_epoch);
+    var adjustment_quotient = multiply(multiply(get_active_shard_count(state, previous_epoch), SLOTS_PER_EPOCH), GASPRICE_ADJUSTMENT_COEFFICIENT);
     var new_gasprice_2 = new_gasprice;
-    for (var slot: range(previous_epoch_start_slot, plus(previous_epoch_start_slot, SLOTS_PER_EPOCH))) {
+    for (var slot : range(previous_epoch_start_slot, plus(previous_epoch_start_slot, SLOTS_PER_EPOCH))) {
+      var buffer_index = modulo(slot, SHARD_STATE_MEMORY_SLOTS);
       var new_gasprice_3 = new_gasprice_2;
-      for (var shard_index: range(get_active_shard_count(state, previous_epoch))) {
-        var shard = new Shard(shard_index);
-        var confirmed_candidates = list(state.getPrevious_epoch_pending_shard_headers().filter((c) -> eq(new Triple<>(c.getSlot(), c.getShard(), c.getConfirmed()), new Triple<>(slot, shard, pybool.create(true)))).map((c) -> c));
-        if (not(any(confirmed_candidates)).v()) {
+      for (var shard_index : range(len(state.getShard_buffer().get(buffer_index)))) {
+        var committee_work = state.getShard_buffer().get(buffer_index).get(shard_index);
+        if (eq(committee_work.getStatus().getSelector(), SHARD_WORK_CONFIRMED).v()) {
+          DataCommitment commitment = ((ShardWorkStatus_1) committee_work.getStatus()).getValue();
+          var proposer = get_shard_proposer_index(state, slot, new Shard(shard_index));
+          var fee = divide(multiply(state.getShard_gasprice(), commitment.getLength()), TARGET_SAMPLES_PER_BLOCK);
+          decrease_balance(state, proposer, fee);
+          var new_gasprice_1 = compute_updated_gasprice(new_gasprice_3, commitment.getLength(), adjustment_quotient);
+          new_gasprice_3 = new_gasprice_1;
+        } else {
           new_gasprice_3 = new_gasprice_3;
-          continue;
         }
-        var candidate = confirmed_candidates.get(pyint.create(0L));
-        var proposer = get_shard_proposer_index(state, slot, shard);
-        var fee = divide(multiply(state.getShard_gasprice(), candidate.getCommitment().getLength()), TARGET_SAMPLES_PER_BLOCK);
-        decrease_balance(state, proposer, fee);
-        var new_gasprice_1 = compute_updated_gasprice(new_gasprice_3, candidate.getCommitment().getLength(), adjustment_quotient);
-        new_gasprice_3 = new_gasprice_1;
       }
       new_gasprice_2 = new_gasprice_3;
     }
     state.setShard_gasprice(new_gasprice_2);
   }
 
-  public static void reset_pending_headers(BeaconState state) {
-    state.setPrevious_epoch_pending_shard_headers(state.getCurrent_epoch_pending_shard_headers());
-    state.setCurrent_epoch_pending_shard_headers(new SSZList<PendingShardHeader>());
+  public static void reset_pending_shard_work(BeaconState state) {
     var next_epoch = plus(get_current_epoch(state), pyint.create(1L));
     var next_epoch_start_slot = compute_start_slot_at_epoch(next_epoch);
     var committees_per_slot = get_committee_count_per_slot(state, next_epoch);
-    for (var slot: range(next_epoch_start_slot, plus(next_epoch_start_slot, SLOTS_PER_EPOCH))) {
-      for (var index: range(committees_per_slot)) {
-        var committee_index = new CommitteeIndex(index);
-        var shard = compute_shard_from_committee_index(state, slot, committee_index);
-        var committee_length = len(get_beacon_committee(state, slot, committee_index));
-        state.getCurrent_epoch_pending_shard_headers().append(new PendingShardHeader(slot, shard, new DataCommitment(DataCommitment.point_default, DataCommitment.length_default), new Root(), new SSZBitlist(multiply(PyList.of(pyint.create(0L)), committee_length)), new SSZBoolean(false)));
+    var active_shards = get_active_shard_count(state, next_epoch);
+    for (var slot : range(next_epoch_start_slot, plus(next_epoch_start_slot, SLOTS_PER_EPOCH))) {
+      var buffer_index = modulo(slot, SHARD_STATE_MEMORY_SLOTS);
+      state.getShard_buffer().set(buffer_index, new SSZList<ShardWork>(list(range(active_shards).map((_0) -> new ShardWork(ShardWork.status_default)))));
+      var start_shard = get_start_shard(state, slot);
+      for (var committee_index : range(committees_per_slot)) {
+        var shard = modulo(plus(start_shard, committee_index), active_shards);
+        var committee_length = len(get_beacon_committee(state, slot, new CommitteeIndex(committee_index)));
+        state.getShard_buffer().get(buffer_index).get(shard).setStatus(new ShardWorkStatus_2(SSZList.of(new PendingShardHeader(new DataCommitment(DataCommitment.point_default, DataCommitment.length_default), new Root(), new SSZBitlist(multiply(PyList.of(pyint.create(0L)), committee_length)), new Gwei(pyint.create(0L)), slot))));
       }
     }
   }

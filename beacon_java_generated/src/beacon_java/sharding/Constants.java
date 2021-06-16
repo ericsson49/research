@@ -35,4 +35,8 @@ public interface Constants {
   Gwei MIN_GASPRICE = new Gwei(pow(pyint.create(2L), pyint.create(3L)));
   DomainType DOMAIN_SHARD_PROPOSER = new DomainType("0x80000000");
   DomainType DOMAIN_SHARD_COMMITTEE = new DomainType("0x81000000");
+  pyint SHARD_WORK_UNCONFIRMED = pyint.create(0L);
+  pyint SHARD_WORK_CONFIRMED = pyint.create(1L);
+  pyint SHARD_WORK_PENDING = pyint.create(2L);
+  uint64 SHARD_STATE_MEMORY_SLOTS = new uint64(pow(pyint.create(2L), pyint.create(8L)));
 }

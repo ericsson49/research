@@ -9,6 +9,8 @@ public interface Sequence<E> extends Iterable<E> {
 
   Sequence<E> getSlice(pyint start, pyint upper);
 
+  Sequence<E> getSlice(pyint start, pyint upper, pyint step);
+
   void setSlice(pyint start, pyint upper, Sequence<E> v);
 
   <V> Sequence<V> map(Function<E, V> f);

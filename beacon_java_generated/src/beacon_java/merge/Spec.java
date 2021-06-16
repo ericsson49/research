@@ -5,6 +5,7 @@ import beacon_java.merge.data.BeaconState;
 import beacon_java.merge.data.ExecutionPayload;
 import beacon_java.merge.data.ExecutionPayloadHeader;
 import beacon_java.merge.data.PowBlock;
+import beacon_java.merge.data.TransitionStore;
 import beacon_java.phase0.data.*;
 import beacon_java.pylib.Pair;
 import beacon_java.pylib.PyList;
@@ -12,10 +13,14 @@ import beacon_java.pylib.Sequence;
 import beacon_java.pylib.Set;
 import beacon_java.pylib.pybool;
 import beacon_java.pylib.pyint;
+import beacon_java.ssz.Bytes20;
 import beacon_java.ssz.Bytes32;
 import beacon_java.ssz.SSZBitlist;
 import beacon_java.ssz.SSZBoolean;
+import beacon_java.ssz.SSZByteVector;
 import beacon_java.ssz.SSZList;
+import beacon_java.ssz.SSZVector;
+import beacon_java.ssz.uint256;
 import beacon_java.ssz.uint64;
 
 import static beacon_java.deps.BLS.bls;
@@ -68,12 +73,38 @@ public class Spec {
     state.setLatest_execution_payload_header(new ExecutionPayloadHeader(execution_payload.getBlock_hash(), execution_payload.getParent_hash(), execution_payload.getCoinbase(), execution_payload.getState_root(), execution_payload.getNumber(), execution_payload.getGas_limit(), execution_payload.getGas_used(), execution_payload.getTimestamp(), execution_payload.getReceipt_root(), execution_payload.getLogs_bloom(), hash_tree_root(execution_payload.getTransactions())));
   }
 
-  public static pybool is_valid_transition_block(PowBlock block) {
-    var is_total_difficulty_reached = greaterOrEqual(block.getTotal_difficulty(), TRANSITION_TOTAL_DIFFICULTY);
+  public static BeaconState initialize_beacon_state_from_eth1(Bytes32 eth1_block_hash, uint64 eth1_timestamp, Sequence<Deposit> deposits) {
+    var fork = new Fork(GENESIS_FORK_VERSION, MERGE_FORK_VERSION, GENESIS_EPOCH);
+    var state = new BeaconState(plus(eth1_timestamp, GENESIS_DELAY), beacon_java.phase0.data.BeaconState.genesis_validators_root_default, beacon_java.phase0.data.BeaconState.slot_default, fork, new BeaconBlockHeader(BeaconBlockHeader.slot_default, BeaconBlockHeader.proposer_index_default, BeaconBlockHeader.parent_root_default, BeaconBlockHeader.state_root_default, hash_tree_root(new BeaconBlockBody(BeaconBlockBody.execution_payload_default))), beacon_java.phase0.data.BeaconState.block_roots_default, beacon_java.phase0.data.BeaconState.state_roots_default, beacon_java.phase0.data.BeaconState.historical_roots_default, new Eth1Data(Eth1Data.deposit_root_default, new uint64(len(deposits)), new Hash32(eth1_block_hash)), beacon_java.phase0.data.BeaconState.eth1_data_votes_default, beacon_java.phase0.data.BeaconState.eth1_deposit_index_default, beacon_java.phase0.data.BeaconState.validators_default, beacon_java.phase0.data.BeaconState.balances_default, new SSZVector<>(multiply(PyList.of(eth1_block_hash), EPOCHS_PER_HISTORICAL_VECTOR)), beacon_java.phase0.data.BeaconState.slashings_default, beacon_java.phase0.data.BeaconState.previous_epoch_attestations_default, beacon_java.phase0.data.BeaconState.current_epoch_attestations_default, beacon_java.phase0.data.BeaconState.justification_bits_default, beacon_java.phase0.data.BeaconState.previous_justified_checkpoint_default, beacon_java.phase0.data.BeaconState.current_justified_checkpoint_default, beacon_java.phase0.data.BeaconState.finalized_checkpoint_default, BeaconState.latest_execution_payload_header_default);
+    var leaves = list(map((deposit) -> deposit.getData(), deposits));
+    for (var tmp_0: enumerate(deposits)) {
+    var index = tmp_0.first;
+    var deposit = tmp_0.second;
+      var deposit_data_list = new SSZList<DepositData>(leaves.getSlice(null, plus(index, pyint.create(1L))));
+      state.getEth1_data().setDeposit_root(hash_tree_root(deposit_data_list));
+      process_deposit(state, deposit);
+    }
+    for (var tmp_1: enumerate(state.getValidators())) {
+    var index_1 = tmp_1.first;
+    var validator = tmp_1.second;
+      var balance = state.getBalances().get(index_1);
+      validator.setEffective_balance(min(minus(balance, modulo(balance, EFFECTIVE_BALANCE_INCREMENT)), MAX_EFFECTIVE_BALANCE));
+      if (eq(validator.getEffective_balance(), MAX_EFFECTIVE_BALANCE).v()) {
+        validator.setActivation_eligibility_epoch(GENESIS_EPOCH);
+        validator.setActivation_epoch(GENESIS_EPOCH);
+      }
+    }
+    state.setGenesis_validators_root(hash_tree_root(state.getValidators()));
+    state.setLatest_execution_payload_header(new ExecutionPayloadHeader(new Hash32(eth1_block_hash), new Hash32(), new Bytes20(), new Bytes32(), new uint64(pyint.create(0L)), new uint64(pyint.create(0L)), new uint64(pyint.create(0L)), eth1_timestamp, new Bytes32(), new SSZByteVector(), new Root()));
+    return state;
+  }
+
+  public static pybool is_valid_terminal_pow_block(TransitionStore transition_store, PowBlock block) {
+    var is_total_difficulty_reached = greaterOrEqual(block.getTotal_difficulty(), transition_store.getTransition_total_difficulty());
     return and(block.getIs_valid(), is_total_difficulty_reached);
   }
 
-  public static void on_block(Store store, SignedBeaconBlock signed_block) {
+  public static void on_block(Store store, SignedBeaconBlock signed_block, TransitionStore transition_store) {
     var block = signed_block.getMessage();
     pyassert(contains(store.getBlock_states(), block.getParent_root()));
     var pre_state = copy((BeaconState) store.getBlock_states().get(block.getParent_root()));
@@ -81,10 +112,10 @@ public class Spec {
     var finalized_slot = compute_start_slot_at_epoch(store.getFinalized_checkpoint().getEpoch());
     pyassert(greater(block.getSlot(), finalized_slot));
     pyassert(eq(get_ancestor(store, block.getParent_root(), finalized_slot), store.getFinalized_checkpoint().getRoot()));
-    if (is_transition_block(pre_state, block).v()) {
+    if (transition_store != null && is_transition_block(pre_state, block).v()) {
       var pow_block = get_pow_block(((BeaconBlockBody)block.getBody()).getExecution_payload().getParent_hash());
       pyassert(pow_block.getIs_processed());
-      pyassert(is_valid_transition_block(pow_block));
+      pyassert(is_valid_terminal_pow_block(transition_store, pow_block));
     }
     var state = pre_state.copy();
     state_transition(state, signed_block, pybool.create(true));
@@ -114,10 +145,35 @@ public class Spec {
     }
   }
 
-  public static ExecutionPayload get_execution_payload(BeaconState state, ExecutionEngine execution_engine) {
+  public static BeaconState upgrade_to_merge(beacon_java.phase0.data.BeaconState pre) {
+    var epoch = beacon_java.phase0.Spec.get_current_epoch(pre);
+    var post = new BeaconState(pre.getGenesis_time(), pre.getGenesis_validators_root(), pre.getSlot(), new Fork(pre.getFork().getCurrent_version(), MERGE_FORK_VERSION, epoch), pre.getLatest_block_header(), pre.getBlock_roots(), pre.getState_roots(), pre.getHistorical_roots(), pre.getEth1_data(), pre.getEth1_data_votes(), pre.getEth1_deposit_index(), pre.getValidators(), pre.getBalances(), pre.getRandao_mixes(), pre.getSlashings(), pre.getPrevious_epoch_attestations(), pre.getCurrent_epoch_attestations(), pre.getJustification_bits(), pre.getPrevious_justified_checkpoint(), pre.getCurrent_justified_checkpoint(), pre.getFinalized_checkpoint(), new ExecutionPayloadHeader(ExecutionPayloadHeader.block_hash_default, ExecutionPayloadHeader.parent_hash_default, ExecutionPayloadHeader.coinbase_default, ExecutionPayloadHeader.state_root_default, ExecutionPayloadHeader.number_default, ExecutionPayloadHeader.gas_limit_default, ExecutionPayloadHeader.gas_used_default, ExecutionPayloadHeader.timestamp_default, ExecutionPayloadHeader.receipt_root_default, ExecutionPayloadHeader.logs_bloom_default, ExecutionPayloadHeader.transactions_root_default));
+    return post;
+  }
+
+  public static uint256 compute_transition_total_difficulty(PowBlock anchor_pow_block) {
+    var seconds_per_voting_period = multiply(multiply(EPOCHS_PER_ETH1_VOTING_PERIOD, SLOTS_PER_EPOCH), SECONDS_PER_SLOT);
+    var pow_blocks_per_voting_period = divide(seconds_per_voting_period, SECONDS_PER_ETH1_BLOCK);
+    var pow_blocks_to_merge = divide(TARGET_SECONDS_TO_MERGE, SECONDS_PER_ETH1_BLOCK);
+    var pow_blocks_after_anchor_block = plus(plus(ETH1_FOLLOW_DISTANCE, pow_blocks_per_voting_period), pow_blocks_to_merge);
+    var anchor_difficulty = max(MIN_ANCHOR_POW_BLOCK_DIFFICULTY, anchor_pow_block.getDifficulty());
+    return plus(anchor_pow_block.getTotal_difficulty(), multiply(anchor_difficulty, pow_blocks_after_anchor_block));
+  }
+
+  public static TransitionStore get_transition_store(PowBlock anchor_pow_block) {
+    var transition_total_difficulty = compute_transition_total_difficulty(anchor_pow_block);
+    return new TransitionStore(transition_total_difficulty);
+  }
+
+  public static TransitionStore initialize_transition_store(BeaconState state) {
+    var pow_block = get_pow_block(state.getEth1_data().getBlock_hash());
+    return get_transition_store(pow_block);
+  }
+
+  public static ExecutionPayload get_execution_payload(BeaconState state, TransitionStore transition_store, ExecutionEngine execution_engine) {
     if (not(is_transition_completed(state)).v()) {
       var pow_block = get_pow_chain_head();
-      if (not(is_valid_transition_block(pow_block)).v()) {
+      if (not(is_valid_terminal_pow_block(transition_store, pow_block)).v()) {
         return new ExecutionPayload(ExecutionPayload.block_hash_default, ExecutionPayload.parent_hash_default, ExecutionPayload.coinbase_default, ExecutionPayload.state_root_default, ExecutionPayload.number_default, ExecutionPayload.gas_limit_default, ExecutionPayload.gas_used_default, ExecutionPayload.timestamp_default, ExecutionPayload.receipt_root_default, ExecutionPayload.logs_bloom_default, ExecutionPayload.transactions_default);
       } else {
         var timestamp = compute_time_at_slot(state, state.getSlot());
@@ -178,7 +234,7 @@ public class Spec {
     return compute_epoch_at_slot(state.getSlot());
   }
 
-  /*`
+  /*  `
       Return the previous epoch (unless the current epoch is ``GENESIS_EPOCH``).
       */
   public static Epoch get_previous_epoch(BeaconState state) {
@@ -212,7 +268,7 @@ public class Spec {
       Return the sequence of active validator indices at ``epoch``.
       */
   public static Sequence<ValidatorIndex> get_active_validator_indices(BeaconState state, Epoch epoch) {
-    return list(enumerate(state.getValidators()).filter((tmp_0) -> { var i = tmp_0.first; var v = tmp_0.second; return is_active_validator(v, epoch); }).map((tmp_1) -> { var i = tmp_1.first; var v = tmp_1.second; return new ValidatorIndex(i); }));
+    return list(enumerate(state.getValidators()).filter((tmp_2) -> { var i = tmp_2.first; var v = tmp_2.second; return is_active_validator(v, epoch); }).map((tmp_3) -> { var i = tmp_3.first; var v = tmp_3.second; return new ValidatorIndex(i); }));
   }
 
   /*
@@ -296,7 +352,7 @@ public class Spec {
       */
   public static Set<ValidatorIndex> get_attesting_indices(BeaconState state, AttestationData data, SSZBitlist bits) {
     var committee = get_beacon_committee(state, data.getSlot(), data.getIndex());
-    return set(enumerate(committee).filter((tmp_2) -> { var i = tmp_2.first; var index = tmp_2.second; return bits.get(i); }).map((tmp_3) -> { var i = tmp_3.first; var index = tmp_3.second; return index; }));
+    return set(enumerate(committee).filter((tmp_4) -> { var i = tmp_4.first; var index = tmp_4.second; return bits.get(i); }).map((tmp_5) -> { var i = tmp_5.first; var index = tmp_5.second; return index; }));
   }
 
   /*
@@ -506,7 +562,7 @@ public class Spec {
 
   public static Sequence<ValidatorIndex> get_eligible_validator_indices(BeaconState state) {
     var previous_epoch = get_previous_epoch(state);
-    return list(enumerate(state.getValidators()).filter((tmp_4) -> { var index = tmp_4.first; var v = tmp_4.second; return or(is_active_validator(v, previous_epoch), and(v.getSlashed(), less(plus(previous_epoch, pyint.create(1L)), v.getWithdrawable_epoch()))); }).map((tmp_5) -> { var index = tmp_5.first; var v = tmp_5.second; return new ValidatorIndex(index); }));
+    return list(enumerate(state.getValidators()).filter((tmp_6) -> { var index = tmp_6.first; var v = tmp_6.second; return or(is_active_validator(v, previous_epoch), and(v.getSlashed(), less(plus(previous_epoch, pyint.create(1L)), v.getWithdrawable_epoch()))); }).map((tmp_7) -> { var index = tmp_7.first; var v = tmp_7.second; return new ValidatorIndex(index); }));
   }
 
   /*
@@ -599,21 +655,21 @@ public class Spec {
       Return attestation reward/penalty deltas for each validator.
       */
   public static Pair<Sequence<Gwei>,Sequence<Gwei>> get_attestation_deltas(BeaconState state) {
-    var tmp_6 = get_source_deltas(state);
-    var source_rewards = tmp_6.first;
-    var source_penalties = tmp_6.second;
-    var tmp_7 = get_target_deltas(state);
-    var target_rewards = tmp_7.first;
-    var target_penalties = tmp_7.second;
-    var tmp_8 = get_head_deltas(state);
-    var head_rewards = tmp_8.first;
-    var head_penalties = tmp_8.second;
-    var tmp_9 = get_inclusion_delay_deltas(state);
-    var inclusion_delay_rewards = tmp_9.first;
-    var __ = tmp_9.second;
-    var tmp_10 = get_inactivity_penalty_deltas(state);
-    var __1 = tmp_10.first;
-    var inactivity_penalties = tmp_10.second;
+    var tmp_8 = get_source_deltas(state);
+    var source_rewards = tmp_8.first;
+    var source_penalties = tmp_8.second;
+    var tmp_9 = get_target_deltas(state);
+    var target_rewards = tmp_9.first;
+    var target_penalties = tmp_9.second;
+    var tmp_10 = get_head_deltas(state);
+    var head_rewards = tmp_10.first;
+    var head_penalties = tmp_10.second;
+    var tmp_11 = get_inclusion_delay_deltas(state);
+    var inclusion_delay_rewards = tmp_11.first;
+    var __ = tmp_11.second;
+    var tmp_12 = get_inactivity_penalty_deltas(state);
+    var __1 = tmp_12.first;
+    var inactivity_penalties = tmp_12.second;
     var rewards = list(range(len(state.getValidators())).map((i) -> plus(plus(plus(source_rewards.get(i), target_rewards.get(i)), head_rewards.get(i)), inclusion_delay_rewards.get(i))));
     var penalties = list(range(len(state.getValidators())).map((i) -> plus(plus(plus(source_penalties.get(i), target_penalties.get(i)), head_penalties.get(i)), inactivity_penalties.get(i))));
     return new Pair<>(rewards, penalties);
@@ -623,9 +679,9 @@ public class Spec {
     if (eq(get_current_epoch(state), GENESIS_EPOCH).v()) {
       return;
     }
-    var tmp_11 = get_attestation_deltas(state);
-    var rewards = tmp_11.first;
-    var penalties = tmp_11.second;
+    var tmp_13 = get_attestation_deltas(state);
+    var rewards = tmp_13.first;
+    var penalties = tmp_13.second;
     for (var index: range(len(state.getValidators()))) {
       increase_balance(state, new ValidatorIndex(index), rewards.get(index));
       decrease_balance(state, new ValidatorIndex(index), penalties.get(index));
@@ -633,9 +689,9 @@ public class Spec {
   }
 
   public static void process_registry_updates(BeaconState state) {
-    for (var tmp_12: enumerate(state.getValidators())) {
-      var index = tmp_12.first;
-      var validator = tmp_12.second;
+    for (var tmp_14: enumerate(state.getValidators())) {
+    var index = tmp_14.first;
+    var validator = tmp_14.second;
       if (is_eligible_for_activation_queue(validator).v()) {
         validator.setActivation_eligibility_epoch(plus(get_current_epoch(state), pyint.create(1L)));
       }
@@ -643,7 +699,7 @@ public class Spec {
         initiate_validator_exit(state, new ValidatorIndex(index));
       }
     }
-    var activation_queue = sorted(list(enumerate(state.getValidators()).filter((tmp_13) -> { var index = tmp_13.first; var validator = tmp_13.second; return is_eligible_for_activation(state, validator); }).map((tmp_14) -> { var index = tmp_14.first; var validator = tmp_14.second; return index; })), (index) -> new Pair<>(state.getValidators().get(index).getActivation_eligibility_epoch(), index));
+    var activation_queue = sorted(list(enumerate(state.getValidators()).filter((tmp_15) -> { var index = tmp_15.first; var validator = tmp_15.second; return is_eligible_for_activation(state, validator); }).map((tmp_16) -> { var index = tmp_16.first; var validator = tmp_16.second; return index; })), (index) -> new Pair<>(state.getValidators().get(index).getActivation_eligibility_epoch(), index));
     for (var index_1: activation_queue.getSlice(null, get_validator_churn_limit(state))) {
       var validator_1 = state.getValidators().get(index_1);
       validator_1.setActivation_epoch(compute_activation_exit_epoch(get_current_epoch(state)));
@@ -654,9 +710,9 @@ public class Spec {
     var epoch = get_current_epoch(state);
     var total_balance = get_total_active_balance(state);
     var adjusted_total_slashing_balance = min(multiply(sum(state.getSlashings()), PROPORTIONAL_SLASHING_MULTIPLIER), total_balance);
-    for (var tmp_15: enumerate(state.getValidators())) {
-      var index = tmp_15.first;
-      var validator = tmp_15.second;
+    for (var tmp_17: enumerate(state.getValidators())) {
+    var index = tmp_17.first;
+    var validator = tmp_17.second;
       if (and(validator.getSlashed(), eq(plus(epoch, divide(EPOCHS_PER_SLASHINGS_VECTOR, pyint.create(2L))), validator.getWithdrawable_epoch())).v()) {
         var increment = EFFECTIVE_BALANCE_INCREMENT;
         var penalty_numerator = multiply(divide(validator.getEffective_balance(), increment), adjusted_total_slashing_balance);
@@ -674,9 +730,9 @@ public class Spec {
   }
 
   public static void process_effective_balance_updates(BeaconState state) {
-    for (var tmp_16: enumerate(state.getValidators())) {
-      var index = tmp_16.first;
-      var validator = tmp_16.second;
+    for (var tmp_18: enumerate(state.getValidators())) {
+    var index = tmp_18.first;
+    var validator = tmp_18.second;
       var balance = state.getBalances().get(index);
       var HYSTERESIS_INCREMENT = new uint64(divide(EFFECTIVE_BALANCE_INCREMENT, HYSTERESIS_QUOTIENT));
       var DOWNWARD_THRESHOLD = multiply(HYSTERESIS_INCREMENT, HYSTERESIS_DOWNWARD_MULTIPLIER);
@@ -890,4 +946,5 @@ public class Spec {
     }
     return pybool.create(true);
   }
+
 }

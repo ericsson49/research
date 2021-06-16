@@ -47,6 +47,7 @@ fun uint32(v: pyint): uint32 = v.value.toInt().toUInt()
 fun uint32(v: uint64): uint32 = v.toUInt()
 fun uint64(v: pyint): uint64 = v.value.toLong().toULong()
 fun uint64(v: ULong): uint64 = v
+fun uint8(): uint8 = uint8(0uL)
 fun uint256(): uint256 = pyint(0uL)
 fun Bytes4(): Bytes4 = TuweniBytes.fromHexString("0x00000000")
 fun Bytes20(): Bytes20 = TuweniBytes.fromHexString("0x0000000000000000000000000000000000000000")

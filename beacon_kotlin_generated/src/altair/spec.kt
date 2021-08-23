@@ -56,7 +56,7 @@ fun get_next_sync_committee_indices(state: BeaconState): Sequence<ValidatorIndex
 fun get_next_sync_committee(state: BeaconState): SyncCommittee {
   val indices = get_next_sync_committee_indices(state)
   val pubkeys = list(indices.map { index -> state.validators[index].pubkey })
-  val aggregate_pubkey = eth2_aggregate_pubkeys(pubkeys)
+  val aggregate_pubkey = eth_aggregate_pubkeys(pubkeys)
   return SyncCommittee(pubkeys = pubkeys, aggregate_pubkey = aggregate_pubkey)
 }
 
@@ -265,7 +265,7 @@ fun process_sync_aggregate(state: BeaconState, sync_aggregate: SyncAggregate) {
   val previous_slot = max(state.slot, Slot(1uL)) - Slot(1uL)
   val domain = get_domain(state, DOMAIN_SYNC_COMMITTEE, compute_epoch_at_slot(previous_slot))
   val signing_root = compute_signing_root(get_block_root_at_slot(state, previous_slot), domain)
-  assert(eth2_fast_aggregate_verify(participant_pubkeys, signing_root, sync_aggregate.sync_committee_signature))
+  assert(eth_fast_aggregate_verify(participant_pubkeys, signing_root, sync_aggregate.sync_committee_signature))
   val total_active_increments = get_total_active_balance(state) / EFFECTIVE_BALANCE_INCREMENT
   val total_base_rewards = Gwei(get_base_reward_per_increment(state) * total_active_increments)
   val max_participant_rewards = Gwei(total_base_rewards * SYNC_REWARD_WEIGHT / WEIGHT_DENOMINATOR / SLOTS_PER_EPOCH)
@@ -398,8 +398,9 @@ fun initialize_beacon_state_from_eth1(eth1_block_hash: Bytes32, eth1_timestamp: 
     This implementation is for demonstrative purposes only and ignores encoding/decoding concerns.
     Refer to the BLS signature draft standard for more information.
     */
-fun eth2_aggregate_pubkeys(pubkeys: Sequence<BLSPubkey>): BLSPubkey {
+fun eth_aggregate_pubkeys(pubkeys: Sequence<BLSPubkey>): BLSPubkey {
   assert(len(pubkeys) > 0uL)
+  assert(all(pubkeys.map { pubkey -> bls.KeyValidate(pubkey) }))
   var result = copy(pubkeys[0uL])
   for (pubkey in pubkeys[1uL until len(pubkeys)]) {
     result = bls_plus(result, pubkey)
@@ -410,7 +411,7 @@ fun eth2_aggregate_pubkeys(pubkeys: Sequence<BLSPubkey>): BLSPubkey {
 /*
     Wrapper to ``bls.FastAggregateVerify`` accepting the ``G2_POINT_AT_INFINITY`` signature when ``pubkeys`` is empty.
     */
-fun eth2_fast_aggregate_verify(pubkeys: Sequence<BLSPubkey>, message: Bytes32, signature: BLSSignature): pybool {
+fun eth_fast_aggregate_verify(pubkeys: Sequence<BLSPubkey>, message: Bytes32, signature: BLSSignature): pybool {
   if ((len(pubkeys) == 0uL) && (signature == G2_POINT_AT_INFINITY)) {
     return true
   }

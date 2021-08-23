@@ -53,6 +53,7 @@ fun Bytes4(): Bytes4 = TuweniBytes.fromHexString("0x00000000")
 fun Bytes20(): Bytes20 = TuweniBytes.fromHexString("0x0000000000000000000000000000000000000000")
 fun Bytes32(): Bytes32 = Bytes32.ZERO
 fun Bytes32(x: List<Byte>): Bytes32 = Bytes32.wrap(x.toByteArray())
+fun Bytes32(s: String): Bytes32 = Bytes32.fromHexString(s)
 fun Bytes48(): Bytes48 = Bytes48.ZERO
 fun Bytes96(): Bytes96 = TuweniBytes.concatenate(Bytes48.ZERO, Bytes48.ZERO)
 

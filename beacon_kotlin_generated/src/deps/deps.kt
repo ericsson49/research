@@ -1,6 +1,7 @@
 package deps
 
 import phase0.AggregateAndProof
+import phase0.BLSPubkey
 import phase0.BeaconState
 import pylib.pyint
 import sharding.BLSCommitment
@@ -52,4 +53,6 @@ object bls {
   }
 
   fun Pairing(a: BLSCommitment, b: Any): Any = TODO()
+
+  fun KeyValidate(k: BLSPubkey): Boolean = TODO()
 }

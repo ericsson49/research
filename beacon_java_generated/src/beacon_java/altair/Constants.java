@@ -33,7 +33,7 @@ public interface Constants {
   DomainType DOMAIN_CONTRIBUTION_AND_PROOF = new DomainType("0x09000000");
   Version ALTAIR_FORK_VERSION = new Version("0x01000000");
   Epoch ALTAIR_FORK_EPOCH = new Epoch(pyint.create("18446744073709551615"));
-  pyint TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE = pow(pyint.create(2L), pyint.create(2L));
+  pyint TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE = pow(pyint.create(2L), pyint.create(4L));
   pyint SYNC_COMMITTEE_SUBNET_COUNT = pyint.create(4L);
   pyint MIN_SYNC_COMMITTEE_PARTICIPANTS = pyint.create(1L);
   GeneralizedIndex FINALIZED_ROOT_INDEX = get_generalized_index(BeaconState.class, "finalized_checkpoint", "root");

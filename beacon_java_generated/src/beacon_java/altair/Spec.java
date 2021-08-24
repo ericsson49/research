@@ -67,7 +67,7 @@ public class Spec {
   public static SyncCommittee get_next_sync_committee(BeaconState state) {
     var indices = get_next_sync_committee_indices(state);
     var pubkeys = list(indices.map((index) -> state.getValidators().get(index).getPubkey()));
-    var aggregate_pubkey = eth2_aggregate_pubkeys(pubkeys);
+    var aggregate_pubkey = eth_aggregate_pubkeys(pubkeys);
     return new SyncCommittee(new SSZVector<>(pubkeys), aggregate_pubkey);
   }
 
@@ -278,7 +278,7 @@ public class Spec {
     var previous_slot = minus(max(state.getSlot(), new Slot(pyint.create(1L))), new Slot(pyint.create(1L)));
     var domain = get_domain(state, DOMAIN_SYNC_COMMITTEE, compute_epoch_at_slot(previous_slot));
     var signing_root = compute_signing_root(get_block_root_at_slot(state, previous_slot), domain);
-    pyassert(eth2_fast_aggregate_verify(participant_pubkeys, signing_root, sync_aggregate.getSync_committee_signature()));
+    pyassert(eth_fast_aggregate_verify(participant_pubkeys, signing_root, sync_aggregate.getSync_committee_signature()));
     var total_active_increments = divide(get_total_active_balance(state), EFFECTIVE_BALANCE_INCREMENT);
     var total_base_rewards = new Gwei(multiply(get_base_reward_per_increment(state), total_active_increments));
     var max_participant_rewards = new Gwei(divide(divide(multiply(total_base_rewards, SYNC_REWARD_WEIGHT), WEIGHT_DENOMINATOR), SLOTS_PER_EPOCH));
@@ -421,8 +421,9 @@ public class Spec {
       This implementation is for demonstrative purposes only and ignores encoding/decoding concerns.
       Refer to the BLS signature draft standard for more information.
       */
-  public static BLSPubkey eth2_aggregate_pubkeys(Sequence<BLSPubkey> pubkeys) {
+  public static BLSPubkey eth_aggregate_pubkeys(Sequence<BLSPubkey> pubkeys) {
     pyassert(greater(len(pubkeys), pyint.create(0L)));
+    pyassert(all(pubkeys.map((pubkey) -> bls.KeyValidate(pubkey))));
     var result = copy(pubkeys.get(pyint.create(0L)));
     var result_2 = result;
     for (var pubkey: pubkeys.getSlice(pyint.create(1L), null)) {
@@ -435,7 +436,7 @@ public class Spec {
   /*
       Wrapper to ``bls.FastAggregateVerify`` accepting the ``G2_POINT_AT_INFINITY`` signature when ``pubkeys`` is empty.
       */
-  public static pybool eth2_fast_aggregate_verify(Sequence<BLSPubkey> pubkeys, Bytes32 message, BLSSignature signature) {
+  public static pybool eth_fast_aggregate_verify(Sequence<BLSPubkey> pubkeys, Bytes32 message, BLSSignature signature) {
     if (and(eq(len(pubkeys), pyint.create(0L)), eq(signature, G2_POINT_AT_INFINITY)).v()) {
       return pybool.create(true);
     }

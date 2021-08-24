@@ -53,6 +53,9 @@ public interface BLS {
 
     @Override
     public Object Pairing(Bytes48 p1, Sequence<FQ2> p2) { return TODO(Object.class); }
+
+    @Override
+    public pybool KeyValidate(Bytes48 pubkey) { return TODO(pybool.class); }
   };
 
   <T extends Bytes96> T Sign(pyint privkey_0, Bytes32 signing_root_0);
@@ -70,4 +73,6 @@ public interface BLS {
   Triple<FQ2, FQ2, FQ2> signature_to_G2(Bytes96 key_0);
 
   Object Pairing(Bytes48 p1, Sequence<FQ2> p2);
+
+  pybool KeyValidate(Bytes48 pubkey);
 }

@@ -2,15 +2,83 @@ package beacon_java.merge.data;
 
 import lombok.*;
 import beacon_java.pylib.*;
+import beacon_java.phase0.data.BeaconBlockHeader;
+import beacon_java.ssz.SSZBitvector;
+import beacon_java.ssz.Bytes32;
+import beacon_java.phase0.data.Checkpoint;
+import beacon_java.ssz.Container;
+import static beacon_java.phase0.Constants.EPOCHS_PER_ETH1_VOTING_PERIOD;
+import static beacon_java.phase0.Constants.EPOCHS_PER_HISTORICAL_VECTOR;
+import static beacon_java.phase0.Constants.EPOCHS_PER_SLASHINGS_VECTOR;
+import beacon_java.phase0.data.Eth1Data;
 import beacon_java.merge.data.ExecutionPayloadHeader;
+import beacon_java.phase0.data.Fork;
+import beacon_java.phase0.data.Gwei;
+import static beacon_java.phase0.Constants.HISTORICAL_ROOTS_LIMIT;
+import static beacon_java.phase0.Constants.JUSTIFICATION_BITS_LENGTH;
+import beacon_java.ssz.SSZList;
+import beacon_java.altair.data.ParticipationFlags;
+import beacon_java.phase0.data.Root;
+import static beacon_java.phase0.Constants.SLOTS_PER_EPOCH;
+import static beacon_java.phase0.Constants.SLOTS_PER_HISTORICAL_ROOT;
+import beacon_java.phase0.data.Slot;
+import beacon_java.altair.data.SyncCommittee;
+import static beacon_java.phase0.Constants.VALIDATOR_REGISTRY_LIMIT;
+import beacon_java.phase0.data.Validator;
+import beacon_java.ssz.SSZVector;
+import beacon_java.ssz.uint64;
 
 @Data @NoArgsConstructor @AllArgsConstructor
-public class BeaconState extends beacon_java.phase0.data.BeaconState {
+public class BeaconState extends Container {
+  public static uint64 genesis_time_default = uint64.ZERO;
+  public static Root genesis_validators_root_default = new Root();
+  public static Slot slot_default = new Slot();
+  public static Fork fork_default = new Fork();
+  public static BeaconBlockHeader latest_block_header_default = new BeaconBlockHeader();
+  public static SSZVector<Root> block_roots_default = new SSZVector<Root>();
+  public static SSZVector<Root> state_roots_default = new SSZVector<Root>();
+  public static SSZList<Root> historical_roots_default = new SSZList<Root>();
+  public static Eth1Data eth1_data_default = new Eth1Data();
+  public static SSZList<Eth1Data> eth1_data_votes_default = new SSZList<Eth1Data>();
+  public static uint64 eth1_deposit_index_default = uint64.ZERO;
+  public static SSZList<Validator> validators_default = new SSZList<Validator>();
+  public static SSZList<Gwei> balances_default = new SSZList<Gwei>();
+  public static SSZVector<Bytes32> randao_mixes_default = new SSZVector<Bytes32>();
+  public static SSZVector<Gwei> slashings_default = new SSZVector<Gwei>();
+  public static SSZList<ParticipationFlags> previous_epoch_participation_default = new SSZList<ParticipationFlags>();
+  public static SSZList<ParticipationFlags> current_epoch_participation_default = new SSZList<ParticipationFlags>();
+  public static SSZBitvector justification_bits_default = new SSZBitvector();
+  public static Checkpoint previous_justified_checkpoint_default = new Checkpoint();
+  public static Checkpoint current_justified_checkpoint_default = new Checkpoint();
+  public static Checkpoint finalized_checkpoint_default = new Checkpoint();
+  public static SSZList<uint64> inactivity_scores_default = new SSZList<uint64>();
+  public static SyncCommittee current_sync_committee_default = new SyncCommittee();
+  public static SyncCommittee next_sync_committee_default = new SyncCommittee();
   public static ExecutionPayloadHeader latest_execution_payload_header_default = new ExecutionPayloadHeader();
+  public uint64 genesis_time = genesis_time_default;
+  public Root genesis_validators_root = genesis_validators_root_default;
+  public Slot slot = slot_default;
+  public Fork fork = fork_default;
+  public BeaconBlockHeader latest_block_header = latest_block_header_default;
+  public SSZVector<Root> block_roots = block_roots_default;
+  public SSZVector<Root> state_roots = state_roots_default;
+  public SSZList<Root> historical_roots = historical_roots_default;
+  public Eth1Data eth1_data = eth1_data_default;
+  public SSZList<Eth1Data> eth1_data_votes = eth1_data_votes_default;
+  public uint64 eth1_deposit_index = eth1_deposit_index_default;
+  public SSZList<Validator> validators = validators_default;
+  public SSZList<Gwei> balances = balances_default;
+  public SSZVector<Bytes32> randao_mixes = randao_mixes_default;
+  public SSZVector<Gwei> slashings = slashings_default;
+  public SSZList<ParticipationFlags> previous_epoch_participation = previous_epoch_participation_default;
+  public SSZList<ParticipationFlags> current_epoch_participation = current_epoch_participation_default;
+  public SSZBitvector justification_bits = justification_bits_default;
+  public Checkpoint previous_justified_checkpoint = previous_justified_checkpoint_default;
+  public Checkpoint current_justified_checkpoint = current_justified_checkpoint_default;
+  public Checkpoint finalized_checkpoint = finalized_checkpoint_default;
+  public SSZList<uint64> inactivity_scores = inactivity_scores_default;
+  public SyncCommittee current_sync_committee = current_sync_committee_default;
+  public SyncCommittee next_sync_committee = next_sync_committee_default;
   public ExecutionPayloadHeader latest_execution_payload_header = latest_execution_payload_header_default;
   public BeaconState copy() { return this; }
-  public BeaconState(beacon_java.ssz.uint64 genesis_time, beacon_java.phase0.data.Root genesis_validators_root, beacon_java.phase0.data.Slot slot, beacon_java.phase0.data.Fork fork, beacon_java.phase0.data.BeaconBlockHeader latest_block_header, beacon_java.ssz.SSZVector<beacon_java.phase0.data.Root> block_roots, beacon_java.ssz.SSZVector<beacon_java.phase0.data.Root> state_roots, beacon_java.ssz.SSZList<beacon_java.phase0.data.Root> historical_roots, beacon_java.phase0.data.Eth1Data eth1_data, beacon_java.ssz.SSZList<beacon_java.phase0.data.Eth1Data> eth1_data_votes, beacon_java.ssz.uint64 eth1_deposit_index, beacon_java.ssz.SSZList<beacon_java.phase0.data.Validator> validators, beacon_java.ssz.SSZList<beacon_java.phase0.data.Gwei> balances, beacon_java.ssz.SSZVector<beacon_java.ssz.Bytes32> randao_mixes, beacon_java.ssz.SSZVector<beacon_java.phase0.data.Gwei> slashings, beacon_java.ssz.SSZList<beacon_java.phase0.data.PendingAttestation> previous_epoch_attestations, beacon_java.ssz.SSZList<beacon_java.phase0.data.PendingAttestation> current_epoch_attestations, beacon_java.ssz.SSZBitvector justification_bits, beacon_java.phase0.data.Checkpoint previous_justified_checkpoint, beacon_java.phase0.data.Checkpoint current_justified_checkpoint, beacon_java.phase0.data.Checkpoint finalized_checkpoint, ExecutionPayloadHeader latest_execution_payload_header) {
-    super(genesis_time, genesis_validators_root, slot, fork, latest_block_header, block_roots, state_roots, historical_roots, eth1_data, eth1_data_votes, eth1_deposit_index, validators, balances, randao_mixes, slashings, previous_epoch_attestations, current_epoch_attestations, justification_bits, previous_justified_checkpoint, current_justified_checkpoint, finalized_checkpoint);
-    this.latest_execution_payload_header = latest_execution_payload_header;
-  }
 }

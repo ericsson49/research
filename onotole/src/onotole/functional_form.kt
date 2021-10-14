@@ -47,7 +47,7 @@ fun extractMethod(
 
   val methNodes = listOf(entry).plus(method).plus(methExit)
   val methProlog = BasicBlock(
-      before.mapIndexed { i, v -> StmtInstr(VarLVal(v, typing[v]!!), mkCall("<Parameter>", listOf(Num(i)))) },
+      before.mapIndexed { i, v -> StmtInstr(VarLVal(v, typing[v]!!.toTExpr()), mkCall("<Parameter>", listOf(Num(i)))) },
       Branch(null, listOf(methEntry)))
   val methRet = BasicBlock(listOf(StmtInstr(VarLVal("<return>"), Tuple(after.map { mkName(it) }, ExprContext.Load))), Branch(null, emptyList()))
   val methBlocks = methNodes.map { l ->

@@ -241,7 +241,7 @@ class KotlinGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, im
       return attrs.plus(ti.baseType?.let { getBaseFields(it as NamedType) } ?: emptyList())
     }
 
-    val baseFields = getBaseFields(parseType(base) as NamedType)
+    val baseFields = getBaseFields(parseType(exprTypes, base) as NamedType)
     val baseStrFields = baseFields
         .map {
           val fTyp = typeToStr(it.second)

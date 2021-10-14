@@ -532,10 +532,10 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
     }
 
     _analyses = inferenceVarTypes(f)
-    _returnType = parseType(f.returns!!)
+    _exprTypes = TypeResolver.topLevelTyper
+    _returnType = parseType(exprTypes, f.returns!!)
     _varInfo = varSlotAnalysis(f)
 
-    _exprTypes = TypeResolver.topLevelTyper
     val defautls = List(f.args.args.size - f.args.defaults.size) { null }.plus(f.args.defaults.map { render(genExpr(it, exprTypes)) })
     val args = f.args.args.zip(defautls)
     val typ = genNativeType(f.returns!!)
@@ -555,10 +555,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
 
   fun genNativeType(t: TExpr): String {
     return when (t) {
-      is Name -> typeToStr(parseType(t))
-      is Subscript -> typeToStr(parseType(t))
-      is NameConstant -> typeToStr(parseType(t))
-      is Attribute -> typeToStr(parseType(t))
+      is NameConstant, is Name, is Subscript, is Attribute -> typeToStr(parseType(exprTypes, t))
       else -> fail("not supported $t")
     }
   }

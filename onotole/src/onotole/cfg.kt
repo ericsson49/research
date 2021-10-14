@@ -41,7 +41,7 @@ class StmtToNode {
   fun mkBranch(v: String, bodyL: CPoint, orelse: CPoint): CPoint {
     return addInstr(newPoint(), BranchInstr(v, orelse), bodyL)
   }
-  fun mkAssgnInstr(v: String, e: TExpr, t: RTType?, next: CPoint): CPoint {
+  fun mkAssgnInstr(v: String, e: TExpr, t: TExpr?, next: CPoint): CPoint {
     return addInstr(newPoint(), StmtInstr(VarLVal(v, t), e), next)
   }
   fun mkExprInstr(e: TExpr, next: CPoint): CPoint {
@@ -115,7 +115,7 @@ class StmtToNode {
     is AnnAssign -> if (s.value == null)
       TODO()
     else
-      mkAssgnInstr((s.target as Name).id, s.value, parseType(s.annotation), next)
+      mkAssgnInstr((s.target as Name).id, s.value, s.annotation, next)
     is AugAssign -> convert(mkAssign(s.target, BinOp(s.target, s.op, s.value)), next, ret, loops)
     is Expr -> mkExprInstr(s.value, next)
 
@@ -264,7 +264,7 @@ sealed class LVal {
   open val rNames: Set<String> = emptySet()
 }
 object EmptyLVal: LVal()
-class VarLVal(val v: String, val t: RTType? = null): LVal() {
+class VarLVal(val v: String, val t: TExpr? = null): LVal() {
   override val lNames = setOf(v)
   override fun toString() = v
 }

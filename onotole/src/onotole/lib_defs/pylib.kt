@@ -50,7 +50,7 @@ object PyLib {
     }
     TypeResolver.register(MetaClassTInfo("Tuple", null, 0, emptyList()) { tParams ->
       val elemType = if (tParams.isNotEmpty()) getCommonSuperType(tParams)
-      else parseType("ValidatorIndex")
+      else parseType(TypeResolver.topLevelTyper, "ValidatorIndex")
       TPySequence(elemType)
     })
     classDef("MutableSequence", "Sequence", nTParms = 1, baseParams = listOf(TVIndex(0))) {
@@ -103,7 +103,7 @@ object PyLib {
         "bytes:join" to PyLib::bytesJoinResolver,
         "pow" to PyLib::powResolver,
         "hash" to mkSimpleResolver { NamedType("ssz.Bytes32") },
-        "hash_tree_root" to mkSimpleResolver { parseType("Root") },
+        "hash_tree_root" to mkSimpleResolver { parseType(TypeResolver.topLevelTyper, "Root") },
     )
     val resolvers2 = listOf(
         "max" to PyLib::maxMinResolver,
@@ -251,7 +251,7 @@ object PyLib {
       TPySet(getIterableElemType(argTypes[0]))
     } else if (argTypes.size == 0) {
       // dirty hack
-      TPySet(parseType("ValidatorIndex"))
+      TPySet(parseType(TypeResolver.topLevelTyper, "ValidatorIndex"))
     } else {
       fail("unsupported")
     }

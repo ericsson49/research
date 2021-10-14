@@ -58,7 +58,9 @@ fun TPyMutableSequence(t: RTType) = NamedType("MutableSequence", listOf(t))
 
 fun RTType.toTExpr(): TExpr = when(this) {
   is NamedType -> {
-    if (this.tParams.isEmpty()) {
+    if (this == TPyNone) {
+      NameConstant(null)
+    } else if (this.tParams.isEmpty()) {
       mkName(this.name)
     } else {
       val t = mkName(this.name)
@@ -199,7 +201,5 @@ open class FuncRefTI(override val type: FuncRef): TypeInfo() {
   constructor(name: String): this(NamedFuncRef(name))
   constructor(fullFunc: NamedFuncRef, params: List<RTType>): this(PartiallyAppliedFuncRef(fullFunc, params))
 }
-
-fun _getExprType(e: TExpr) = TypeResolver.topLevelTyper[e]
 
 class AnonymousFunTI(override val type: FunType): TypeInfo()

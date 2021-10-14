@@ -230,7 +230,7 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
   }
 
   override fun genValueClass(name: String, base: TExpr) {
-    val baseType = parseType(base)
+    val baseType = parseType(exprTypes, base)
     val baseName = typeToStr(baseType)
     println("type $name = $baseName")
     println("function method ${name}_(x: $baseName): $name { x }")

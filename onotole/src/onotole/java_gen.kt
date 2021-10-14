@@ -340,7 +340,7 @@ class JavaGen(val packageName: String, val rootPath: String, currPkg: String, im
       return (ti.baseType?.let { getBaseFields(it as NamedType) } ?: emptyList()).plus(attrs)
     }
 
-    val baseFields = getBaseFields(parseType(base) as NamedType)
+    val baseFields = getBaseFields(parseType(exprTypes, base) as NamedType)
     val baseStrFields = baseFields.map { typeToStr(it.second) + " " + it.first }
 
     if (baseStrFields.isNotEmpty()) {

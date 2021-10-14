@@ -14,6 +14,7 @@ import com.github.h0tk3y.betterParse.grammar.parser
 import com.github.h0tk3y.betterParse.parser.Parser
 import onotole.lib_defs.Additional
 import onotole.lib_defs.BLS
+import onotole.lib_defs.FunDecl
 import onotole.lib_defs.PyLib
 import onotole.lib_defs.SSZLib
 import org.antlr.v4.runtime.CharStreams
@@ -474,12 +475,14 @@ fun loadTopLevelDefs(phase: String, defs: List<TopLevelDef>): List<TopLevelDef> 
     TypeResolver.importFromPackage(it)
   }
 
+  val typer = TypeResolver.topLevelTyper
   defs.forEach { d ->
     val processor: () -> Unit = {
       when (d) {
         is ConstTLDef -> processTopLevel(phase, d.const)
-        is ClassTLDef -> processClass(phase, d.clazz)
-        is FuncTLDef -> TypeResolver.registerFunc(d.func.copy(name = phase + "." + d.func.name))
+        is ClassTLDef -> processClass(typer, phase, d.clazz)
+        is FuncTLDef -> TypeResolver.registerFunc(FunDecl(
+            phase + "." + d.func.name, getFArgs(typer, d.func), parseType(typer, d.func.returns!!)))
       }
     }
     TypeResolver.registerDelayed(phase + "." + d.name, processor)
@@ -572,7 +575,7 @@ fun genCodeFromDef(gen: BaseGen, mod: ModuleRef, d: TopLevelDef) {
   }
 }
 
-private fun processClass(pkgName: String, c: ClassDef) {
+private fun processClass(typer: ExprTypes, pkgName: String, c: ClassDef) {
   val clsName = pkgName + "." + c.name
   if (clsName in TypeResolver.nameToType)
     return
@@ -583,7 +586,7 @@ private fun processClass(pkgName: String, c: ClassDef) {
     else {
       val retTyp = NamedType(clsName)
 
-      val argType = parseType(c.bases[0])
+      val argType = parseType(typer, c.bases[0])
       val args = listOf(FArg("value", argType))
       TypeResolver.registerFunc(clsName, args, retTyp)
       TypeResolver.registerFunc(clsName, emptyList(), retTyp)
@@ -599,13 +602,13 @@ private fun processClass(pkgName: String, c: ClassDef) {
     }
   } else {
     if (c.bases.size > 1) fail(clsName)
-    val baseType = if (c.bases.isEmpty()) TPyObject else parseType(c.bases[0])
+    val baseType = if (c.bases.isEmpty()) TPyObject else parseType(typer, c.bases[0])
 
     val retTyp = NamedType(clsName)
     val fTypes = c.body.map {
       val annAssign = it as AnnAssign
       val fName = (annAssign.target as Name).id
-      val fTyp = parseType(annAssign.annotation)
+      val fTyp = parseType(typer, annAssign.annotation)
       fName to fTyp
     }
     val copyFuncName = "${clsName}_copy"

@@ -1,6 +1,7 @@
 package onotole
 
 
+/*
 class ExpectedTypeCalc(val retType: RTType): ExprVisitor<MutableMap<TExpr,RTType>>() {
   override fun visitStmt(s: Stmt, ctx: MutableMap<TExpr, RTType>) {
     when(s) {
@@ -37,4 +38,4 @@ class ExpectedTypeCalc(val retType: RTType): ExprVisitor<MutableMap<TExpr,RTType
     }
   }
 
-}
+}*/

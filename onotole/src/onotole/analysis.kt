@@ -159,10 +159,6 @@ object TypeResolver {
     packages[name] = attrs
   }
 
-  fun registerFunc(f: FunctionDef) {
-    registerFunc(f.name, getFArgs(f), parseType(f.returns!!))
-  }
-
   fun registerFunc(fd: FunDecl) {
     registerFunc(fd.name, fd.args, fd.retType)
   }
@@ -493,12 +489,12 @@ fun MetaClass.instantiate(tps: List<Sort>): TypeInfo {
   return DataTInfo(ti.name, tParams, baseType = ti.baseClassF(tParams), attrs = ti._attrs)
 }
 
-fun parseType(t: String): RTType = parseType(Name(t, ExprContext.Load))
-fun parseType(t: TExpr): RTType {
+fun parseType(typer: ExprTypes, t: String): RTType = parseType(typer, Name(t, ExprContext.Load))
+fun parseType(typer: ExprTypes, t: TExpr): RTType {
   return if (t == NameConstant(null))
     TPyNone
   else {
-    val res = TypeResolver.topLevelTyper[t]
+    val res = typer[t]
     if (res is Clazz) {
       res.toInstance()
     } else if (res is MetaClass) {
@@ -508,10 +504,10 @@ fun parseType(t: TExpr): RTType {
   }
 }
 
-fun getFArg(a: Arg, default: TExpr?) = FArg(a.arg, parseType(a.annotation!!), default)
+fun getFArg(typer: ExprTypes, a: Arg, default: TExpr?) = FArg(a.arg, parseType(typer, a.annotation!!), default)
 
-fun getFArgs(f: FunctionDef): List<FArg> {
-  return getFunArgs(f).map { getFArg(it.first, it.second) }
+fun getFArgs(typer: ExprTypes, f: FunctionDef): List<FArg> {
+  return getFunArgs(f).map { getFArg(typer, it.first, it.second) }
 }
 
 fun getFunArgs(f: FunctionDef): List<Pair<Arg, TExpr?>> {
@@ -622,7 +618,7 @@ class ExprTypes(val ctx: NameResolver<Sort>, val cache: IdentityHashMap<TExpr, S
               unknownArgTypes++
               TypeVar(tName)
             }
-          } else parseType(it.annotation)
+          } else parseType(this, it.annotation)
         }
 
         if (unknownArgTypes == 0) {
@@ -699,7 +695,7 @@ data class Analyses(
     val funcArgs: List<FArg>)
 
 fun inferenceVarTypes(f: FunctionDef): Analyses {
-  val args = getFArgs(f)
+  val args = getFArgs(TypeResolver.topLevelTyper, f)
   val stmts = f.body.filterIndexed { i, s -> !(i == 0 && s is Expr && s.value is Str) }
   val globalCtx = TypeResolver.topLevelResolver.copy(args.map { it.name to it.type }.toMap())
 
@@ -780,7 +776,7 @@ fun inferenceVarTypes(f: FunctionDef): Analyses {
         Pair(varTyping, procAssgnTarget(exprTypes, s.target, s))
       }
       is AnnAssign -> {
-        val newCtx = varTyping.copy(gatherUpdates(varTyping, s.target, parseType(s.annotation)))
+        val newCtx = varTyping.copy(gatherUpdates(varTyping, s.target, parseType(exprTypes, s.annotation)))
         Pair(newCtx, procAssgnTarget(exprTypes.new(newCtx), s.target, s))
       }
       is If -> {

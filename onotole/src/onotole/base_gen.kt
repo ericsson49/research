@@ -532,7 +532,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
     }
 
     _exprTypes = TypeResolver.topLevelTyper
-    _analyses = inferenceVarTypes(exprTypes, f)
+    _analyses = inferVarTypes(exprTypes, f)
     _returnType = parseType(exprTypes, f.returns!!)
     _varInfo = varSlotAnalysis(f)
 

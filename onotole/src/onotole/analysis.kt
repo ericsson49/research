@@ -684,9 +684,6 @@ fun <S,A,B> foldWithState(initial: S, events: Iterable<A>, transition: (S,A)->Pa
 }
 
 
-
-data class Tuple4<A,B,C,D>(val first: A, val second: B, val third: C, val fourth: D)
-
 typealias SST = Pair<String, RTType>
 typealias CTX = Map<String,Sort>
 
@@ -695,7 +692,7 @@ data class Analyses(
     val varTypingsAfter: StmtAnnoMap<NameResolver<Sort>>,
     val funcArgs: List<FArg>)
 
-fun inferenceVarTypes(outerTyper: ExprTypes, f: FunctionDef): Analyses {
+fun inferVarTypes(outerTyper: ExprTypes, f: FunctionDef): Analyses {
   val args = getFArgs(outerTyper, f)
   val stmts = f.body.filterIndexed { i, s -> !(i == 0 && s is Expr && s.value is Str) }
 

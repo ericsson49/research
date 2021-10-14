@@ -1,7 +1,6 @@
 package onotole
 
 import onotole.lib_defs.FunDecl
-import onotole.lib_defs.PyLib
 import java.util.*
 
 fun canBeCoercedTo(a: RTType, b: RTType): Boolean = when {
@@ -544,6 +543,8 @@ fun Sort.asType(): RTType = when(this) {
 
 class ExprTypes(val ctx: NameResolver<Sort>, val cache: IdentityHashMap<TExpr, Sort>) {
   fun new(newCtx: NameResolver<Sort>) = ExprTypes(newCtx, cache)
+  fun new(newVars: Map<String, Sort>) = new(ctx.copy(newVars))
+  fun new(newVars: Collection<Pair<String, Sort>>) = new(ctx.copy(newVars))
   operator fun get(e: TExpr): Sort = cache.getOrPut(e) { getExprType(e) }
   fun getExprType(e: TExpr) = getExprType(e, ctx)
   fun getExprType(e: TExpr, ctx: NameResolver<Sort>): Sort {
@@ -694,26 +695,24 @@ data class Analyses(
     val varTypingsAfter: StmtAnnoMap<NameResolver<Sort>>,
     val funcArgs: List<FArg>)
 
-fun inferenceVarTypes(f: FunctionDef): Analyses {
-  val args = getFArgs(TypeResolver.topLevelTyper, f)
+fun inferenceVarTypes(outerTyper: ExprTypes, f: FunctionDef): Analyses {
+  val args = getFArgs(outerTyper, f)
   val stmts = f.body.filterIndexed { i, s -> !(i == 0 && s is Expr && s.value is Str) }
-  val globalCtx = TypeResolver.topLevelResolver.copy(args.map { it.name to it.type }.toMap())
 
-  fun gatherUpdates(ctx: NameResolver<Sort>, e: TExpr, t: RTType): List<Pair<String,Sort>> {
-    val exprTypes = ExprTypes(ctx, IdentityHashMap())
+  fun gatherUpdates(exprTypes: ExprTypes, e: TExpr, t: RTType): List<Pair<String, Sort>> {
     fun getExprType(e: TExpr) = exprTypes[e]
     return when (e) {
-        is Name -> {
-          if (e.id !in ctx || e.id in globalCtx && ctx[e.id] == globalCtx[e.id]) {
-            listOf(e.id to t)
-          } else {
-            val type = ctx[e.id]!!.asType()
-            if (!isSubType(t, type)) {
-              fail("type mismatch")
-            }
-            emptyList()
+      is Name -> {
+        if (e.id !in exprTypes.ctx || e.id in outerTyper.ctx && getExprType(e) == outerTyper[e]) {
+          listOf(e.id to t)
+        } else {
+          val type = getExprType(e).asType()
+          if (!isSubType(t, type)) {
+            fail("type mismatch")
           }
+          emptyList()
         }
+      }
       is Subscript -> {
         val rt = getExprType(e.value)
         when (e.slice) {
@@ -740,7 +739,7 @@ fun inferenceVarTypes(f: FunctionDef): Analyses {
       }
       is Tuple -> {
         val etPairs = matchVarsAndTypes(e, t)
-        etPairs.flatMap { gatherUpdates(ctx, it.first, it.second) }
+        etPairs.flatMap { gatherUpdates(exprTypes, it.first, it.second) }
       }
       else -> fail(e.toString())
     }
@@ -750,8 +749,7 @@ fun inferenceVarTypes(f: FunctionDef): Analyses {
   val typingAfter = StmtAnnoMap<NameResolver<Sort>>()
 
   fun getVarUpds(exprTypes: ExprTypes, s: Stmt): Pair<ExprTypes, List<SST>> {
-    val varTyping: NameResolver<Sort> = exprTypes.ctx
-    typingBefore[s] = varTyping
+    typingBefore[s] = exprTypes.ctx
 
     fun getExprType(e: TExpr) = exprTypes[e]
 
@@ -768,16 +766,16 @@ fun inferenceVarTypes(f: FunctionDef): Analyses {
     val res = when (s) {
       is Assign -> {
         val e = s.target
-        val newCtx = varTyping.copy(gatherUpdates(varTyping, e, getExprType(s.value).asType()))
-        Pair(newCtx, procAssgnTarget(exprTypes.new(newCtx), e, s))
+        val newExprTypes = exprTypes.new(gatherUpdates(exprTypes, e, getExprType(s.value).asType()))
+        Pair(newExprTypes, procAssgnTarget(newExprTypes, e, s))
       }
       is AugAssign -> {
-        gatherUpdates(varTyping, s.target, getExprType(BinOp(s.target, s.op, s.value)).asType())
-        Pair(varTyping, procAssgnTarget(exprTypes, s.target, s))
+        gatherUpdates(exprTypes, s.target, getExprType(BinOp(s.target, s.op, s.value)).asType())
+        Pair(exprTypes, procAssgnTarget(exprTypes, s.target, s))
       }
       is AnnAssign -> {
-        val newCtx = varTyping.copy(gatherUpdates(varTyping, s.target, parseType(exprTypes, s.annotation)))
-        Pair(newCtx, procAssgnTarget(exprTypes.new(newCtx), s.target, s))
+        val newExprTypes = exprTypes.new(gatherUpdates(exprTypes, s.target, parseType(exprTypes, s.annotation)))
+        Pair(newExprTypes, procAssgnTarget(newExprTypes, s.target, s))
       }
       is If -> {
         val bodyUpdates = foldWithState(exprTypes, s.body, ::getVarUpds).flatten()
@@ -795,25 +793,25 @@ fun inferenceVarTypes(f: FunctionDef): Analyses {
           }
           if (bu != null) {
             vups[k] = bu
-            upds.addAll(gatherUpdates(varTyping, Name(k, ExprContext.Load), bu))
+            upds.addAll(gatherUpdates(exprTypes, Name(k, ExprContext.Load), bu))
           }
           if (eu != null) {
             vups[k] = eu
-            upds.addAll(gatherUpdates(varTyping, Name(k, ExprContext.Load), eu))
+            upds.addAll(gatherUpdates(exprTypes, Name(k, ExprContext.Load), eu))
           }
         }
 
-        Pair(varTyping.copy(upds), bodyUpdates.plus(elseUpdates))
+        Pair(exprTypes.new(upds), bodyUpdates.plus(elseUpdates))
       }
       is While -> {
         val updates = foldWithState(exprTypes, s.body, ::getVarUpds)
-        Pair(varTyping, updates.flatten())
+        Pair(exprTypes, updates.flatten())
       }
       is For -> {
         val iterTyp = getExprType(s.iter).asType()
-        val bodyCtx = varTyping.copy(gatherUpdates(varTyping, s.target, getIterableElemType(iterTyp)))
-        val updates = foldWithState(exprTypes.new(bodyCtx), s.body, ::getVarUpds).flatten()
-        Pair(varTyping, updates)
+        val newVars = gatherUpdates(exprTypes, s.target, getIterableElemType(iterTyp))
+        val updates = foldWithState(exprTypes.new(newVars), s.body, ::getVarUpds).flatten()
+        Pair(exprTypes, updates)
       }
       is Try -> {
         val updates = foldWithState(exprTypes, s.body, ::getVarUpds).flatten()
@@ -822,22 +820,21 @@ fun inferenceVarTypes(f: FunctionDef): Analyses {
         val elseUpdates = foldWithState(exprTypes, s.orelse, ::getVarUpds).flatten()
         val finalUpdates = foldWithState(exprTypes, s.finalbody, ::getVarUpds).flatten()
 
-        Pair(varTyping, updates.plus(handlersUpdtes).plus(elseUpdates).plus(finalUpdates))
+        Pair(exprTypes, updates.plus(handlersUpdtes).plus(elseUpdates).plus(finalUpdates))
       }
-      is Return -> Pair(varTyping, emptyList())
-      is Assert -> Pair(varTyping, emptyList())
-      is Expr -> Pair(varTyping, emptyList())
-      is Pass -> Pair(varTyping, emptyList())
-      is Continue -> Pair(varTyping, emptyList())
-      is Break -> Pair(varTyping, emptyList())
+      is Return -> Pair(exprTypes, emptyList())
+      is Assert -> Pair(exprTypes, emptyList())
+      is Expr -> Pair(exprTypes, emptyList())
+      is Pass -> Pair(exprTypes, emptyList())
+      is Continue -> Pair(exprTypes, emptyList())
+      is Break -> Pair(exprTypes, emptyList())
       else -> fail(s.toString())
     }
-    typingAfter[s] = res.first
-    return Pair(exprTypes.new(res.first), res.second)
+    typingAfter[s] = res.first.ctx
+    return Pair(res.first, res.second)
   }
 
-  val exprTypes = ExprTypes(globalCtx, IdentityHashMap())
-  foldWithState(exprTypes, stmts, ::getVarUpds).flatten()
+  foldWithState(outerTyper.new(args.map { it.name to it.type }), stmts, ::getVarUpds).flatten()
 
   return Analyses(typingBefore, typingAfter, args)
 }

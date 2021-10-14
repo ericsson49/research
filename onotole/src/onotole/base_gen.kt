@@ -503,7 +503,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
     get() = _varInfo!!
 
   var _exprTypes: ExprTypes? = null
-  val exprTypes: ExprTypes get() = _exprTypes!!
+  val exprTypes: ExprTypes get() = _exprTypes ?: TypeResolver.topLevelTyper
 
   abstract fun genComment(comment: String)
   abstract fun genFunBegin(n: String, args: List<Pair<Arg,String?>>, typ: String): String
@@ -531,8 +531,8 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       genComment(comment.substring(1, comment.length-1))
     }
 
-    _analyses = inferenceVarTypes(f)
     _exprTypes = TypeResolver.topLevelTyper
+    _analyses = inferenceVarTypes(exprTypes, f)
     _returnType = parseType(exprTypes, f.returns!!)
     _varInfo = varSlotAnalysis(f)
 

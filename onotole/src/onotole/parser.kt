@@ -1,3 +1,5 @@
+package onotole
+
 import antlr.PyASTParserLexer
 import antlr.PyASTParserParser
 import com.github.h0tk3y.betterParse.combinators.and
@@ -10,10 +12,15 @@ import com.github.h0tk3y.betterParse.combinators.use
 import com.github.h0tk3y.betterParse.grammar.Grammar
 import com.github.h0tk3y.betterParse.grammar.parser
 import com.github.h0tk3y.betterParse.parser.Parser
+import onotole.lib_defs.Additional
+import onotole.lib_defs.BLS
+import onotole.lib_defs.PyLib
+import onotole.lib_defs.SSZLib
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
 import java.math.BigInteger
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 
 sealed class Item
@@ -31,7 +38,8 @@ data class VParam(override val value: Item): FParam()
 
 typealias PM = Map<String, Item>
 
-fun fail(e: String? = null): Nothing = throw IllegalArgumentException(e)
+fun fail(e: String? = null): Nothing =
+    throw IllegalArgumentException(e)
 fun paramsToMap(params: List<FParam>) = params.map {
   when(it) {
     is NamedParam -> it.name.name to it.value
@@ -166,6 +174,7 @@ fun toExpr(v: Item?): TExpr {
         "Compare" -> Compare(left = pm.toExpr("left"), ops = toCmpops(pm["ops"]), comparators = pm.toExprs("comparators"))
         "IfExp" -> IfExp(test = pm.toExpr("test"), body = pm.toExpr("body"), orelse = pm.toExpr("orelse"))
         "ListComp" -> ListComp(elt = pm.toExpr("elt"), generators = toComprehensions(pm["generators"]))
+        "DictComp" -> DictComp(key = pm.toExpr("key"), value = pm.toExpr("value"), generators = toComprehensions(pm["generators"]))
         "GeneratorExp" -> GeneratorExp(elt = pm.toExpr("elt"), generators = toComprehensions(pm["generators"]))
         "Num" -> Num(toNum(pm["n"]))
         "NameConstant" -> toConstant(pm["value"])
@@ -181,13 +190,18 @@ fun toExpr(v: Item?): TExpr {
           val constValue = pm["value"]
           when(constValue) {
             is Ident -> toConstant(constValue)
-            is Literal -> Str(toStr(constValue))
+            is Literal -> {
+              val s = toStr(constValue)
+              if (s.startsWith("b")) Bytes(s.substring(1)) else Str(s)
+            }
             is CNumber -> Num(toNum(constValue))
             is CBigNumber -> Num(toNum(constValue))
             else -> fail(constValue.toString())
           }
         }
         "Ellipsis" -> NameConstant("...")
+        "JoinedStr" -> JoinedStr(values = pm.toExprs("values"))
+        "FormattedValue" -> FormattedValue(value = pm.toExpr("value"), format_spec = pm.toExprOpt("format_spec"))
         else -> fail(v.name)
       }
     }
@@ -247,24 +261,36 @@ fun toStmt(v: Item?): Stmt {
           decorator_list = pm.toExprs("decorator_list"), body = pm.toStmts("body"),
           returns = pm.toExprOpt("returns"))
     }
-    "Assign" -> Assign(targets = pm.toExprs("targets"), value = pm.toExpr("value"))
+    "Assign" -> {
+      val exprs = pm.toExprs("targets")
+      if (exprs.size != 1) TODO("too many targets in Assign")
+      Assign(target = exprs[0], value = pm.toExpr("value"))
+    }
     "AnnAssign" -> {
       val target = toExpr(pm["target"])
       val annotation = toExpr(pm["annotation"])
       val value = toExprOpt(pm["value"])
-      AnnAssign(target = target, annotation = annotation, value = value, simple = toInt(pm["simple"]))
+      AnnAssign(target = target, annotation = annotation, value = value)
     }
     "AugAssign" -> AugAssign(target = pm.toExpr("target"), op = toOperator(pm["op"]), value = pm.toExpr("value"))
     "Expr" -> Expr(value = pm.toExpr("value"))
-    "While" -> While(test = pm.toExpr("test"), body = pm.toStmts("body"), orelse = pm.toStmts("orelse"))
-    "For" -> For(target = pm.toExpr("target"), iter = pm.toExpr("iter"), body = pm.toStmts("body"), orelse = pm.toStmts("orelse"))
+    "While" -> {
+      if (pm.toStmts("orelse").isNotEmpty()) TODO("while else is not supported")
+      While(test = pm.toExpr("test"), body = pm.toStmts("body"))
+    }
+    "For" -> {
+      if (pm.toStmts("orelse").isNotEmpty()) TODO("while else is not supported")
+      For(target = pm.toExpr("target"), iter = pm.toExpr("iter"), body = pm.toStmts("body"))
+    }
     "If" -> If(test = pm.toExpr("test"), body = pm.toStmts("body"), orelse = pm.toStmts("orelse"))
     "Assert" -> Assert(test = pm.toExpr("test"), msg = pm.toExprOpt("msg"))
     "Pass" -> Pass()
     "Return" -> Return(value = pm.toExprOpt("value"))
     "Continue" -> Continue()
+    "Break" -> Break()
     "Try" -> Try(body = pm.toStmts("body"), handlers = toExceptHandlers(pm["handlers"]), orelse = pm.toStmts("orelse"), finalbody = pm.toStmts("finalbody"))
     "Nonlocal" -> Nonlocal(names = toIdentifiers(pm["names"]))
+    "Raise" -> Raise(exc = pm.toExprOpt("exc"), cause = pm.toExprOpt("cause"))
     else -> fail(f.name)
   }
 }
@@ -352,51 +378,263 @@ object ItemsParser2 {
   }
 }
 
-fun main(args: Array<String>) {
-  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_phase0_v0.11.2.txt")
-  //println(path.toAbsolutePath().toFile().exists())
-  val consts = linkedMapOf<Set<String>, Assign>()
-  val cdefs = linkedMapOf<String, ClassDef>()
-  val fdefs = linkedMapOf<String, FunctionDef>()
+sealed class TopLevelDef(val name: String)
+data class ConstTLDef(val const: Assign): TopLevelDef((const.target as Name).id)
+data class ClassTLDef(val clazz: ClassDef): TopLevelDef(clazz.name)
+data class FuncTLDef(val func: FunctionDef): TopLevelDef(func.name)
 
-  val t0 = System.nanoTime()
+fun parseSpecFile(path: Path): List<TopLevelDef> {
   val parsed = Files.readAllLines(path).map { ItemsParser2.parseToEnd(it) }
-  val t1 = System.nanoTime()
-  parsed.forEach {
+  return parsed.map {
     val stmt = toStmt(it)
-
-    when(stmt) {
-      is Assign -> consts[stmt.targets.map { (it as Name).id }.toSet()] = stmt
-      is ClassDef -> cdefs[stmt.name] = stmt
-      is FunctionDef -> fdefs[stmt.name] = stmt
+    when (stmt) {
+      is Assign -> ConstTLDef(stmt)
+      is ClassDef -> ClassTLDef(stmt)
+      is FunctionDef -> FuncTLDef(stmt)
       else -> fail(stmt.toString())
     }
   }
-  val t2 = System.nanoTime()
+}
 
-  val gen = KotlinGen()
+fun filterOutDefinitions(defs: Collection<TopLevelDef>, specPhase: String): List<TopLevelDef> {
+  val ignoredTopLevels_ = setOf("SSZVariableName", "GeneralizedIndex", "SSZObject", "_hash",
+          "_compute_shuffled_index", "compute_shuffled_index", "_get_total_active_balance", "get_total_active_balance",
+          "_get_base_reward", "get_base_reward", "_get_committee_count_at_slot", "get_committee_count_at_slot",
+          "_get_active_validator_indices", "get_active_validator_indices", "_get_beacon_committee", "get_beacon_committee",
+          "_get_matching_target_attestations", "get_matching_target_attestations", "_get_matching_head_attestations", "get_matching_head_attestations",
+          "_get_attesting_indices", "get_attesting_indices", "_get_start_shard", "get_start_shard",
+          "_get_committee_count_per_slot", "get_committee_count_per_slot"
+  )
+  val ignoredFuncs_all = setOf("cache_this", "hash", "ceillog2", "floorlog2") // setOf("init_SSZ_types", "apply_constants_preset")
+  val ignoredFuncs_altair = if (specPhase == "altair") setOf(
+          "get_matching_source_attestations", "get_matching_target_attestations", "get_matching_head_attestations",
+          "get_source_deltas", "get_target_deltas", "get_head_deltas",
+          "get_inclusion_delay_deltas", "get_attestation_deltas",
+          "process_participation_record_updates"
+  ) else emptySet()
+  val ignoredFuncs = ignoredFuncs_all.union(ignoredFuncs_altair)
 
-  val ignoredTopLevels = setOf("SSZVariableName", "GeneralizedIndex", "SSZObject", "_hash")
-  for((k,a) in consts.entries) {
-    if (ignoredTopLevels.containsAll(k))
-      continue
-    val n = k.toList()[0]
-    if (n.toList().all { it.toUpperCase() == it })
-      println("val " + n + " = " + gen.genExpr(a.value))
+  return defs.filter { def ->
+    when(def) {
+      is ConstTLDef -> def.name !in ignoredTopLevels_
+      is FuncTLDef -> def.name !in ignoredFuncs
+      else -> true
+    }
   }
-  for ((k,c) in cdefs.entries) {
-    gen.genClass(c)
+}
+
+fun transformAndDesugar(def: TopLevelDef): TopLevelDef = when(def) {
+  is ConstTLDef -> def.copy(const = desugar(def.const) as Assign)
+  is ClassTLDef -> def.copy(clazz = desugar(def.clazz))
+  is FuncTLDef -> def.copy(func = desugar(transformForOps(def.func)))
+}
+
+object PhaseInfo {
+  val prevPhase = mapOf(
+      "altair" to "phase0",
+      "merge" to "altair",
+      "sharding" to "merge",
+      "custody_game" to "sharding"
+  )
+  fun getPkgDeps(phase: String): Set<String> {
+    return setOf("ssz").plus(prevPhase[phase]?.let { getPkgDeps(it).plus(it) } ?: emptySet())
   }
-  val t3 = System.nanoTime()
-
-  val ignoredFuncs = setOf("cache_this", "hash") // setOf("init_SSZ_types", "apply_constants_preset")
-  for ((k,f) in fdefs.entries) {
-    if (k in ignoredFuncs)
-      continue
-    gen.genFunc(f)
+  fun getPath(phase: String): Path {
+    return Paths.get("../eth2.0-specs/tests/fork_choice/defs_${phase}_dev.txt")
   }
-  val t4 = System.nanoTime()
+  val cache = mutableMapOf<String,List<TopLevelDef>>()
+  fun getDeclaredPhaseDefs(phase: String): List<TopLevelDef> {
+    return cache.getOrPut(phase) {
+      val defs = filterOutDefinitions(parseSpecFile(getPath(phase)), phase)
+      defs.map(::transformAndDesugar)
+    }
+  }
+  fun getPhaseDefs(phase: String): Pair<List<TopLevelDef>,List<TopLevelDef>> {
+    val defs = getDeclaredPhaseDefs(phase)
+    return prevPhase[phase]?.let { prev ->
+      val (prevDefs, _) = getPhaseDefs(prev)
+      val (_, combinedDefs) = combine(prevDefs, defs)
+      val newNames = combinedDefs.map { it.name }.toSet()
+      prevDefs.filter { it.name !in newNames }.plus(combinedDefs) to combinedDefs
+    } ?: defs to defs
+  }
+}
 
-  println("${(t1-t0)/1000000} ${(t2-t1)/1000000} ${(t3-t2)/1000000} ${(t4-t3)/1000000}")
 
+fun loadSpecDefs(phase: String): List<TopLevelDef> {
+  val (_, defs) = PhaseInfo.getPhaseDefs(phase)
+
+  return loadTopLevelDefs(phase, defs)
+}
+
+fun loadTopLevelDefs(phase: String, defs: List<TopLevelDef>): List<TopLevelDef> {
+  TypeResolver.pushPkg(phase)
+
+  PhaseInfo.getPkgDeps(phase).forEach {
+    TypeResolver.importFromPackage(it)
+  }
+
+  defs.forEach { d ->
+    val processor: () -> Unit = {
+      when (d) {
+        is ConstTLDef -> processTopLevel(phase, d.const)
+        is ClassTLDef -> processClass(phase, d.clazz)
+        is FuncTLDef -> TypeResolver.registerFunc(d.func.copy(name = phase + "." + d.func.name))
+      }
+    }
+    TypeResolver.registerDelayed(phase + "." + d.name, processor)
+  }
+  TypeResolver.makeAliases(phase, defs.map { it.name })
+  val pkgAttrs = defs.map { it.name to TypeResolver.resolveNameTyp(it.name)!! }
+  TypeResolver.popPkg()
+  TypeResolver.registerPackage(phase, pkgAttrs.toMap())
+  return defs
+}
+
+fun main(args: Array<String>) {
+  PyLib.init()
+  SSZLib.init()
+  BLS.init()
+  val specVersion = "phase0"
+  Additional.init(specVersion)
+
+  //loadSpecDefs("phase0")
+  //loadSpecDefs("altair")
+  //loadSpecDefs("merge")
+  //loadSpecDefs("sharding")
+
+  val tlDefs = loadSpecDefs(specVersion)
+  PhaseInfo.getPkgDeps(specVersion).forEach {
+    TypeResolver.importFromPackage(it)
+  }
+  TypeResolver.importFromPackage(specVersion)
+
+  val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
+  //val gen = KotlinGen(specVersion, setOf("bls", "ssz", specVersion))
+  //val gen = JavaGen("beacon_java." + specVersion, "beacon_java_generated/src", specVersion, setOf("bls", "ssz", specVersion))
+  val preprocessedDefs = tlDefs.map {
+    if (it is FuncTLDef) it.copy(func = convertToAndOutOfSSA(it.func)) else it
+  }
+
+  val modules = gen.toModules(preprocessedDefs)
+  for((kind, defs) in modules) {
+    val modRef = gen.beginModule(kind, defs)
+    defs.forEach {
+      genCodeFromDef(gen, modRef, it)
+    }
+    gen.endModule(modRef)
+  }
+}
+
+fun getNamesToImport(defs: Collection<TopLevelDef>) {
+  val r = defs.flatMap { gatherNames(it) }
+  val r2 = r.minus(TypeResolver.specialFuncNames)
+  val r3 = r2.map { TypeResolver.getFullName(it) }.filter { it.contains(".") }.toSet()
+
+}
+
+fun gatherNames(d: TopLevelDef): Set<String> {
+  return when (d) {
+    is ConstTLDef -> {
+      liveVarAnalysis(d.const.value)
+    }
+    is FuncTLDef -> {
+      val argNames = extractNamesFromArguments(d.func.args)
+      val retNames = d.func.returns?.let(::extractNamesFromTypeExpr) ?: emptySet()
+      val bodyNames = extractNamesFromFuncBody(d.func)
+      argNames.plus(retNames).plus(bodyNames)
+    }
+    is ClassTLDef -> {
+      fun extractNamesFromClassEntry(s: Stmt): Set<String> = when(s) {
+        is Pass -> emptySet()
+        is AnnAssign -> extractNamesFromTypeExpr(s.annotation).plus(s.value?.let { liveVarAnalysis(it) } ?: emptyList())
+        else -> TODO()
+      }
+      val baseNames = d.clazz.bases.flatMap { extractNamesFromTypeExpr(it) }
+      val fieldNames = d.clazz.body.flatMap { extractNamesFromClassEntry(it) }
+      baseNames.plus(fieldNames).toSet()
+    }
+  }
+}
+
+fun genCodeFromDef(gen: BaseGen, mod: ModuleRef, d: TopLevelDef) {
+  when(d) {
+    is ConstTLDef -> {
+      if (d.name.toList().all { it.toUpperCase() == it })
+        mod.genTopLevel(d.name, (desugar(d.const) as Assign).value)
+    }
+    is ClassTLDef -> {
+      mod.genClass(d.clazz)
+    }
+    is FuncTLDef -> {
+      mod.genFunc(d.func)
+    }
+  }
+}
+
+private fun processClass(pkgName: String, c: ClassDef) {
+  val clsName = pkgName + "." + c.name
+  if (clsName in TypeResolver.nameToType)
+    return
+  if (c.body.size == 1 && c.body[0] is Pass) {
+    // register constructor as a func
+    if (c.bases.size > 1)
+      fail(clsName)
+    else {
+      val retTyp = NamedType(clsName)
+
+      val argType = parseType(c.bases[0])
+      val args = listOf(FArg("value", argType))
+      TypeResolver.registerFunc(clsName, args, retTyp)
+      TypeResolver.registerFunc(clsName, emptyList(), retTyp)
+      if (isSubType(argType, TPyInt)) {
+        val typ = TPyInt
+        TypeResolver.registerFunc(clsName, listOf(FArg("value", typ)), retTyp)
+      }
+      if (isSubType(argType, TPyBytes)) {
+        val strTyp = TPyStr
+        TypeResolver.registerFunc(clsName, listOf(FArg("value", strTyp)), retTyp)
+      }
+      TypeResolver.register(DataTInfo(clsName, baseType = argType))
+    }
+  } else {
+    if (c.bases.size > 1) fail(clsName)
+    val baseType = if (c.bases.isEmpty()) TPyObject else parseType(c.bases[0])
+
+    val retTyp = NamedType(clsName)
+    val fTypes = c.body.map {
+      val annAssign = it as AnnAssign
+      val fName = (annAssign.target as Name).id
+      val fTyp = parseType(annAssign.annotation)
+      fName to fTyp
+    }
+    val copyFuncName = "${clsName}_copy"
+
+    val baseArgs = if (c.bases.isNotEmpty() && clsName == "merge.BeaconState") {
+      val t = (baseType as NamedType)
+      if (t.tParams.isNotEmpty()) TODO()
+      val sigs = TypeResolver.funcSigs[t.name]!!
+      val ctors = sigs.funcs.filter { it.args.isNotEmpty() && !(it.args.size == 1 && it.args[0].type == baseType) }
+      if (ctors.size == 0)
+        emptyList<FArg>()
+      else if (ctors.size == 1)
+        ctors[0].args
+      else fail()
+    } else emptyList<FArg>()
+    val fargs = fTypes.map {
+      FArg(it.first, it.second, Attribute(Name(clsName, ExprContext.Load), "${it.first}_default", ExprContext.Load))
+    }
+    TypeResolver.registerFunc(clsName, baseArgs + fargs, retTyp)
+    TypeResolver.registerFunc(copyFuncName, emptyList(), retTyp)
+    TypeResolver.register(FuncRefTI(copyFuncName))
+    val attrs2 = fTypes.map { it.first to it.second }.plus("copy" to FuncRefTI(copyFuncName).type)
+    TypeResolver.register(DataTInfo(clsName, baseType = baseType, attrs = attrs2))
+  }
+}
+
+private fun processTopLevel(pkgName: String, a: Assign) {
+  val a = desugar(a) as Assign
+  TypeResolver.registerTopLevelAssign(
+          pkgName + "." + (a.target as Name).id,
+          TypeResolver.topLevelTyper[a.value].asType())
 }

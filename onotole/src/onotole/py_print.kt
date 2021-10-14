@@ -1,3 +1,5 @@
+package onotole
+
 fun pyPrint(op: EBinOp) = when(op) {
   EBinOp.Add -> "+"
   EBinOp.Sub -> "-"
@@ -56,7 +58,24 @@ fun pyPrint(e: TExpr): String {
     is BoolOp -> e.values.joinToString(" " + pyPrint(e.op) + " ") { pyPrint(it) }
     is Compare -> pyPrint(e.left) + e.ops.zip(e.comparators).joinToString { " " + pyPrint(it.first) + " " + pyPrint(it.second) }
     is UnaryOp -> pyPrint(e.op) + " " + pyPrint(e.operand)
-    is Call -> pyPrint(e.func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
+    is Call -> {
+      if (e.func is Name && e.func.id in TypeResolver.specialFuncNames) {
+        val op = e.func.id.substring(1,e.func.id.length-1)
+        val args = e.args
+        val expr = when(op) {
+          "list" -> PyList(args, ExprContext.Load)
+          "dict" -> TODO() // TypeResolver.resolveDictType(args)
+          in TypeResolver.binOps -> if (e.args.size == 2) BinOp(args[0], EBinOp.valueOf(op), args[1]) else fail()
+          in TypeResolver.boolOps -> BoolOp(EBoolOp.valueOf(op), args)
+          in TypeResolver.unaryOp -> if (args.size == 1) UnaryOp(EUnaryOp.valueOf(op), args[0]) else fail()
+          in TypeResolver.cmpOps -> if (args.size == 2) Compare(args[0], listOf(ECmpOp.valueOf(op)), listOf(args[1])) else fail()
+          else -> TODO()
+        }
+        pyPrint(expr)
+      } else {
+        pyPrint(e.func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
+      }
+    }
     is Subscript -> pyPrint(e.value) + "[" + pyPrint(e.slice) + "]"
     is Attribute -> pyPrint(e.value) + "." + e.attr
     is Lambda -> "lambda " + e.args.args.joinToString(", ") { pyPrint(it) } + ": " + pyPrint(e.body)
@@ -80,7 +99,7 @@ fun pyPrint(slice1: TSlice) = when (slice1) {
 
 fun pyPrintStmt(s: Stmt): List<String> {
   return when(s) {
-    is Assign -> listOf(s.targets.joinToString(", ") { pyPrint(it) } + " = " + pyPrint(s.value))
+    is Assign -> listOf(pyPrint(s.target) + " = " + pyPrint(s.value))
     is AnnAssign -> listOf(pyPrint(s.target) + ": " + pyPrintType(s.annotation) + (s.value?.let { " = " + pyPrint(it) } ?: ""))
     is AugAssign -> listOf(pyPrint(s.target) + " ${pyPrint(s.op)}= " + pyPrint(s.value))
     is Assert -> listOf("assert " + pyPrint(s.test) + (s.msg?.let { ", " + pyPrint(it) } ?: ""))
@@ -119,7 +138,15 @@ fun pyPrintType(e: TExpr): String = when(e) {
   is Tuple -> when(e.elts.size) {
     0 -> "()"
     1 -> "(" + pyPrint(e.elts[0]) + ",)"
-    else -> "(" + e.elts.joinToString(", ") { pyPrint(it) } + ")"
+    else -> e.elts.joinToString(", ") { pyPrint(it) }
+  }
+  is Attribute -> {
+    fun getFullName(p: TExpr): String = when(p) {
+      is Name -> p.id
+      is Attribute -> getFullName(p.value) + "." + p.attr
+      else -> fail()
+    }
+    getFullName(e)
   }
   else -> fail("not implemented $e")
 }

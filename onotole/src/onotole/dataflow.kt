@@ -1,3 +1,5 @@
+package onotole
+
 import java.util.*
 
 typealias FlowFun = (VarSet) -> VarSet
@@ -47,58 +49,24 @@ fun <K,V> reverse(deps: Map<K,Collection<V>>): Map<V,List<K>> {
   return res.mapValues { it.value.toList() }
 }
 
-class CFG<T> {
-  private var completed = false
-  val transitions = mutableMapOf<T,List<T>>()
-  private var _labeling: Map<T,String>? = null
-  val labeling: Map<T,String>
-    get() {
-      if (!completed)
-        fail("should be completed first")
-      if (_labeling == null) {
-        val res = mutableMapOf<T,String>()
-        transitions.toList().reversed().forEach {
-          res[it.first] = "s_" + res.size
-        }
-        _labeling = res.toMap()
-      }
-      return _labeling!!
-    }
-  private var _reverse: Map<T,List<T>>? = null
+interface Graph<T> {
+  val transitions: Map<T,List<T>>
   val reverse: Map<T,List<T>>
-    get() {
-      if (!completed)
-        fail("should be completed first")
-      if (_reverse == null) {
-        val res = mutableMapOf<T,MutableSet<T>>()
-        transitions.toList().reversed().forEach { (n, succ) ->
-          succ.forEach { m -> res.getOrPut(m, ::mutableSetOf).add(n) }
-        }
-        _reverse = res.mapValues { it.value.toList() }
-      }
-      return _reverse!!
-    }
-  private var _first: T? = null
-  val first: T
-    get() {
-      if (!completed)
-        fail("should be completed first")
-      if (_first == null) {
-        _first = transitions.keys.minus(reverse.keys).toList()[0]
-      }
-      return _first!!
-    }
-  fun addInstr(i: T, next: T) = addInstr(i, listOf(next))
-  fun addInstr(i: T, next: List<T>): T {
-    if (completed) fail("graph is in the completed state")
-    transitions[i] = next
-    return i
-  }
-  fun complete() { completed = true }
+}
+
+interface CFGraph<L,N: IInstr>: Graph<L> {
+  fun get(l: L): N
+}
+
+class CFG<T: IInstr>(override val transitions: Map<T,List<T>> = emptyMap()): CFGraph<T, T> {
+  override val reverse: Map<T,List<T>> = reverse(transitions)
+  override fun get(l: T) = l
+  val first: T = transitions.keys.minus(reverse.keys).toList()[0]
+  val labeling: Map<T,String> = transitions.toList().reversed().mapIndexed { i, it -> it.first to "s_$i" }.toMap()
 }
 
 fun <T, U, A> List<T>.foldRightWithAcc(init: U, acc: A, f: (T, U, A) -> U): U {
-  return this.foldRight(init, { a,b -> f(a, b, acc) })
+  return this.foldRight(init) { a, b -> f(a, b, acc) }
 }
 
 interface NodeProcessor<T> {
@@ -111,44 +79,40 @@ data class BlockIndex(val block: List<Stmt>, val index: Int): EdgeSource() {
     return this === other || other is BlockIndex && block === other.block && index == other.index
   }
 }
-/*data class LoopTest(val loop: Stmt, val exit: Boolean): EdgeSource() {
-  override fun equals(other: Any?): Boolean {
-    return this === other || other is LoopTest && loop === other.loop && exit == other.exit
-  }
-}*/
 class Undef: EdgeSource()
 
-class CFGBuilder<T>(val proc: NodeProcessor<T>) {
-  val cfg = CFG<T>()
-  val tmpVars = mutableSetOf<String>()
+class CFGBuilder<T: IInstr>(val proc: NodeProcessor<T>) {
+  val transitions = mutableMapOf<T,List<T>>()
+  val freshNames = FreshNames()
   val stmtToInstrMap = IdentityHashMap<Stmt,Pair<T,T>>()
   val edgeLabeling = mutableMapOf<Pair<T,T>,EdgeSource>()
   val loopTargets = mutableListOf<Pair<T,T>>()
   companion object {
-    fun <T> makeCFG(f: FunctionDef, proc: NodeProcessor<T>): Triple<CFG<T>,Map<Stmt,Pair<T,T>>,Map<Pair<T,T>,EdgeSource>> {
+    fun <T: IInstr> makeCFG(f: FunctionDef, proc: NodeProcessor<T>): Triple<CFGraph<T,T>,Map<Stmt,Pair<T,T>>,Map<Pair<T,T>,EdgeSource>> {
       val builder = CFGBuilder(proc)
-      val cfg = builder.cfg
-      val exit = cfg.addInstr(proc.mkInstr(), emptyList())
+      val transitions = builder.transitions
+      val exit = proc.mkInstr()
+      transitions[exit] = emptyList()
       val first = builder.processStmts(f.body, exit)
       val pre = builder.addInstr(proc.mkInstr(f.args.args.map { it.arg }.toSet(), emptySet()), first, BlockIndex(f.body, 0))
-      cfg.addInstr(proc.mkInstr(), pre)
-      cfg.complete()
-      return Triple(cfg, builder.stmtToInstrMap, builder.edgeLabeling)
+      val entry = proc.mkInstr()
+      transitions[entry] = listOf(pre)
+      return Triple(CFG(transitions), builder.stmtToInstrMap, builder.edgeLabeling)
     }
   }
 
   fun addInstr(i: T, next: T, l: EdgeSource): T {
-    val res = cfg.addInstr(i, next)
+    transitions[i] = listOf(next)
     edgeLabeling[i to next] = l
-    return res
+    return i
   }
 
   fun addInstr(i: T, next: List<T>, labels: List<EdgeSource>): T {
-    val res = cfg.addInstr(i, next)
+    transitions[i] = next
     next.zip(labels).forEach { (n, l) ->
       edgeLabeling[i to n] = l
     }
-    return res
+    return i
   }
 
   fun pushLoop(head: T, exit: T) {
@@ -170,23 +134,21 @@ class CFGBuilder<T>(val proc: NodeProcessor<T>) {
         addInstr(proc.mkInstr(emptySet(), refs), next, index)
       }
       is Assign -> {
-        if (s.targets.size != 1)
-          fail("unsupported")
-        val target = s.targets[0]
+        val target = s.target
         val vars = getVarNamesInStoreCtx(target).toSet()
-        val refs = liveVarAnalysis(s.value)
+        val refs = liveVarAnalysis(s.value).plus(getVarNamesInLoadCtx(target))
         addInstr(proc.mkInstr(vars, refs), next, index)
       }
       is AnnAssign -> {
         val target = s.target
         val vars = getVarNamesInStoreCtx(target).toSet()
-        val refs = liveVarAnalysis(s.value!!)
+        val refs = liveVarAnalysis(s.value!!).plus(getVarNamesInLoadCtx(target))
         addInstr(proc.mkInstr(vars, refs), next, index)
       }
       is AugAssign -> {
         val target = s.target
         val vars = getVarNamesInStoreCtx(target).toSet()
-        val refs = liveVarAnalysis(s.value).plus(vars)
+        val refs = liveVarAnalysis(s.value).plus(getVarNamesInLoadCtx(target)).plus(vars)
         addInstr(proc.mkInstr(vars, refs), next, index)
       }
       is If -> {
@@ -204,8 +166,7 @@ class CFGBuilder<T>(val proc: NodeProcessor<T>) {
         addInstr(whileHead, listOf(bodyBegin, next), listOf(BlockIndex(s.body, 0), BlockIndex(block, i+1)))
       }
       is For -> {
-        val newTmpVar = "tmp_" + tmpVars.size
-        tmpVars.add(newTmpVar)
+        val newTmpVar = freshNames.fresh()
         val preHead = proc.mkInstr(setOf(newTmpVar), liveVarAnalysis(s.iter))
         val forHead = proc.mkInstr(targets = emptySet(), refs = setOf(newTmpVar))
         pushLoop(forHead, next)
@@ -246,7 +207,7 @@ fun <T> makeGenKill(gen: Set<T>, kill: Set<T>): RealFFunc<Set<T>> {
   return RealFFunc { out -> (out - kill) + gen }
 }
 fun <N,T> makeSetDFAProblem(
-    cfg: CFG<N>,
+    cfg: Graph<N>,
     forward: Boolean,
     must: Boolean,
     init: () -> Set<T>,

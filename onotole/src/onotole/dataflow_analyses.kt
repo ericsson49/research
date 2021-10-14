@@ -1,7 +1,16 @@
+package onotole
+
+import onotole.lib_defs.BLS
+import onotole.lib_defs.PyLib
+import onotole.lib_defs.SSZLib
 import java.nio.file.Files
 import java.nio.file.Paths
 
-class Instr(val lNames: Set<String>, val rNames: Set<String>)
+interface IInstr {
+  val lNames: Set<String>
+  val rNames: Set<String>
+}
+class Instr(override val lNames: Set<String>, override val rNames: Set<String>): IInstr
 
 fun Instr.toString(cfg: CFG<Instr>): String {
   val label = cfg.labeling[this]!!
@@ -38,39 +47,41 @@ class SimpleProcessor: NodeProcessor<Instr> {
 }
 typealias Point = Pair<Instr,String>
 
-fun makeLiveVarProblem(cfg: CFG<Instr>): DFAProblem<Point,VarSet> {
-  fun genKillMaker(n: Instr) = Pair(n.rNames, n.lNames)
+fun <L, N: IInstr> makeLiveVarProblem(cfg: CFGraph<L, N>): DFAProblem<Pair<L,String>,VarSet> {
+  fun genKillMaker(n: IInstr) = Pair(n.rNames, n.lNames)
+  fun genKillMaker(l: L) = genKillMaker(cfg.get(l))
   return makeSetDFAProblem(cfg, forward = false, must = false, init = ::emptySet, genKillMaker = ::genKillMaker)
 }
 
-data class Val(val valName: String, val binder: String, val instLabel: String) {
+data class Val(val valName: String, val binder: String) {
   override fun toString() = valName
 }
-fun makeReachingDefsProblem(cfg: CFG<Instr>): DFAProblem<Point,Set<Val>> {
+fun <L, N: IInstr> makeReachingDefsProblem(cfg: CFGraph<L, N>): DFAProblem<Pair<L,String>,Set<Val>> {
   val instrToDefsMap = calcValueDefs(cfg)
   val defs = instrToDefsMap.values.flatten()
   val nameToDefsMap = defs.groupBy { it.binder }.mapValues { it.value.toSet() }
-  fun genKillMaker(n: Instr): Pair<Set<Val>,Set<Val>> {
-    val gen = instrToDefsMap[n]!!
+  fun genKillMaker(l: L): Pair<Set<Val>,Set<Val>> {
+    val gen = instrToDefsMap[l]!!
     val kill = gen.flatMap { vl -> nameToDefsMap[vl.binder]!!.minus(vl) }.toSet()
     return Pair(gen, kill)
   }
   return makeSetDFAProblem(cfg, true, false, ::emptySet, ::genKillMaker)
 }
 
-fun calcValueDefs(cfg: CFG<Instr>): Map<Instr, Set<Val>> {
+fun <L, N: IInstr> calcValueDefs(cfg: CFGraph<L, N>): Map<L, Set<Val>> {
   val valuesAcc = mutableMapOf<String, Int>()
   fun newName(s: String): String {
     val i = valuesAcc.getOrDefault(s, -1) + 1
     valuesAcc[s] = i
-    return s + "_" + i
+    return if (i == 0) s else s + "_" + i
   }
-  return cfg.transitions.keys.toList().reversed().map { i ->
-    i to i.lNames.map { Val(newName(it), it, cfg.labeling[i]!!) }.toSet()
+  return cfg.transitions.keys.toList().reversed().map { l ->
+    val i = cfg.get(l)
+    l to i.lNames.map { Val(newName(it), it) }.toSet()
   }.toMap()
 }
 
-fun <N> makeDominatorsProblem(cfg: CFG<N>): DFAProblem<Pair<N,String>,Set<N>> {
+fun <N> makeDominatorsProblem(cfg: Graph<N>): DFAProblem<Pair<N,String>,Set<N>> {
   val nodes = cfg.transitions.keys.toSet()
   val starting = nodes.minus(cfg.reverse.keys)
   if (starting.size != 1) fail("Expecting that there will be only one starting node")
@@ -83,7 +94,7 @@ fun <N> makeDominatorsProblem(cfg: CFG<N>): DFAProblem<Pair<N,String>,Set<N>> {
   return makeSetDFAProblem(cfg, true, true, {nodes}, ::genKillMaker)
 }
 
-fun <N> calcIDom(doms: Map<N,Set<N>>, cfg: CFG<N>): Map<N,N> {
+fun <N> calcIDom(doms: Map<N,Set<N>>, cfg: Graph<N>): Map<N,N> {
   val sdoms = doms.mapValues { it.value.minus(it.key) }
   val res = mutableMapOf<N,N>()
   cfg.transitions.keys.forEach { n ->
@@ -95,7 +106,7 @@ fun <N> calcIDom(doms: Map<N,Set<N>>, cfg: CFG<N>): Map<N,N> {
   return res.toMap()
 }
 
-fun <N> calcDomFrontier(cfg: CFG<N>, idom: Map<N,N>): Map<N,Set<N>> {
+fun <N> calcDomFrontier(cfg: Graph<N>, idom: Map<N,N>): Map<N,Set<N>> {
   val nodes = cfg.transitions.keys
   val res = nodes.map { b -> b to mutableSetOf<N>() }.toMap().toMutableMap()
   nodes.forEach { b ->
@@ -113,50 +124,58 @@ fun <N> calcDomFrontier(cfg: CFG<N>, idom: Map<N,N>): Map<N,Set<N>> {
   return res.mapValues { it.value.toSet() }.toMap()
 }
 
-fun insertPhiNodes(cfg: CFG<Instr>, phiNodes: Map<Instr,Set<String>>): Pair<CFG<Instr>, Map<Instr,Instr>> {
-  fun copy(i: Instr) = Instr(i.lNames, i.rNames)
-  val res = CFG<Instr>()
+fun <T: IInstr> insertPhiNodes(cfg: Graph<T>, phiNodes: Map<T,Set<String>>): Pair<CFG<Instr>, Map<T,Instr>> {
+  fun copy(i: IInstr): Instr = Instr(i.lNames, i.rNames)
+  val transitions = mutableMapOf<Instr, List<Instr>>()
   val dupInstrs = cfg.transitions.keys.map { it to copy(it) }.toMap()
   val phiInstrs = phiNodes.mapValues { Instr(it.value, it.value) }
   phiInstrs.forEach { (i, phiI) ->
-    res.addInstr(phiI, dupInstrs[i]!!)
+    transitions[phiI] = listOf(dupInstrs[i]!!)
   }
   cfg.transitions.forEach { (n, succ) ->
-    res.addInstr(dupInstrs[n]!!, succ.map { phiInstrs[it] ?: dupInstrs[it]!! })
+    transitions[dupInstrs[n]!!] = succ.map { phiInstrs[it] ?: dupInstrs[it]!! }
   }
-  res.complete()
-  return res to dupInstrs
+  return CFG(transitions) to dupInstrs
 }
 
-fun <N> calcDom(cfg: CFG<N>)
+fun <N> calcDom(cfg: Graph<N>)
     = solve(makeDominatorsProblem(cfg))
     .filterKeys { it.second == "out" }
     .mapKeys { it.key.first }
 
-class DominanceAnalysis<N>(cfg: CFG<N>) {
+class DominanceAnalysis<N>(cfg: Graph<N>) {
   val domsOf: Map<N,Set<N>> = calcDom(cfg)
   val immDomOf: Map<N,N> = calcIDom(domsOf, cfg)
+  val domTree = reverse(immDomOf.mapValues { setOf(it.value) })
   val domFrontier: Map<N, Set<N>> = calcDomFrontier(cfg, immDomOf)
+  val domFrontierPlus = domFrontier.mapValues { transClosure(it.value) { n -> domFrontier[n]!! } }
 }
 
-class CFGAnalyses(cfg: CFG<Instr>) {
-  val dom: DominanceAnalysis<Instr> = DominanceAnalysis(cfg)
-  val liveVars: Map<Point,VarSet> = solve(makeLiveVarProblem(cfg))
-  val reachingDefs: Map<Point,Set<Val>> = solve(makeReachingDefsProblem(cfg))
+interface ICFGAnalyses<T> {
+  val dom: DominanceAnalysis<T>
+  val liveVars: Map<Pair<T,String>,VarSet>
+  val reachingDefs: Map<Pair<T,String>,Set<Val>>
 }
 
-class FuncAnalyses(f: FunctionDef) {
-  val cfg: CFG<Instr>
-  val cfgStmtMap: Map<Stmt,Pair<Instr,Instr>>
-  val edgeLabeling: Map<Pair<Instr,Instr>,EdgeSource>
-  val cfgAnalyses: CFGAnalyses
-  init {
-    val (_cfg, _stmtMap, _edgeLabeling) = CFGBuilder.makeCFG(f, SimpleProcessor())
-    cfg = _cfg
-    cfgStmtMap = _stmtMap
-    edgeLabeling = _edgeLabeling
-    cfgAnalyses = CFGAnalyses(cfg)
-  }
+class CFGAnalyses<L,N: IInstr>(cfg: CFGraph<L,N>): ICFGAnalyses<L> {
+  override val dom: DominanceAnalysis<L> = DominanceAnalysis(cfg)
+  override val liveVars: Map<Pair<L,String>,VarSet> = solve(makeLiveVarProblem(cfg))
+  override val reachingDefs: Map<Pair<L,String>,Set<Val>> = solve(makeReachingDefsProblem(cfg))
+}
+
+val getFuncAnalyses = MemoizingFunc<CFGraphImpl, FuncAnalyses<CPoint, BasicBlock>> { cfg ->
+  FuncAnalyses(cfg, emptyMap(), emptyMap()) }
+
+class FuncAnalyses<L, N: IInstr>(
+    val cfg: CFGraph<L, N>,
+    val cfgStmtMap: Map<Stmt,Pair<L,L>>,
+    val edgeLabeling: Map<Pair<L,L>,EdgeSource>) {
+  val cfgAnalyses: CFGAnalyses<L, N> = CFGAnalyses(cfg)
+}
+
+fun <T: IInstr> makeFuncAnalyses(f: FunctionDef, proc: NodeProcessor<T>): FuncAnalyses<T, T> {
+  val (cfg, stmtMap, edgeLabeling) = CFGBuilder.makeCFG(f, proc)
+  return FuncAnalyses(cfg, stmtMap, edgeLabeling)
 }
 
 object CopiesComparator: Comparator<Pair<String,String>> {
@@ -174,7 +193,7 @@ object CopiesComparator: Comparator<Pair<String,String>> {
   }
 }
 fun makeCopyStmt(p: Pair<String,String>) = Assign(
-    targets = listOf(Name(id = p.second, ctx = ExprContext.Store)),
+    target = Name(id = p.second, ctx = ExprContext.Store),
     value = Name(id = p.first, ctx = ExprContext.Load))
 fun makeCopyStmts(s: List<Pair<String,String>>): List<Assign> {
   val sortedWith = s.sortedWith(CopiesComparator)
@@ -224,7 +243,7 @@ fun main() {
       continue
     println(it.name)
     val newF = convertToAndOutOfSSA(it)
-    KotlinGen().genFunc(newF).forEach { println(it) }
+    KotlinGen("", emptySet()).genFunc(newF).forEach { println(it) }
     /*println()
     println("SSA")
     val ssa = CFG<Instr>()
@@ -255,8 +274,10 @@ fun main() {
 
 }
 
-fun convertToAndOutOfSSA(it: FunctionDef): FunctionDef {
-  val (ssaF, phiFuncs) = convertToSSA(it)
+fun convertToAndOutOfSSA(it: FunctionDef) = convertToAndOutOfSSA(it, SimpleProcessor())
+
+fun <T: IInstr> convertToAndOutOfSSA(it: FunctionDef, proc: NodeProcessor<T>): FunctionDef {
+  val (ssaF, phiFuncs) = convertToSSA(it, proc)
   return destructSSA(ssaF, phiFuncs)
 }
 
@@ -264,8 +285,8 @@ fun destructSSA(ssaF: FunctionDef, phiFuncs: List<PhiFunc>): FunctionDef {
   return ssaF.copy(body = insertCopies(ssaF.body, phiFuncs.toCopies()))
 }
 
-fun convertToSSA(it: FunctionDef): Pair<FunctionDef, List<PhiFunc>> {
-  val analyses = FuncAnalyses(it)
+fun <T: IInstr> convertToSSA(it: FunctionDef, proc: NodeProcessor<T>): Pair<FunctionDef, List<PhiFunc>> {
+  val analyses = makeFuncAnalyses(it, proc)
 
   val ssaInfo = calcSSARenames(it, analyses)
   val enterRenames = ssaInfo.enter
@@ -303,7 +324,113 @@ fun List<PhiFunc>.toCopies(): Map<EdgeSource,List<Pair<String,String>>> {
           .groupBy { it.first }.mapValues { it.value.map { it.second } }
 }
 
-fun calcSSARenames(f: FunctionDef, analyses: FuncAnalyses): SSAInfo {
+val convertToSSA = MemoizingFunc(::makeSSAFromCFG)
+
+private fun makeSSAFromCFG(cfg: CFGraphImpl): CFGraphImpl {
+  val analyses = getFuncAnalyses(cfg) //FuncAnalyses(cfg, emptyMap(), emptyMap())
+  return makeSSAFromCFG(cfg, analyses)
+}
+
+fun makeSSAFromCFG(cfg: CFGraphImpl, analyses: FuncAnalyses<CPoint, BasicBlock>): CFGraphImpl {
+  val phiFuncs = calcPhiNodes2(analyses)
+
+  val domsOf = analyses.cfgAnalyses.dom.domsOf
+  val domTree = analyses.cfgAnalyses.dom.domTree
+  val start = cfg.transitions.keys.minus(cfg.reverse.keys).toList()[0]
+
+  fun preorder(node: CPoint): List<CPoint> {
+    return listOf(node).plus((domTree[node] ?: emptyList()).flatMap { preorder(it) })
+  }
+  val varVersions = mutableMapOf<String,Int>()
+  val reachingDef = mutableMapOf<String,String?>()
+  val definitions = mutableMapOf<String,Pair<CPoint,Int>>()
+  fun defDominatesInstr(v: String, i: Pair<CPoint,Int>): Boolean {
+    val d = definitions[v]!!
+    return if (d.first == i.first) d.second <= i.second
+    else d.first in domsOf[i.first]!!
+  }
+  fun updateReachingDef(v: String, i: Pair<CPoint,Int>) {
+    var r = reachingDef[v]
+    while (!(r == null || defDominatesInstr(r, i))) {
+      r = reachingDef[r]
+    }
+    reachingDef[v] = r
+  }
+  val phiVarVersions = mutableMapOf<CPoint,Map<String,String>>()
+  val phiVarInVersions = mutableMapOf<CPoint,MutableMap<CPoint,MutableMap<String,String>>>()
+  val newBlocks = preorder(start).map { l ->
+    val bb = cfg.get(l)
+    fun step1(v: String, offset: Int): String {
+      updateReachingDef(v, l to offset)
+      val res = reachingDef[v] ?: "<undef>"
+      return if (res.endsWith("_0")) v else res
+    }
+    fun step2(v: String, offset: Int): String {
+      updateReachingDef(v, l to offset)
+      val newVersion = varVersions.getOrPut(v) { -1 } + 1
+      varVersions[v] = newVersion
+      val newV = v + "_" + newVersion
+      definitions[newV] = l to offset
+      reachingDef[newV] = reachingDef[v]
+      reachingDef[v] = newV
+      return if (newVersion == 0) v else newV
+    }
+    if (l in phiFuncs) {
+      phiVarVersions[l] = phiFuncs[l]!!.map { v -> v to step2(v, -1) }.toMap()
+    }
+    val newStmts = bb.stmts.mapIndexed { i,s ->
+      val inRenames = s.rNames.intersect(varVersions.keys).map { v -> v to step1(v, i) }.toMap()
+      val outRenames = s.lNames.map { v -> v to step2(v, i) }.toMap()
+      val renamer = ExprRenamer(inRenames, outRenames)
+
+      val newLVal = when (s.lval) {
+        is EmptyLVal -> s.lval
+        is VarLVal -> VarLVal(renamer.renameName(s.lval.v, ExprContext.Store), s.lval.t)
+        is FieldLVal -> FieldLVal(renamer.renameExpr(s.lval.r), s.lval.f)
+        is SubscriptLVal -> SubscriptLVal(renamer.renameExpr(s.lval.r), renamer.renameSlice(s.lval.i))
+      }
+      val newRVal = renamer.renameExpr(s.rval)
+      StmtInstr(newLVal, newRVal)
+    }
+    val newBranch = if (bb.branch.discrVar == null) bb.branch
+    else {
+      val nn = step1(bb.branch.discrVar, bb.stmts.size)
+      Branch(nn, bb.branch.next)
+    }
+
+    cfg.transitions[l]!!.intersect(phiFuncs.keys).forEach { succ ->
+      phiFuncs[succ]!!.forEach { v ->
+        updateReachingDef(v, l to bb.stmts.size)
+        val newV = reachingDef[v] ?: "<undef>"
+        phiVarInVersions.getOrPut(succ) { mutableMapOf() }.getOrPut(l) { mutableMapOf() } [v] =
+            if (newV.endsWith("_0")) v else newV
+      }
+    }
+
+    l to BasicBlock(newStmts, newBranch)
+  }
+  val newBlocksWithPhis = newBlocks.map { (l, bb) ->
+    val newBB = if (l in phiFuncs) {
+      val phis = phiVarVersions[l]!!.map { (v, vv) ->
+        val preds = cfg.reverse[l]!!
+        val newInVS = preds.map { p -> mkName(phiVarInVersions[l]!![p]!![v]!!) }
+        StmtInstr(VarLVal(vv), mkCall("<Phi>", newInVS))
+      }
+      BasicBlock(phis.plus(bb.stmts), bb.branch)
+    } else bb
+    l to newBB
+  }
+  val newLoops = cfg.loops
+  val newIfs = cfg.ifs.map {
+    if (it.test in phiFuncs) {
+      val offset = phiFuncs[it.test]!!.size
+      IfInfo2(it.head.first to (it.head.second + offset), it.test, it.body, it.orelse, it.exit)
+    } else it
+  }
+  return CFGraphImpl(newBlocksWithPhis, newLoops, newIfs)
+}
+
+fun <T: IInstr> calcSSARenames(f: FunctionDef, analyses: FuncAnalyses<T, T>): SSAInfo {
   val cfg = analyses.cfg
   val phiNodes = calcPhiNodes2(analyses)
   val (cfgWithPhis, oldToNewInstrMap) = insertPhiNodes(cfg, phiNodes)
@@ -311,26 +438,6 @@ fun calcSSARenames(f: FunctionDef, analyses: FuncAnalyses): SSAInfo {
 
   val phiAnalyses = CFGAnalyses(cfgWithPhis)
   val reachDefsWithPhis = phiAnalyses.reachingDefs
-
-  /*val newRDomFr = reverse(phiAnalyses.dom.domFrontier)
-  val liveVarsWithPhis = phiAnalyses.liveVars
-  val _phiRenames = newRDomFr.keys.map { n ->
-    val preds = cfgWithPhis.reverse[n]!!
-    val rdefs = reachDefsWithPhis[n to "in"]!!
-    val live = liveVarsWithPhis[n to "in"]!!
-    val reaching = rdefs.map { it.binder }.toSet()
-    val shouldBeAvailableVars = live.intersect(reaching)
-    val nameToValsMap = shouldBeAvailableVars.map { it to mutableSetOf<Val>() }.toMap().toMutableMap()
-    preds.forEach { i ->
-      val vals = reachDefsWithPhis[i to "out"]!!.groupBy { it.binder }
-      shouldBeAvailableVars.forEach { v ->
-        val vs = vals[v] ?: fail("$v has no reaching definition at $i")
-        nameToValsMap[v]!!.addAll(vs)
-      }
-    }
-    val phiVars = n.lNames
-    n to reachDefsWithPhis[n to "out"]!!.groupBy { it.binder }.filterKeys { it in phiVars }.mapValues { it.value[0] }
-  }.toMap()*/
 
   fun valsMap(vals: Collection<Val>, phiVars: Set<String>)
       = vals.filter { it.binder in phiVars }
@@ -378,17 +485,15 @@ fun calcSSARenames(f: FunctionDef, analyses: FuncAnalyses): SSAInfo {
   return SSAInfo(initialRenames, before, after, phiFuncs)
 }
 
-fun calcPhiNodes2(analyses: FuncAnalyses): Map<Instr, Set<String>> {
+fun <L, N : IInstr> calcPhiNodes2(analyses: FuncAnalyses<L, N>): Map<L, Set<String>> {
   val cfg = analyses.cfg
-  val domFr = analyses.cfgAnalyses.dom.domFrontier
   val liveVars = analyses.cfgAnalyses.liveVars
-  val instrToDefsMap = calcValueDefs(cfg)
-  val instrToNamesMap = instrToDefsMap.mapValues { it.value.map { it.binder } }
-  val nameToStmtsMap = reverse(instrToNamesMap)
+  val nameToStmtsMap = reverse(cfg.transitions.keys.map { it to cfg.get(it).lNames }.toMap())
 
-  val res = nameToStmtsMap.mapValues { (name, instrs) ->
+  /*val domFr = analyses.cfgAnalyses.dom.domFrontier
+    val res = nameToStmtsMap.mapValues { (name, instrs) ->
     val queue = instrs.toMutableList()
-    val res = mutableSetOf<Instr>()
+    val res = mutableSetOf<T>()
     var i = 0
     while (i < queue.size) {
       val instr = queue[i]
@@ -404,37 +509,12 @@ fun calcPhiNodes2(analyses: FuncAnalyses): Map<Instr, Set<String>> {
     }
     res.toSet()
   }
-  return reverse(res).mapValues { it.value.toSet() }
-}
+  val finalRes = reverse(res).mapValues { it.value.toSet() }*/
 
-fun calcPhiNodes(analyses: FuncAnalyses): Map<Instr, Set<String>> {
-  val cfg = analyses.cfg
-  val liveVars = analyses.cfgAnalyses.liveVars
-  val reachingDefs = analyses.cfgAnalyses.reachingDefs
-  val doms = analyses.cfgAnalyses.dom.domsOf
-  val rdomFr = reverse(analyses.cfgAnalyses.dom.domFrontier)
-
-  val phiNodes = rdomFr.keys.map { n ->
-    val preds = cfg.reverse[n]!!
-    if (preds.any { n in doms[it]!! }) {
-      //println("cycle")
-    } else {
-      //println("non cycle")
-    }
-
-    val rdefs = reachingDefs[n to "in"]!!
-    val live = liveVars[n to "in"]!!
-    val reaching = rdefs.map { it.binder }.toSet()
-    val shouldBeAvailableVars = live.intersect(reaching)
-    val nameToValsMap = shouldBeAvailableVars.map { it to mutableSetOf<Val>() }.toMap().toMutableMap()
-    preds.forEach { i ->
-      val vals = reachingDefs[i to "out"]!!.groupBy { it.binder }
-      shouldBeAvailableVars.forEach { v ->
-        val vs = vals[v] ?: fail("$v has no reaching definition at $i")
-        nameToValsMap[v]!!.addAll(vs)
-      }
-    }
-    n to nameToValsMap.filter { it.value.size > 1 }.keys
-  }.toMap()
-  return phiNodes
+  val domFrPlus = analyses.cfgAnalyses.dom.domFrontierPlus
+  val minPhiFuncs = nameToStmtsMap
+      .mapValues { it.value.flatMap { n -> domFrPlus[n]!! }.toSet() }
+  // prune phi funcs
+  return reverse(minPhiFuncs).mapValues { liveVars[it.key to "in"]!!.intersect(it.value) }
+      .filterValues { it.isNotEmpty() }
 }

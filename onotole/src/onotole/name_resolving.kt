@@ -5,8 +5,8 @@ interface NameResolver<T> {
   fun resolve(name: identifier): T?
   operator fun contains(name: identifier) = resolve(name) != null
   operator fun get(name: identifier) = resolve(name)
-  fun copy(names: Map<String, T>) = VarCtx(this, names.toMutableMap())
-  fun copy(names: Collection<Pair<String, T>>) = VarCtx(this, names.toMap().toMutableMap())
+  fun copy(names: Map<String, T>) = VarCtx(this, names)
+  fun copy(names: Collection<Pair<String, T>>) = VarCtx(this, names.toMap())
 }
 
 class MapResolver<T>(val map: Map<String,T>): NameResolver<T> {

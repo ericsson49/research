@@ -541,13 +541,13 @@ fun Sort.asType(): RTType = when(this) {
   else -> fail("")
 }
 
-class ExprTypes(val ctx: NameResolver<Sort>, val cache: IdentityHashMap<TExpr, Sort>) {
+class ExprTypes(val ctx: NameResolver<Sort>, private val cache: IdentityHashMap<TExpr, Sort>) {
   fun new(newCtx: NameResolver<Sort>) = ExprTypes(newCtx, cache)
   fun new(newVars: Map<String, Sort>) = new(ctx.copy(newVars))
   fun new(newVars: Collection<Pair<String, Sort>>) = new(ctx.copy(newVars))
   operator fun get(e: TExpr): Sort = cache.getOrPut(e) { getExprType(e) }
-  fun getExprType(e: TExpr) = getExprType(e, ctx)
-  fun getExprType(e: TExpr, ctx: NameResolver<Sort>): Sort {
+  private fun getExprType(e: TExpr) = getExprType(e, ctx)
+  private fun getExprType(e: TExpr, ctx: NameResolver<Sort>): Sort {
     val res = when (e) {
       is Num -> TPyInt
       is Str -> TPyStr

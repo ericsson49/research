@@ -59,12 +59,10 @@ fun _inferTypes_FunctionDef(f: FunctionDef): Map<String,Sort> {
 }
 
 fun _inferTypes_CFG(ssa: CFGraphImpl): Map<String, RTType> {
-  val globalCtx = TypeResolver.topLevelResolver
   val typer = TypeResolver.topLevelTyper
 
   fun typeF(e: TExpr, varTypes: Map<String, RTType>): RTType {
-    val ctx = globalCtx.copy(varTypes)
-    val et = typer.new(ctx)
+    val et = typer.updated(varTypes)
     return et[e].asType()
   }
 

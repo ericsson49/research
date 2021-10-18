@@ -103,7 +103,7 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
     /*is LVTuple -> fail("not supported $lhs")*/
   }
 
-  override fun genFunHandle(e: TExpr, type: Sort, fh: FunSignature, argRefs: List<ArgRef>, args: List<RExpr>, kwdArgs: List<Pair<String, RExpr>>, exprTypes: ExprTypes): Pair<RExpr, List<String>> {
+  override fun genFunHandle(e: TExpr, type: Sort, fh: FunSignature, argRefs: List<ArgRef>, args: List<RExpr>, kwdArgs: List<Pair<String, RExpr>>, exprTypes: ExprTyper): Pair<RExpr, List<String>> {
     val resArgs = argRefs.map { ar ->
       render(when (ar) {
         is PositionalRef -> args[ar.idx]
@@ -230,7 +230,7 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
   }
 
   override fun genValueClass(name: String, base: TExpr) {
-    val baseType = parseType(exprTypes, base)
+    val baseType = parseType(exprTyper, base)
     val baseName = typeToStr(baseType)
     println("type $name = $baseName")
     println("function method ${name}_(x: $baseName): $name { x }")

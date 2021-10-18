@@ -139,7 +139,7 @@ class KotlinGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, im
     return mkCall(tupleName, elts)
   }
 
-  override fun genFunHandle(e: TExpr, type: Sort, fh: FunSignature, argRefs: List<ArgRef>, args: List<RExpr>, kwdArgs: List<Pair<String, RExpr>>, exprTypes: ExprTypes): Pair<RExpr, List<String>> {
+  override fun genFunHandle(e: TExpr, type: Sort, fh: FunSignature, argRefs: List<ArgRef>, args: List<RExpr>, kwdArgs: List<Pair<String, RExpr>>, exprTypes: ExprTyper): Pair<RExpr, List<String>> {
     val resArgs = args.map { render(it) }.plus(kwdArgs.map { it.first + " = " + render(it.second) })
     val fh = if (type is Clazz) {
       RLit(typeToStr(type.toInstance()))
@@ -241,7 +241,7 @@ class KotlinGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, im
       return attrs.plus(ti.baseType?.let { getBaseFields(it as NamedType) } ?: emptyList())
     }
 
-    val baseFields = getBaseFields(parseType(exprTypes, base) as NamedType)
+    val baseFields = getBaseFields(parseType(exprTyper, base) as NamedType)
     val baseStrFields = baseFields
         .map {
           val fTyp = typeToStr(it.second)

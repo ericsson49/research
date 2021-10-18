@@ -575,7 +575,7 @@ fun genCodeFromDef(gen: BaseGen, mod: ModuleRef, d: TopLevelDef) {
   }
 }
 
-private fun processClass(typer: ExprTypes, pkgName: String, c: ClassDef) {
+private fun processClass(typer: ExprTyper, pkgName: String, c: ClassDef) {
   val clsName = pkgName + "." + c.name
   if (clsName in TypeResolver.nameToType)
     return

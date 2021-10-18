@@ -14,7 +14,7 @@ fun findMutableRefs(f: FunctionDef, cfg: CFGraphImpl, pds: Map<String,PurityDesc
     val mutableArgs = pd.impureArgs.map { funArgs[it].first.arg }.toSet()
 
     val varTypes = inferTypes_FD(f)
-    val exprTypes = TypeResolver.topLevelTyper.new(TypeResolver.topLevelResolver.copy(varTypes))
+    val exprTypes = TypeResolver.topLevelTyper.updated(varTypes)
     fun getType(e: TExpr): RTType = exprTypes[e].asType()
     fun isValueType(e: TExpr): Boolean {
       val t = getType(e).asType()

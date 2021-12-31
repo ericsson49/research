@@ -4,39 +4,39 @@ abstract class ForwardAnalysis<T> {
   val before = StmtAnnoMap<T>()
   val after = StmtAnnoMap<T>()
 
-  abstract fun procAssign(t: TExpr, v: TExpr, p: Stmt, ins: T): T
+  abstract fun procAssign(t: TExpr, v: TExpr, p: Stmt, ctx: T): T
   abstract fun merge(a: T, b: T): T
   abstract val bottom: T
 
   fun freshVar(): Name = TODO()
 
-  fun procStmt(s: Stmt, ins: T): T = when(s) {
-    is Assign -> procAssign(s.target, s.value, s, ins)
-    is AnnAssign -> s.value?.let { procAssign(s.target, it, s, ins) } ?: ins
-    is AugAssign -> procAssign(s.target, BinOp(s.target, s.op, s.value), s, ins)
+  fun procStmt(s: Stmt, ctx: T): T = when(s) {
+    is Assign -> procAssign(s.target, s.value, s, ctx)
+    is AnnAssign -> s.value?.let { procAssign(s.target, it, s, ctx) } ?: ctx
+    is AugAssign -> procAssign(s.target, BinOp(s.target, s.op, s.value), s, ctx)
     is If -> {
       val tmp: Name = freshVar()
-      val testOut = procAssign(tmp, s.test, s, ins)
+      val testOut = procAssign(tmp, s.test, s, ctx)
       val bodyOut = analyze(s.body, testOut)
       val orelseOut = analyze(s.orelse, testOut)
       merge(bodyOut, orelseOut)
     }
     is While -> {
       val tmp: Name = freshVar()
-      val testIn = merge(ins, after[s.body[s.body.size-1]] ?: bottom)
+      val testIn = merge(ctx, after[s.body[s.body.size-1]] ?: bottom)
       val testOut = procAssign(tmp, s.test, s, testIn)
       val bodyOut = analyze(s.body, testOut)
       testOut
     }
     else -> TODO()
   }
-  private fun analyzeStmt(s: Stmt, ins: T): T {
-    before[s] = ins
-    val res = procStmt(s, ins)
+  private fun analyzeStmt(s: Stmt, ctx: T): T {
+    before[s] = ctx
+    val res = procStmt(s, ctx)
     after[s] = res
     return res
   }
-  fun analyze(c: List<Stmt>, ins: T): T = c.fold(ins, { acc, s -> analyzeStmt(s, acc)})
+  fun analyze(c: List<Stmt>, ctx: T): T = c.fold(ctx, { acc, s -> analyzeStmt(s, acc)})
 }
 
 abstract class BackwardAnalysis<T> {
@@ -79,6 +79,10 @@ fun liveVarAnalysis(e: TExpr): Set<String> {
     is Starred -> liveVarAnalysis(e.value)
     is Name -> setOf(e.id)
     is Tuple -> liveVarAnalysis(e.elts)
+    is PyList -> liveVarAnalysis(e.elts)
+    is PySet -> liveVarAnalysis(e.elts)
+    is PyDict -> liveVarAnalysis(e.keys.plus(e.values))
+    is Let -> liveVarAnalysis(e.value).minus(e.bindings.map { it.arg!! }.plus(e.bindings.map { liveVarAnalysis(it.value) }.flatten()))
     else -> fail("unsupported $e")
   }
 }

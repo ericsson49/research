@@ -14,7 +14,7 @@ fun main() {
           Assert(Compare(mkName("r"), listOf(ECmpOp.Eq), listOf(BinOp(Num(2), EBinOp.Mult, mkName("k")))))
       )
   )
-  val f2 = convertToAndOutOfSSA(desugar(f))
+  val f2 = convertToAndOutOfSSA(desugarExprs(f))
   pyPrintFunc(f2)
   val cfg = convertToCFG(f2)
   printCFG(cfg)

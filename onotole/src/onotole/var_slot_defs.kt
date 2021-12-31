@@ -286,7 +286,7 @@ fun main() {
 
   funcs.forEach {
     println(it.name)
-    val varInfo = varSlotAnalysis(desugar(it))
+    val varInfo = varSlotAnalysis(desugarExprs(it))
 
     //varInfo.slots.forEach(::println)
     varInfo.newSlots.values.forEach(::println)

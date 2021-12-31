@@ -125,12 +125,12 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
   }
 
   inner class PureFormStmtTransformer(): SimpleStmtTransformer() {
-    override fun doTransform(s: Stmt): List<Stmt> {
+    override fun doTransform(s: Stmt): List<Stmt>? {
       return transformStmt(s)
     }
   }
 
-  fun transformStmt(s: Stmt): List<Stmt> {
+  fun transformStmt(s: Stmt): List<Stmt>? {
     return when(s) {
       is Assign -> {
         val (tgts, expr) = transformExpr(s.value, s.target)
@@ -154,7 +154,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
       is Return -> {
         val pd = purityDescriptor
         if (pd.impureArgs.isEmpty()) {
-          listOf(s)
+          null
         } else {
           val impArgs: List<TExpr> = pd.impureArgs.map {  mkName(f.args.args[it].arg) }
           if (pd.procedure && s.value != null && s.value != NameConstant(null)) fail()
@@ -167,7 +167,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
           listOf(Return(retVal))
         }
       }
-      else -> listOf(s)
+      else -> null
     }
   }
 
@@ -395,11 +395,11 @@ fun main() {
 }
 
 fun purify1(f: FunctionDef, descrs: Map<String, PurityDescriptor>): FunctionDef {
-  val fd2 = desugar(transformForEnumerate(f))
+  val fd2 = desugarExprs(transformForEnumerate(f))
   val cfg = convertToCFG(fd2)
   val analyses = getFuncAnalyses(cfg)
   val ssa = convertToSSA(cfg)
-  val mutRefs = findMutableRefs(fd2, ssa, descrs)
+  val mutRefs = findMutableAliases(fd2, ssa, descrs[fd2.name])
   val (cfg2, renamer) = destructSSA(ssa, analyses.cfgAnalyses.dom)
   val fd3 = reconstructFuncDef(fd2, cfg2)
   val mutRefs2 = mutRefs.mapValues { it.value.map { it.copy(second = renamer.renameExpr(it.second)) } }
@@ -407,16 +407,48 @@ fun purify1(f: FunctionDef, descrs: Map<String, PurityDescriptor>): FunctionDef 
   return PureFormConvertor(fd3, descrs, mutRefs).transformFunction()
 }
 fun purify2(f: FunctionDef, descrs: Map<String, PurityDescriptor>): FunctionDef {
-  val fd2 = desugar(transformForEnumerate(f))
+  val fd2 = desugarExprs(transformForEnumerate(f))
   val cfg = convertToCFG(fd2)
   val analyses = getFuncAnalyses(cfg)
   val ssa = convertToSSA(cfg)
-  val mutRefs = findMutableRefs(fd2, ssa, descrs)
+  val aliases = findMutableAliases(fd2, ssa, descrs[fd2.name])
   val (cfg2, renamer) = destructSSA(ssa, analyses.cfgAnalyses.dom)
-  val mutRefs2 = mutRefs.mapValues { it.value.map { it.copy(second = renamer.renameExpr(it.second)) } }
-  if (mutRefs != mutRefs2) TODO()
-  val inlines = mutRefs.flatMap { it.value }.toMap()
+  val mutRefs2 = aliases.mapValues { it.value.map { it.copy(second = renamer.renameExpr(it.second)) } }
+  if (aliases != mutRefs2) TODO()
+  val inlines = aliases.flatMap { it.value }.toMap()
+  // check inlines
+  fun checkAccessPath(e: TExpr): Boolean = when(e) {
+    is Name -> true
+    is Attribute -> checkAccessPath(e.value)
+    is Subscript -> {
+      checkAccessPath(e.value) && when(val s = e.slice) {
+        is Index -> isNameOrConst(s.value)
+        is Slice -> listOf(s.lower, s.upper, s.step).all(::isNameOrConst)
+        else -> TODO()
+      }
+    }
+    else -> TODO()
+  }
+  if (!inlines.values.all(::checkAccessPath))
+    println()
+
+
   val cfg3 = renameVarsInCFG(cfg2, ExprRenamer2(inlines, emptyMap()))
-  val fd3 = reconstructFuncDef(fd2, cfg3)
-  return PureFormConvertor(fd3, descrs).transformFunction()
+  // drop alias definitions
+  val blocks = cfg3.blocks.mapValues {
+    val newStmts = it.value.stmts.filterNot { s -> s.lval is VarLVal && s.lval.v in inlines }
+    BasicBlock(newStmts, it.value.branch)
+  }
+  val updatedBlockLabels = cfg3.blocks.keys.filter { cfg3.blocks[it]!!.stmts.size != blocks[it]!!.stmts.size }
+  val newIfs = cfg3.ifs.map {
+    if (it.head.first in updatedBlockLabels) {
+      val ifStmt = cfg3.blocks[it.head.first]!!.stmts[it.head.second]
+      val newIfIdx = blocks[it.head.first]!!.stmts.indexOf(ifStmt)
+      if (newIfIdx == -1) fail()
+      IfInfo2(it.head.first to newIfIdx, it.test, it.body, it.orelse, it.exit)
+    } else it
+  }
+  val cfg4 = CFGraphImpl(blocks.toList(), cfg3.loops, newIfs)
+  val fd4 = reconstructFuncDef(fd2, cfg4)
+  return PureFormConvertor(fd4, descrs).transformFunction()
 }

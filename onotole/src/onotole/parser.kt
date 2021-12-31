@@ -425,9 +425,9 @@ fun filterOutDefinitions(defs: Collection<TopLevelDef>, specPhase: String): List
 }
 
 fun transformAndDesugar(def: TopLevelDef): TopLevelDef = when(def) {
-  is ConstTLDef -> def.copy(const = desugar(def.const) as Assign)
-  is ClassTLDef -> def.copy(clazz = desugar(def.clazz))
-  is FuncTLDef -> def.copy(func = desugar(transformForOps(def.func)))
+  is ConstTLDef -> def.copy(const = desugarExprs(def.const) as Assign)
+  is ClassTLDef -> def.copy(clazz = desugarExprs(def.clazz))
+  is FuncTLDef -> def.copy(func = desugarExprs(transformForOps(def.func)))
 }
 
 object PhaseInfo {
@@ -512,7 +512,8 @@ fun main(args: Array<String>) {
   }
   TypeResolver.importFromPackage(specVersion)
 
-  val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
+  val gen = CGen(specVersion, setOf("bls", "ssz", specVersion))
+  //val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
   //val gen = KotlinGen(specVersion, setOf("bls", "ssz", specVersion))
   //val gen = JavaGen("beacon_java." + specVersion, "beacon_java_generated/src", specVersion, setOf("bls", "ssz", specVersion))
   val preprocessedDefs = tlDefs.map {
@@ -564,7 +565,7 @@ fun genCodeFromDef(gen: BaseGen, mod: ModuleRef, d: TopLevelDef) {
   when(d) {
     is ConstTLDef -> {
       if (d.name.toList().all { it.toUpperCase() == it })
-        mod.genTopLevel(d.name, (desugar(d.const) as Assign).value)
+        mod.genTopLevel(d.name, (desugarExprs(d.const) as Assign).value)
     }
     is ClassTLDef -> {
       mod.genClass(d.clazz)
@@ -636,7 +637,7 @@ private fun processClass(typer: ExprTyper, pkgName: String, c: ClassDef) {
 }
 
 private fun processTopLevel(pkgName: String, a: Assign) {
-  val a = desugar(a) as Assign
+  val a = desugarExprs(a) as Assign
   TypeResolver.registerTopLevelAssign(
           pkgName + "." + (a.target as Name).id,
           TypeResolver.topLevelTyper[a.value].asType())

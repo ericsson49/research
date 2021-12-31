@@ -90,6 +90,25 @@ fun splitExpression(e: TExpr, freshNames: FreshNames): Pair<List<Assign>,TExpr> 
   }
 }
 
+fun convertComprehension(mapBody: TExpr, c: Comprehension, last: Boolean): TExpr {
+  fun targetToArgs(t: TExpr): List<Arg> = when(t) {
+    is Name -> listOf(Arg(t.id))
+    is Tuple -> t.elts.flatMap { if (it is Name) targetToArgs(it) else fail() }
+    else -> fail()
+  }
+  val args = Arguments(args = targetToArgs(c.target))
+  val filtered = c.ifs.fold(c.iter) { iter, filterBody ->
+    mkCall("filter", listOf(Lambda(args, filterBody), iter))
+  }
+  return mkCall(if (last) "map" else "flat_map", listOf(Lambda(args, mapBody), filtered))
+}
+fun convertComprehensions(elt: TExpr, cs: List<Comprehension>): TExpr {
+  return cs.foldRight(elt to true) { c, p ->
+    val (body, last) = p
+    convertComprehension(body, c, last) to false
+  }.first
+}
+
 class FreshNames {
   val tmpVars = mutableSetOf<String>()
   fun fresh(prefix: String = "tmp"): String {
@@ -172,6 +191,7 @@ abstract class ExprTransformer {
 }
 
 class ExprToCalls(): ExprTransformer() {
+  val tmpVars = FreshNames()
   fun mkCall(name: String, args: List<TExpr>) = Call(Name(name, ExprContext.Load), args, emptyList())
   fun transform2(body: TExpr, cs: List<Comprehension>): TExpr {
     if (cs.size != 1) fail()
@@ -190,31 +210,70 @@ class ExprToCalls(): ExprTransformer() {
     return transform(mkCall("<map>", listOf(mapL, coll)))
   }
   override fun transform(e: TExpr, store: Boolean): TExpr {
-    return when(e) {
+    return when (e) {
       is BinOp -> mkCall("<${e.op}>", transform(listOf(e.left, e.right)))
-      is BoolOp -> mkCall("<${e.op}>", transform(e.values))
+      is BoolOp -> {
+        val redOp: (TExpr, TExpr) -> TExpr = when (e.op) {
+          EBoolOp.And -> { a, b -> IfExp(a, b, NameConstant(false)) }
+          EBoolOp.Or -> { a, b -> IfExp(a, NameConstant(true), b) }
+        }
+        //mkCall("<${e.op}>", transform(e.values))
+        transform(e.values).reduceRight(redOp)
+      }
       is Compare -> {
-        val exprs = listOf(e.left).plus(e.comparators.subList(0, e.comparators.size-1))
+        fun convert(l: TExpr, rest: List<Pair<ECmpOp, TExpr>>): TExpr {
+          if (rest.isEmpty()) {
+            TODO()
+          } else {
+            val (op, r) = rest[0]
+            val needTmp1 = l !is Constant && l !is Name
+            val needTmp2 = rest.size > 1 && r !is Constant && r !is Name
+
+            val (bs1, v1) = if (needTmp1 && needTmp2) {
+              val tmp = tmpVars.fresh("tmp_c")
+              listOf(tmp to transform(l)) to mkName(tmp)
+            } else emptyList<Pair<String, TExpr>>() to l
+            val (bs2, v2) = if (needTmp2) {
+              val tmp = tmpVars.fresh("tmp_c")
+              listOf(tmp to transform(r)) to mkName(tmp)
+            } else emptyList<Pair<String, TExpr>>() to r
+            val cmp = transform(mkCall("<$op>", listOf(v1, v2)))
+            val res = if (rest.size > 1) {
+              val next = convert(v2, rest.subList(1, rest.size))
+              IfExp(cmp, next, NameConstant(false))
+            } else cmp
+            val bs = bs1.plus(bs2)
+            return if (bs.isNotEmpty())
+              Let(bs.map { Keyword(it.first, it.second) }, res)
+            else res
+          }
+        }
+        convert(e.left, e.ops.zip(e.comparators))
+
+
+        /*val exprs = listOf(e.left).plus(e.comparators.subList(0, e.comparators.size-1))
                 .zip(e.ops).zip(e.comparators).map { (l_o, r) ->
           val (l, o) = l_o
           mkCall("<$o>", listOf(l, r))
         }
         if (exprs.size == 1) transform(exprs[0])
-        else transform(BoolOp(op = EBoolOp.And, values = exprs))
+        else transform(BoolOp(op = EBoolOp.And, values = exprs))*/
       }
       is UnaryOp -> mkCall("<${e.op}>", listOf(transform(e.operand)))
-      is PyList -> mkCall("<list>", transform(e.elts))
-      is PySet -> mkCall("<set>", transform(e.elts))
-      is PyDict -> mkCall("<dict>", e.keys.zip(e.values).map {
-        Tuple(elts = listOf(it.first, it.second), ctx = if (store) ExprContext.Store else ExprContext.Load) })
+      //is PyList -> mkCall("<list>", transform(e.elts))
+      //is PySet -> mkCall("<set>", transform(e.elts))
+      //is PyDict -> mkCall("<dict>", e.keys.zip(e.values).map {
+      //  Tuple(elts = listOf(it.first, it.second), ctx = if (store) ExprContext.Store else ExprContext.Load) })
       is GeneratorExp -> e.copy(elt = transform(e.elt), generators = e.generators.map {
         it.copy(target = transform(it.target, true), iter = transform(it.iter), ifs = transform(it.ifs))
       })
       is ListComp -> mkCall("list", listOf(transform(GeneratorExp(e.elt, e.generators))))
       is SetComp -> mkCall("set", listOf(transform(GeneratorExp(e.elt, e.generators))))
       is DictComp -> mkCall("dict", listOf(transform(GeneratorExp(
-              Tuple(elts = listOf(e.key, e.value), ctx = ExprContext.Load), e.generators
+          Tuple(elts = listOf(e.key, e.value), ctx = ExprContext.Load), e.generators
       ))))
+      is Let ->
+        TODO()
       else -> defaultTransform(e, store)
     }
   }
@@ -244,7 +303,9 @@ class LambdaToFuncs(val outerName: String, val localVars: Set<String>): ExprTran
 
 fun mkCtx(store: Boolean) = if (store) ExprContext.Store else ExprContext.Load
 fun mkName(v: String, store: Boolean = false) = Name(v, mkCtx(store))
+fun mkTuple(vararg elts: TExpr) = Tuple(elts.toList(), ExprContext.Load)
 fun mkIndex(i: Int) = Index(Num(i))
+fun mkIndex(vararg indices: TExpr) = Index(if (indices.size == 1) indices[0] else Tuple(indices.toList(), ExprContext.Load))
 fun mkAttribute(v: String, a: identifier, store: Boolean = false) = mkAttribute(mkName(v), a, store)
 fun mkAttribute(e: TExpr, a: identifier, store: Boolean = false) = Attribute(e, a, mkCtx(store))
 fun mkSubscript(v: String, s: TSlice, store: Boolean = false) = mkSubscript(mkName(v), s, store)
@@ -409,11 +470,11 @@ abstract class StmtVisitor<Ctx> {
 abstract class ExprVisitor<Ctx>: StmtVisitor<Ctx>() {
   abstract fun visitExpr(e: TExpr, ctx: Ctx)
   fun procExprs(c: List<TExpr>, ctx: Ctx) = c.forEach { procExpr(it, ctx) }
-  fun procComprehension(c: Comprehension, ctx: Ctx) {
+  open fun procComprehension(c: Comprehension, ctx: Ctx) {
     procExpr(c.iter, ctx)
     procExprs(c.ifs, ctx)
   }
-  fun procExpr(e: TExpr, ctx: Ctx) {
+  open fun procExpr(e: TExpr, ctx: Ctx) {
     visitExpr(e, ctx)
     when(e) {
       is BinOp -> procExprs(listOf(e.left, e.right), ctx)
@@ -431,6 +492,7 @@ abstract class ExprVisitor<Ctx>: StmtVisitor<Ctx>() {
       is PyList -> procExprs(e.elts, ctx)
       is PySet -> procExprs(e.elts, ctx)
       is PyDict -> procExprs(e.keys + e.values, ctx)
+      is IfExp -> procExprs(listOf(e.test, e.body, e.orelse), ctx)
       is Lambda -> procExpr(e.body, ctx)
       is GeneratorExp -> {
         procExpr(e.elt, ctx)
@@ -490,8 +552,8 @@ fun gatherLocalVars(f: FunctionDef): Set<String> {
   return res.plus(argParamNames)
 }
 
-fun desugar(s: Stmt): Stmt = ExprToCalls().procStmt(s)
-fun desugar(f: FunctionDef): FunctionDef {
+fun desugarExprs(s: Stmt): Stmt = ExprToCalls().procStmt(s)
+fun desugarExprs(f: FunctionDef): FunctionDef {
   val body = ExprToCalls().procStmts(f.body)
   //val localVars = gatherLocalVars(f)
   //val lambdaToFuncs = LambdaToFuncs(f.name, localVars)
@@ -499,36 +561,37 @@ fun desugar(f: FunctionDef): FunctionDef {
   return f.copy(body = body)
   //return Desugar().procFunc(f)
 }
-fun desugar(c: ClassDef): ClassDef = c.copy(body = c.body.map(::desugar))
+fun desugarExprs(c: ClassDef): ClassDef = c.copy(body = c.body.map(::desugarExprs))
 
+
+fun tupleAssignDestructor(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
+  return if (s is Assign && s.target is Tuple) {
+    val tmpName = tmpVars.fresh("td")
+    listOf(mkAssign(mkName(tmpName, true), s.value)).plus(
+        s.target.elts.mapIndexed { i,e -> mkAssign(e, mkSubscript(tmpName, mkIndex(i))) }
+    )
+  } else null
+}
 class TupleAssignDestructor(): SimpleStmtTransformer() {
   val tmpVars = FreshNames()
-  override fun doTransform(s: Stmt): List<Stmt> = when(s) {
-    is Assign -> if (s.target is Tuple) {
-      val tmpName = tmpVars.fresh("td")
-      listOf(mkAssign(mkName(tmpName, true), s.value)).plus(
-          s.target.elts.mapIndexed { i,e -> mkAssign(e, mkSubscript(tmpName, mkIndex(i))) }
-      )
-    } else listOf(s)
-    else -> listOf(s)
-  }
+  override fun doTransform(s: Stmt): List<Stmt>? = tupleAssignDestructor(tmpVars, s)
 }
 fun destructTupleAssign(f: FunctionDef): FunctionDef {
   return TupleAssignDestructor().transform(f)
 }
 
+fun forLoopsDestructor(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
+   return if (s is For) {
+    val tmp = tmpVars.fresh("tmp_for")
+    listOf(
+        mkAssign(mkName(tmp, true), mkCall("iter", listOf(s.iter))),
+        While(mkCall("has_next", listOf(mkName(tmp))), listOf(mkAssign(s.target, mkCall("next", listOf(mkName(tmp))))).plus(s.body))
+    )
+  } else null
+}
 class ForLoopsDestructor(): SimpleStmtTransformer() {
   val tmpVars = FreshNames()
-  override fun doTransform(s: Stmt): List<Stmt> = when(s) {
-    is For -> if (s.iter !is Name) {
-      val tmp = tmpVars.fresh("fld")
-      listOf(
-          mkAssign(mkName(tmp, true), mkCall("iter", listOf(s.iter))),
-          While(mkCall("has_next", listOf(mkName(tmp))), listOf(mkAssign(s.target, mkCall("next", listOf(mkName(tmp))))).plus(s.body))
-      )
-    } else listOf(s)
-    else -> listOf(s)
-  }
+  override fun doTransform(s: Stmt): List<Stmt>? = forLoopsDestructor(tmpVars, s)
 }
 fun destructForLoops(f: FunctionDef): FunctionDef = ForLoopsDestructor().transform(f)
 

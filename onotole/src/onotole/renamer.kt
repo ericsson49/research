@@ -31,6 +31,9 @@ class ExprRenamer2(val inRenames: Map<String, TExpr>, val outRenames: Map<String
   fun renameLambda(l: Lambda): Lambda {
     return l.copy(args = renameArgs(l.args), body = renameInFuncBody(gatherIdentifiers(l.args), l.body))
   }
+  fun renameLet(l: Let): Let {
+    return l.copy(bindings = l.bindings.map(::renameKwd), value = renameInFuncBody(l.bindings.map { it.arg!! }, l.value))
+  }
   fun renameComprehension(er: ExprRenamer2, c: Comprehension): Pair<ExprRenamer2, Comprehension> {
     val names = getVarNamesInStoreCtx(c.target)
     val newRenamer = ExprRenamer2(er.inRenames.minus(names), emptyMap())
@@ -60,9 +63,13 @@ class ExprRenamer2(val inRenames: Map<String, TExpr>, val outRenames: Map<String
         e.copy(elt = renamer.renameExpr(e.elt), generators = comps)
       }
       is Tuple -> e.copy(elts = renameExprs(e.elts))
+      is PyList -> e.copy(elts = renameExprs(e.elts))
+      is PySet -> e.copy(elts = renameExprs(e.elts))
+      is PyDict -> e.copy(keys = renameExprs(e.keys), values = renameExprs(e.values))
       is Starred -> e.copy(value = renameExpr(e.value))
       is Call -> e.copy(func = renameExpr(e.func), args = renameExprs(e.args), keywords = e.keywords.map(::renameKwd))
       is Lambda -> renameLambda(e)
+      is Let -> renameLet(e)
       else -> fail("Not supported $e")
     }
   }
@@ -94,6 +101,9 @@ class ExprRenamer(val inRenames: Map<String, String>, val outRenames: Map<String
   fun renameLambda(l: Lambda): Lambda {
     return l.copy(args = renameArgs(l.args), body = renameInFuncBody(gatherIdentifiers(l.args), l.body))
   }
+  fun renameLet(l: Let): Let {
+    return l.copy(bindings = l.bindings.map(::renameKwd), value = renameInFuncBody(l.bindings.map { it.arg!! }, l.value))
+  }
   fun renameComprehension(er: ExprRenamer, c: Comprehension): Pair<ExprRenamer, Comprehension> {
     val names = getVarNamesInStoreCtx(c.target)
     val newRenamer = ExprRenamer(er.inRenames.minus(names), emptyMap())
@@ -123,9 +133,13 @@ class ExprRenamer(val inRenames: Map<String, String>, val outRenames: Map<String
         e.copy(elt = renamer.renameExpr(e.elt), generators = comps)
       }
       is Tuple -> e.copy(elts = renameExprs(e.elts))
+      is PyList -> e.copy(elts = renameExprs(e.elts))
+      is PySet -> e.copy(elts = renameExprs(e.elts))
+      is PyDict -> e.copy(keys = renameExprs(e.keys), values = renameExprs(e.values))
       is Starred -> e.copy(value = renameExpr(e.value))
       is Call -> e.copy(func = renameExpr(e.func), args = renameExprs(e.args), keywords = e.keywords.map(::renameKwd))
       is Lambda -> renameLambda(e)
+      is Let -> renameLet(e)
       else -> fail("Not supported $e")
     }
   }

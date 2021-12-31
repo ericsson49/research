@@ -55,6 +55,8 @@ enum class ExprContext {
 }
 
 sealed class TExpr
+data class CTValue(val vtype: VType): TExpr()
+data class Let(val bindings: List<Keyword>, val value: TExpr): TExpr()
 data class BoolOp(val op: EBoolOp, val values: List<TExpr>): TExpr()
 //class NamedExpr(target: TExpr, value: TExpr): TExpr()
 data class BinOp(val left: TExpr, val op: EBinOp, val right: TExpr): TExpr()

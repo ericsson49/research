@@ -79,7 +79,6 @@ object PyLib {
         "len" to mkSimpleResolver { TPyInt },
         "zip" to PyLib::zipResolver,
         "enumerate" to PyLib::enumerateResolver,
-        "map" to PyLib::mapResolver,
         "filter" to PyLib::fitlerResolver,
         "list" to PyLib::listResolver,
         "iter" to PyLib::iterResolver,
@@ -110,10 +109,16 @@ object PyLib {
         "min" to PyLib::maxMinResolver,
         "sorted" to PyLib::sortedResolver
     )
+    val resolvers3 = listOf(
+        "map" to PyLib::mapResolver,
+    )
     resolvers.forEach {
       TypeResolver.registerFuncResolver(it.first, it.second)
     }
     resolvers2.forEach {
+      TypeResolver.registerFuncResolver(it.first, it.second)
+    }
+    resolvers3.forEach {
       TypeResolver.registerFuncResolver(it.first, it.second)
     }
     funDef("any", listOf(TPySequence(TPyObject)), TPyBool)
@@ -286,10 +291,10 @@ object PyLib {
     }
   }
 
-  private fun mapResolver(argTypes: List<RTType>): RTType {
+  private fun mapResolver(ctx: NameResolver<Sort>, argTypes: List<RTType>): RTType {
     return if (argTypes.size == 2) {
       val elemTyp = getIterableElemType(argTypes[1])
-      TPySequence(argTypes[0].resolveReturnType(listOf(elemTyp), emptyList()).first.retType)
+      TPySequence(argTypes[0].resolveReturnType(ctx, listOf(elemTyp), emptyList()).first.retType)
     } else {
       fail("unsupported")
     }

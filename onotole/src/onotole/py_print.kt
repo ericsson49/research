@@ -40,7 +40,7 @@ fun pyPrint(op: EUnaryOp) = when(op) {
   EUnaryOp.UAdd -> "+"
   EUnaryOp.USub -> "-"
 }
-fun pyPrint(c: Comprehension): String = "for " + pyPrint(c.target) + " in " + pyPrint(c.iter) + c.ifs.joinToString { " " + pyPrint(it) }
+fun pyPrint(c: Comprehension): String = "for " + pyPrint(c.target) + " in " + pyPrint(c.iter) + c.ifs.joinToString { " if " + pyPrint(it) }
 
 fun pyPrint(e: TExpr): String {
   return when(e) {
@@ -64,7 +64,13 @@ fun pyPrint(e: TExpr): String {
         val args = e.args
         val expr = when(op) {
           "list" -> PyList(args, ExprContext.Load)
-          "dict" -> TODO() // TypeResolver.resolveDictType(args)
+          "dict" -> {
+            val (keys, values) = args.map { t ->
+              t as Tuple
+              t.elts[0] to t.elts[1]
+            }.unzip()
+            PyDict(keys, values)
+          }
           in TypeResolver.binOps -> if (e.args.size == 2) BinOp(args[0], EBinOp.valueOf(op), args[1]) else fail()
           in TypeResolver.boolOps -> BoolOp(EBoolOp.valueOf(op), args)
           in TypeResolver.unaryOp -> if (args.size == 1) UnaryOp(EUnaryOp.valueOf(op), args[0]) else fail()
@@ -73,17 +79,19 @@ fun pyPrint(e: TExpr): String {
         }
         pyPrint(expr)
       } else {
-        pyPrint(e.func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
+        val func = pyPrint(e.func)
+        (if (e.func is Lambda) "($func)" else func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
       }
     }
     is Subscript -> pyPrint(e.value) + "[" + pyPrint(e.slice) + "]"
     is Attribute -> pyPrint(e.value) + "." + e.attr
     is Lambda -> "lambda " + e.args.args.joinToString(", ") { pyPrint(it) } + ": " + pyPrint(e.body)
     is IfExp -> pyPrint(e.body) + " if (" + pyPrint(e.test) + ") else " + pyPrint(e.orelse)
-    is GeneratorExp -> pyPrint(e.elt) + " " + e.generators.joinToString(", ") { pyPrint(it) }
-    is ListComp -> "[" + pyPrint(e.elt) + " " + e.generators.joinToString(", ") { pyPrint(it) } + "]"
-    is DictComp -> "{" + pyPrint(e.key) + ": " + pyPrint(e.value) + " " + e.generators.joinToString(", ") { pyPrint(it) } + "}"
+    is GeneratorExp -> pyPrint(e.elt) + " " + e.generators.joinToString(" ") { pyPrint(it) }
+    is ListComp -> "[" + pyPrint(e.elt) + " " + e.generators.joinToString(" ") { pyPrint(it) } + "]"
+    is DictComp -> "{" + pyPrint(e.key) + ": " + pyPrint(e.value) + " " + e.generators.joinToString(" ") { pyPrint(it) } + "}"
     is Starred -> "*" + pyPrint(e.value)
+    is Let -> pyPrint(mkCall(Lambda(Arguments(args = e.bindings.map { Arg(it.arg!!) }), e.value), e.bindings.map { it.value }))
     else -> fail("unsupported $e")
   }
 }

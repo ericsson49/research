@@ -4,7 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 abstract class SimpleStmtTransformer {
-  abstract fun doTransform(s: Stmt): List<Stmt>
+  abstract fun doTransform(s: Stmt): List<Stmt>?
   fun transform(c: List<Stmt>): List<Stmt> {
     val res = mutableListOf<Stmt>()
     var foundNew = false
@@ -19,7 +19,7 @@ abstract class SimpleStmtTransformer {
   }
   fun transform(s: Stmt): List<Stmt> {
     val res = doTransform(s)
-    if (res.size != 1 || res[0] != s) {
+    if (res != null && (res.size != 1 || res[0] != s)) {
       return res
     } else {
       return listOf(when (s) {
@@ -41,45 +41,46 @@ abstract class SimpleStmtTransformer {
       })
     }
   }
-  fun transform(f: FunctionDef): FunctionDef {
+  open fun transform(f: FunctionDef): FunctionDef {
     val newBody = transform(f.body)
     return if (newBody == f.body) f else f.copy(body = newBody)
   }
 }
 
-object ForOpsTransformer: SimpleStmtTransformer() {
-  override fun doTransform(s: Stmt): List<Stmt> = when {
-    s is FunctionDef -> emptyList()
-    s is Expr && s.value is Call && s.value.func is Name && s.value.func.id == "for_ops" && s.value.args.size == 2 && s.value.keywords.isEmpty() -> {
-      listOf(For(Name("operation", ExprContext.Store), s.value.args[0],
-              listOf(Expr(Call(
-                      s.value.args[1],
-                      listOf(Name("state", ExprContext.Load), Name("operation", ExprContext.Load)),
-                      emptyList()
-              )))))
-    }
-    else -> listOf(s)
+fun forOpsTransformer(s: Stmt): List<Stmt>? = when {
+  s is FunctionDef -> if (s.name == "for_ops") emptyList() else TODO()
+  s is Expr && s.value is Call && s.value.func is Name && s.value.func.id == "for_ops" && s.value.args.size == 2 && s.value.keywords.isEmpty() -> {
+    listOf(For(Name("operation", ExprContext.Store), s.value.args[0],
+        listOf(Expr(Call(
+            s.value.args[1],
+            listOf(Name("state", ExprContext.Load), Name("operation", ExprContext.Load)),
+            emptyList()
+        )))))
   }
+  else -> null
+}
+
+object ForOpsTransformer: SimpleStmtTransformer() {
+  override fun doTransform(s: Stmt): List<Stmt>? = forOpsTransformer(s)
 }
 
 fun transformForOps(f: FunctionDef) = ForOpsTransformer.transform(f)
 
+fun enumerateTransformer(s: Stmt): List<Stmt>? {
+  return if (s is For && s.iter is Call && s.iter.func is Name && s.iter.func.id == "enumerate") {
+    if (s.target !is Tuple || s.target.elts.size != 2) TODO()
+    val idxExpr = s.target.elts[0]
+    val eltExpr = s.target.elts[1]
+    listOf(For(
+        target = idxExpr,
+        iter = mkCall("range", listOf(mkCall("len", s.iter.args))),
+        body = listOf(Assign(eltExpr, Subscript(s.iter.args[0], Index(idxExpr), ExprContext.Load))).plus(s.body)
+    ))
+  } else null
+}
+
 object EnumerateTransformer: SimpleStmtTransformer() {
-  override fun doTransform(s: Stmt): List<Stmt> = when(s) {
-    is For -> {
-      if (s.iter is Call && s.iter.func is Name && s.iter.func.id == "enumerate") {
-        if (s.target !is Tuple || s.target.elts.size != 2) TODO()
-        val idxExpr = s.target.elts[0]
-        val eltExpr = s.target.elts[1]
-        listOf(For(
-            target = idxExpr,
-            iter = mkCall("range", listOf(mkCall("len", s.iter.args))),
-            body = listOf(Assign(eltExpr, Subscript(s.iter.args[0], Index(idxExpr), ExprContext.Load))).plus(s.body)
-        ))
-      } else listOf(s)
-    }
-    else -> listOf(s)
-  }
+  override fun doTransform(s: Stmt): List<Stmt>? = enumerateTransformer(s)
 }
 
 fun transformForEnumerate(f: FunctionDef) = EnumerateTransformer.transform(f)

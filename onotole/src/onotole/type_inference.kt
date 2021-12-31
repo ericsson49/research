@@ -2,9 +2,14 @@ package onotole
 
 import java.util.*
 
-class TypeInference(val cfg: CFGraphImpl, val typingF: (TExpr, Map<String,RTType>) -> RTType) {
+class TypeInference(val cfg: CFGraphImpl, val typer: ExprTyper) {
   fun merge(a: RTType, b: RTType): RTType = getCommonSuperType(a,b)
   fun merge(ts: List<RTType>): RTType = ts.reduce(::merge)
+
+  fun typingF(e: TExpr, varTypes: Map<String, RTType>): RTType {
+    val et = typer.updated(varTypes)
+    return et[e].asType()
+  }
 
   fun inferResultType(s: TExpr, varTypes: Map<String, RTType>): RTType =
       if(s is Call && s.func is Name && s.func.id == "<Phi>") {
@@ -12,15 +17,15 @@ class TypeInference(val cfg: CFGraphImpl, val typingF: (TExpr, Map<String,RTType
       } else typingF(s, varTypes)
 
   fun inferTypes(init: Map<String,RTType>): Map<String,RTType> {
-    val stmts = cfg.blocks.values.flatMap { it.stmts }
+    val stmts = cfg.allStmts
 
     val varTypes: MutableMap<String, RTType> = stmts.flatMap { it.lNames }.map {  it to TPyNothing }.toMap().toMutableMap()
     varTypes.putAll(init)
     do {
       var updated = false
       stmts.forEach { s ->
-        val t = if (isParamDef(s))
-          init[(s.lval as VarLVal).v]!!
+        val t = if (s.lval is VarLVal && s.lval.t != null)
+          parseType(typer, s.lval.t)
         else if (s.lval is EmptyLVal)
           TPyNone
         else
@@ -52,7 +57,7 @@ class TypeInference(val cfg: CFGraphImpl, val typingF: (TExpr, Map<String,RTType
 
 val inferTypes_FD = MemoizingFunc(::_inferTypes_FunctionDef)
 
-fun _inferTypes_FunctionDef(f: FunctionDef): Map<String,Sort> {
+fun _inferTypes_FunctionDef(f: FunctionDef): Map<String,RTType> {
   val cfg = convertToCFG(f)
   val ssa = convertToSSA(cfg)
   return _inferTypes_CFG(ssa)
@@ -61,14 +66,9 @@ fun _inferTypes_FunctionDef(f: FunctionDef): Map<String,Sort> {
 fun _inferTypes_CFG(ssa: CFGraphImpl): Map<String, RTType> {
   val typer = TypeResolver.topLevelTyper
 
-  fun typeF(e: TExpr, varTypes: Map<String, RTType>): RTType {
-    val et = typer.updated(varTypes)
-    return et[e].asType()
-  }
-
   val init = ssa.get(ssa.entry).stmts.map {
     val lv = it.lval as VarLVal
     lv.v to parseType(typer, lv.t!!)
   }.toMap()
-  return TypeInference(ssa, ::typeF).inferTypes(init)
+  return TypeInference(ssa, typer).inferTypes(init)
 }

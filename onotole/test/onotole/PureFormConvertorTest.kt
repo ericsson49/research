@@ -12,7 +12,7 @@ internal class PureFormConvertorTest {
   @Test
   fun assign_to_Attr() {
     val s = mkAssign(mkAttribute("a", "b"), Num(1))
-    assertEquals("a = a.updated(b = 1)", toStr(testConvertor.transformStmt(s)))
+    assertEquals("a = a.updated(b = 1)", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
@@ -22,7 +22,7 @@ internal class PureFormConvertorTest {
         "a" to listOf("b" to mkAttribute(mkName("a"), "f"))
     )
     val testConvertor = PureFormConvertor(testFunc, emptyMap(), aliasInfo)
-    val res = testConvertor.transformStmt(s)
+    val res = testConvertor.transformStmt(s) ?: listOf(s)
     assertEquals("b = b.updated(g = 1)\na = a.updated(f = b)", toStr(res))
   }
 
@@ -33,26 +33,26 @@ internal class PureFormConvertorTest {
         "a" to listOf("b" to mkSubscript(mkName("a"), Index(mkName("i"))))
     )
     val testConvertor = PureFormConvertor(testFunc, emptyMap(), aliasInfo)
-    val res = testConvertor.transformStmt(s)
+    val res = testConvertor.transformStmt(s) ?: listOf(s)
     assertEquals("b = b.updated(g = 1)\na = a.updated_at(i, b)", toStr(res))
   }
 
   @Test
   fun assign_to_Attr_Attr() {
     val s = mkAssign(mkAttribute(mkAttribute("a", "b"), "c"), Num(1))
-    assertEquals("a = a.updated(b = a.b.updated(c = 1))", toStr(testConvertor.transformStmt(s)))
+    assertEquals("a = a.updated(b = a.b.updated(c = 1))", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun aug_assign() {
     val s = AugAssign(mkAttribute("a", "b"), EBinOp.Add, Num(1))
-    assertEquals("a = a.updated(b = a.b + 1)", toStr(testConvertor.transformStmt(s)))
+    assertEquals("a = a.updated(b = a.b + 1)", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformLVal_Subscript_Index() {
     val s = mkAssign(mkSubscript("a", Index(mkName("i"))), Num(1))
-    assertEquals("a = a.updated_at(i, 1)", toStr(testConvertor.transformStmt(s)))
+    assertEquals("a = a.updated_at(i, 1)", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
@@ -62,47 +62,47 @@ internal class PureFormConvertorTest {
         "a" to listOf("b" to mkAttribute(mkName("a"), "f"))
     )
     val testConvertor = PureFormConvertor(testFunc, emptyMap(), aliasInfo)
-    assertEquals("b = b.updated_at(i, 1)\na = a.updated(f = b)", toStr(testConvertor.transformStmt(s)))
+    assertEquals("b = b.updated_at(i, 1)\na = a.updated(f = b)", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformLVal_Subscript_Index_Attr() {
     val s = mkAssign(mkAttribute(mkSubscript("a", Index(mkName("i"))), "b"), Num(1))
-    assertEquals("a = a.updated_at(i, a[i].updated(b = 1))", toStr(testConvertor.transformStmt(s)))
+    assertEquals("a = a.updated_at(i, a[i].updated(b = 1))", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformLVal_Attr_Subscript_Index() {
     val s = mkAssign(mkSubscript(mkAttribute("a", "b"), Index(mkName("i"))), Num(1))
-    assertEquals("a = a.updated(b = a.b.updated_at(i, 1))", toStr(testConvertor.transformStmt(s)))
+    assertEquals("a = a.updated(b = a.b.updated_at(i, 1))", toStr(testConvertor.transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformExpr_procedure() {
     val descrs = mapOf("test" to PurityDescriptor(true, listOf(0), "test_pure"))
     val s = Expr(mkCall("test", listOf(mkName("state"))))
-    assertEquals("state = test_pure(state)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s)))
+    assertEquals("state = test_pure(state)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformExpr_func_no_receiver() {
     val descrs = mapOf("test" to PurityDescriptor(false, listOf(0), "test_pure"))
     val s = Expr(mkCall("test", listOf(mkName("state"))))
-    assertEquals("(state, _) = test_pure(state)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s)))
+    assertEquals("(state, _) = test_pure(state)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformExpr_func_with_name() {
     val descrs = mapOf("test" to PurityDescriptor(false, listOf(0), "test_pure"))
     val s = Assign(mkName("res", true), mkCall("test", listOf(mkName("state"))))
-    assertEquals("(state, res) = test_pure(state)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s)))
+    assertEquals("(state, res) = test_pure(state)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s) ?: listOf(s)))
   }
 
   @Test
   fun transformExpr_func_with_attr() {
     val descrs = mapOf("test" to PurityDescriptor(false, listOf(0), "test_pure"))
     val s = Assign(mkName("res", true), mkCall("test", listOf(mkAttribute("state", "validators"))))
-    assertEquals("(tmp, res) = test_pure(state.validators)\nstate = state.updated(validators = tmp)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s)))
+    assertEquals("(tmp, res) = test_pure(state.validators)\nstate = state.updated(validators = tmp)", toStr(PureFormConvertor(testFunc, descrs).transformStmt(s) ?: listOf(s)))
   }
 
   @Test
@@ -299,8 +299,9 @@ internal class PureFormConvertorTest {
     ))
     val cfg = convertToCFG(f)
     val ssa = convertToSSA(cfg)
-    val descrs = mapOf("test" to PurityDescriptor(true, listOf(0), "test_pure"))
-    val aliasInfo = findMutableRefs(f, ssa, descrs)
+    val descr = PurityDescriptor(true, listOf(0), "test_pure")
+    val descrs = mapOf("test" to descr)
+    val aliasInfo = findMutableAliases(f, ssa, descr)
     val pf = PureFormConvertor(f, descrs, aliasInfo).transformFunction()
     assertEquals("test_pure", pf.name)
     assertEquals(f.args, pf.args)

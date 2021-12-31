@@ -82,9 +82,10 @@ fun <L, N: IInstr> calcValueDefs(cfg: CFGraph<L, N>): Map<L, Set<Val>> {
 }
 
 fun <N> makeDominatorsProblem(cfg: Graph<N>): DFAProblem<Pair<N,String>,Set<N>> {
-  val nodes = cfg.transitions.keys.toSet()
-  val starting = nodes.minus(cfg.reverse.keys)
-  if (starting.size != 1) fail("Expecting that there will be only one starting node")
+  val nodes = cfg.transitions.keys.union(cfg.reverse.keys)
+  val starting = nodes.minus(cfg.transitions.values.flatten())
+  if (starting.size != 1)
+    fail("Expecting that there will be only one starting node")
 
   fun genKillMaker(n: N): Pair<Set<N>,Set<N>> {
     val gen = setOf(n)

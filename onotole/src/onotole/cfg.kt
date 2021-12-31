@@ -32,7 +32,7 @@ class StmtToNode {
   fun addInstr(at: CPoint, i: Instr2, next: CPoint?): CPoint {
     val nexts = when(i) {
       is StmtInstr -> if (next == null) fail() else listOf(next)
-      is BranchInstr -> if (next == null) fail() else listOf(next, i.orelse)
+      is BranchInstr -> if (next == null) fail() else if (i.orelse != null) listOf(next, i.orelse) else listOf(next)
       is ExitInstr -> if (next != null) fail() else emptyList()
     }
     instrs[at] = i to nexts
@@ -68,6 +68,7 @@ class StmtToNode {
     is Return ->
       convert(mkAssign(mkName("<return>", true), s.value ?: NameConstant(null)), ret, ret, loops)
     is If -> {
+      if (s.test is NameConstant) TODO()
       val bodyL = convert(s.body, next, ret, loops)
       val elseL = convert(s.orelse, next, ret, loops)
       val testV = freshVar()
@@ -79,10 +80,17 @@ class StmtToNode {
     is While -> {
       val headL = newPoint()
       val bodyL = convert(s.body, headL, ret, loops.plus(headL to next))
-      val testV = freshVar()
-      val testL = mkBranch(testV, bodyL, next)
-      loopInfo.add(WhileInfo(headL, testL, bodyL, next))
-      addInstr(headL, StmtInstr(VarLVal(testV), s.test), testL)
+      if (s.test is NameConstant) {
+        if (s.test == NameConstant(true)) {
+          loopInfo.add(WhileInfo(headL, headL, bodyL, next))
+          addInstr(headL, BranchInstr(null, null), bodyL)
+        } else TODO()
+      } else {
+        val testV = freshVar()
+        val testL = mkBranch(testV, bodyL, next)
+        loopInfo.add(WhileInfo(headL, testL, bodyL, next))
+        addInstr(headL, StmtInstr(VarLVal(testV), s.test), testL)
+      }
     }
     is For -> {
       val iter = mkName(freshVar())
@@ -145,8 +153,10 @@ private fun makeCFGFromFunctionDef(f: FunctionDef): CFGraphImpl {
   val invMap = IdentityHashMap<Instr2, CPoint>()
   convertor.instrs.forEach { at, (i,_) -> invMap[i] = at }
 
-  val targets = reverse(convertor.instrs.mapValues { it.value.second })
-      .filterValues { it.size >= 2 }.keys.plus(funcBody)
+  val targets = reverse(convertor.instrs.mapValues { it.value.second }).filterValues { it.size >= 2 }.keys
+      .plus(funcBody)
+      .plus(convertor.instrs.filter { it.value.first is BranchInstr }.values.flatMap { it.second })
+      .plus(convertor.loopInfo.flatMap { listOf(it.head, it.exit) })
 
   val renames = mutableMapOf<CPoint,CPoint2>()
   val queue = mutableListOf<CPoint>(entry)
@@ -159,10 +169,10 @@ private fun makeCFGFromFunctionDef(f: FunctionDef): CFGraphImpl {
     var curr = start
     while (true) {
       block.add(curr)
-      val next = convertor.instrs[curr]!!.second
+      val (instr, next) = convertor.instrs[curr]!!
       if (next.size == 0)
         break
-      else if (next.size == 2 || next[0] in targets)
+      else if (instr is BranchInstr || next[0] in targets)
         break
       else
         curr = next[0]
@@ -200,7 +210,8 @@ private fun makeCFGFromFunctionDef(f: FunctionDef): CFGraphImpl {
   val loopInfo = convertor.loopInfo.map {
     if (renames[it.head]!!.second != 0) fail()
     if (renames[it.body]!!.second != 0) fail()
-    if (renames[it.exit]!!.second != 0) fail()
+    if (renames[it.exit]!!.second != 0)
+      fail()
     WhileInfo2(renames[it.head]!!.first, renames[it.test]!!.first, renames[it.body]!!.first, renames[it.exit]!!.first)
   }
   val ifInfo = convertor.ifInfo.map {
@@ -221,6 +232,9 @@ class CFGraphImpl(_blocks: List<Pair<CPoint,BasicBlock>>, val loops: List<WhileI
   override fun get(l: CPoint): BasicBlock = blocks[l]!!
 
   val entry = ensureSingle(transitions.keys.minus(reverse.keys))
+
+  val allStmts = blocks.values.flatMap { it.stmts }
+  val allExprs = blocks.values.flatMap { b -> b.allExprs }
 }
 
 
@@ -239,6 +253,13 @@ class BasicBlock(val stmts: List<StmtInstr>, val branch: Branch): IInstr {
     lNames = kill
     rNames = gen
   }
+  private fun getExprs(lv: LVal) = when(lv) {
+    is EmptyLVal -> emptyList()
+    is VarLVal -> listOf(mkName(lv.v, true))
+    is FieldLVal -> listOf(Attribute(lv.r, lv.f, ExprContext.Store))
+    is SubscriptLVal -> listOf(Subscript(lv.r, lv.i, ExprContext.Store))
+  }
+  val allExprs = stmts.flatMap { getExprs(it.lval).plus(it.rval) }.plus(branch.discrVar?.let { listOf(mkName(it)) } ?: emptyList())
 }
 
 sealed class Instr2: IInstr
@@ -250,9 +271,9 @@ class StmtInstr(val lval: LVal, val rval: TExpr): Instr2() {
     else -> lval.toString() + " = " + pyPrint(rval)
   }
 }
-class BranchInstr(val t: String, val orelse: CPoint): Instr2() {
+class BranchInstr(val t: String?, val orelse: CPoint?): Instr2() {
   override val lNames = emptySet<String>()
-  override val rNames = setOf(t)
+  override val rNames = if (t != null) setOf(t) else emptySet()
 }
 class ExitInstr(): Instr2() {
   override val lNames = emptySet<String>()
@@ -358,7 +379,7 @@ class CfgToStmtConvertor(val cfg: CFGImpl) {
         return emptyList<Stmt>() to s.value
       }
     }
-    return stmts to mkName(testI.t)
+    return stmts to (testI.t?.let { mkName(it) } ?: NameConstant(true))
   }
 
   fun getBlock(p: CPoint): List<Stmt> = process(p)
@@ -428,16 +449,18 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
     } else {
       if (bb.branch.next.isEmpty())
         return ExitInstr() to emptyList()
-      else if (bb.branch.next.size == 1)
-        fail()
-      else
+      else if (bb.branch.next.size == 1) {
+        if (bb.branch.discrVar != null) TODO()
+        return BranchInstr(bb.branch.discrVar, null) to bb.branch.next.map { it to 0 }
+      } else
         return BranchInstr(bb.branch.discrVar!!, bb.branch.next[1]) to bb.branch.next.map { it to 0 }
     }
   }
   fun process(p: CPoint2): List<Stmt> {
     if (exitsLastCtrl(p) && lastCtrlIsIf(p)) return emptyList()
     if (continuesLastCtrl(p) && lastCtrlIsWhile(p)) return emptyList()
-    if (extract(p).first is ExitInstr) fail() //listOf(Return())
+    if (extract(p).first is ExitInstr)
+      fail() //listOf(Return())
     if (exitsLastLoop(p)) return listOf(Break())
     if (continuesLastLoop(p)) return listOf(Continue())
 
@@ -462,11 +485,12 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
           if (i.rval != NameConstant(null)) fail()
           null
         } else i.rval
-        return listOf(Return(retVal))
+        listOf(Return(retVal)) to nxt[0]
+      } else {
+        processAssign(i) to nxt[0]
       }
-      processAssign(i) to nxt[0]
     }
-    return stmts.plus(process(next))
+    return stmts.plus(if (extract(next).first is ExitInstr) emptyList() else process(next))
   }
 
   fun processAssign(i: StmtInstr): List<Stmt> {
@@ -494,7 +518,7 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
         return emptyList<Stmt>() to s.value
       }
     }
-    return stmts to mkName(testI.t)
+    return stmts to (testI.t?.let { mkName(it) } ?: NameConstant(true))
   }
 
   fun getBlock(p: CPoint): List<Stmt> = process(p to 0)
@@ -527,7 +551,8 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
 
 }
 
-fun isParamCall(e: TExpr) = e is Call && e.func == mkName("<Parameter>")
+fun isCall(e: TExpr, name: String) = e is Call && e.func == mkName(name)
+fun isParamCall(e: TExpr) = isCall(e, "<Parameter>")
 fun isParamDef(s: Stmt): Boolean = s is Assign && s.target is Name && isParamCall(s.value)
 fun isParamDef(s: StmtInstr): Boolean = s.lval is VarLVal && isParamCall(s.rval)
 
@@ -578,7 +603,7 @@ fun main() {
   fDefs.forEach {
     println(it.name)
     println()
-    val f = desugar(transformForEnumerate(transformForOps(it)))
+    val f = desugarExprs(transformForEnumerate(transformForOps(it)))
 
     //checkPurityConstraints(f, impure)
     val cfg = convertToCFG(f)
@@ -586,7 +611,7 @@ fun main() {
 
     cfgs.add(f to ssa)
 
-    val mutRefs = findMutableRefs(f, ssa, pds)
+    val mutRefs = findMutableAliases(f, ssa, pds[f.name])
     println()
 
     //printCFG(ssa)

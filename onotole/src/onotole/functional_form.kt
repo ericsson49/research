@@ -5,8 +5,8 @@ fun <T> ensureSingle(c: Collection<T>): T {
   else c.first()
 }
 
-fun getRegionExits(graph: Graph<CPoint>, region: Collection<CPoint>): List<CPoint> {
-  return region.flatMap { graph.transitions[it]!!.filter { it !in region } }
+fun getRegionExits(graph: Graph<CPoint>, region: Collection<CPoint>): Set<CPoint> {
+  return region.flatMap { graph.transitions[it]!!.filter { it !in region } }.toSet()
 }
 
 fun freshVar(g: CFGraphImpl): String {
@@ -19,7 +19,7 @@ fun freshVar(g: CFGraphImpl): String {
   return "$prefix$num"
 }
 
-fun getLocalVars(cfg: CFGraphImpl) = cfg.blocks.values.flatMap { it.stmts.flatMap { it.lNames } }.toSet()
+fun getLocalVars(cfg: CFGraphImpl) = cfg.allStmts.flatMap { it.lNames }.toSet()
 
 fun extractMethod(
     cfg: CFGraphImpl, cfgAnalyses: ICFGAnalyses<CPoint>, method: List<CPoint>, typing: Map<String, RTType>,
@@ -28,8 +28,12 @@ fun extractMethod(
   val methExit = ensureSingle(getRegionExits(cfg, method))
   val methEntry = ensureSingle(getRegionExits(cfg, cfg.blocks.keys.minus(method)))
 
-  fun lvs(p: CPoint, before: Boolean) =
-      cfgAnalyses.liveVars[p to (if (before) "in" else "out")]!!.filter { !it.startsWith("<") }.toSet()
+  fun lvs(p: CPoint, before: Boolean): Set<String> {
+    val idx = p to (if (before) "in" else "out")
+    fun isAuxName(n: String) = n.startsWith("<")
+    val reachingDefs = cfgAnalyses.reachingDefs[idx]!!.map { it.valName }.filter { !isAuxName(it) }
+    return cfgAnalyses.liveVars[idx]!!.filter { !isAuxName(it) }.intersect(reachingDefs).toSet()
+  }
 
   val before = lvs(methEntry, true).toList()
   val after = if (recursive) before else lvs(methExit, true)
@@ -70,7 +74,7 @@ private fun addCallSite(g: CFGraphImpl, name: String, args: Collection<String>, 
 }
 
 fun transformLoopsToFuncs(f: FunctionDef): List<FunctionDef> {
-  val cfg_ = convertToCFG(desugar(f))
+  val cfg_ = convertToCFG(desugarExprs(f))
   val ssa_ = convertToSSA(cfg_)
   val (cfg, renames) = destructSSA(ssa_, getFuncAnalyses(cfg_).cfgAnalyses.dom)
 
@@ -101,16 +105,17 @@ fun transformLoopsToFuncs(f: FunctionDef): List<FunctionDef> {
   }
 
   val backEdges = trans.filter { it.second in dom.domsOf[it.first]!! }
-  val loopHeads = backEdges.map { it.second }
+  val loopHeads = backEdges.map { it.second }.toSet()
 
-  if (loopHeads.toSet() != cfg.loops.map { it.head }.toSet()) fail()
+  if (loopHeads != cfg.loops.map { it.head }.toSet()) fail()
 
   //loopHeads.forEach { head ->
   //  val loopNodes = getLoopNodes(head)
   //  val exitEdges = getExitEdges(loopNodes)
   //}
 
-  val loopTree = buildLoopTree(loopHeads.map { it to getLoopNodes(cfg, dom, it) }.toMap())
+  val loopAnalysis = makeLoopAnalysis(loopHeads.map { it to getLoopNodes(cfg, dom, it) }.toMap())
+  val loopTree = loopAnalysis.loopTree
   fun topoSort(ns: Collection<CPoint>): List<CPoint> {
     val children = ns.flatMap { n -> loopTree[n] ?: emptyList() }
     return (if (children.isEmpty()) emptyList() else topoSort(children)).plus(ns)
@@ -123,21 +128,47 @@ fun transformLoopsToFuncs(f: FunctionDef): List<FunctionDef> {
   val tmpVars = mutableSetOf<String>()
   sorted.forEachIndexed { i, head ->
     val currDom = DominanceAnalysis(currCfg)
+    val postDom = calcDom(object : Graph<CPoint> {
+      override val transitions = currCfg.reverse
+      override val reverse = currCfg.transitions
+    })
     val loopNodes = getLoopNodes(currCfg, currDom, head)
     val exitEdges = getExitEdges(currCfg, loopNodes)
-    val exits = exitEdges.map { it.second }
-    if (exits.size > 1 || exits[0] != cfg.loops.find { it.head == head }!!.exit)
+    val loopExits = exitEdges.map { it.second }
+
+    fun classifyExit(loopExit: CPoint): CPoint? {
+      val postDom = postDom[loopExit]!!
+      var currLoop: CPoint? = head
+      while (currLoop != null) {
+        val loopInfo = cfg.loops.find { it.head == currLoop }!!
+        if (loopInfo.exit in postDom)
+          return currLoop
+        currLoop = loopAnalysis.immEnclosingLoopOf[currLoop]
+      }
+      return null
+    }
+    val res = loopExits.map { loopExit -> classifyExit(loopExit)}.toSet()
+
+    if (res.size > 1/* || exits[0] != cfg.loops.find { it.head == head }!!.exit*/)
       TODO()
 
-    val loopMethName = f.name + "\$${i + 1}"
-    fun lvs(p: CPoint, before: Boolean) =
-        analyses.cfgAnalyses.liveVars[p to (if (before) "in" else "out")]!!.filter { !it.startsWith("<") }.toSet()
+    val extraLoopNodes = loopExits.flatMap { postDom[it]!! }.toSet().minus(postDom[res.first()]!!)
+    val extendedLoopNodes = loopNodes.plus(extraLoopNodes)
+
+    val loopMethName = f.name + "\$$i"
+    fun lvs(p: CPoint, before: Boolean): Set<String> {
+      val cfgAnalyses = analyses.cfgAnalyses
+      val idx = p to (if (before) "in" else "out")
+      fun isAuxName(n: String) = n.startsWith("<")
+      val reachingDefs = cfgAnalyses.reachingDefs[idx]!!.map { it.valName }.filter { !isAuxName(it) }
+      return cfgAnalyses.liveVars[idx]!!.filter { !isAuxName(it) }.intersect(reachingDefs).toSet()
+    }
 
     val argNames = lvs(head, true).toList()
     val argTypes = argNames.map { typing[it]!! }
     val args = argNames.zip(argTypes).map { Arg(it.first, it.second.toTExpr()) }
     val retType = if (args.size == 1) argTypes[0] else TPyTuple(argTypes)
-    val (g1, g2) = extractMethod(currCfg, analyses.cfgAnalyses, loopNodes, typing, loopMethName, true)
+    val (g1, g2) = extractMethod(currCfg, analyses.cfgAnalyses, extendedLoopNodes, typing, loopMethName, true)
     val loopCfg = loopToRecursion(loopMethName, argNames, g2)
 
     val loopFD = reconstructFuncDef(
@@ -154,17 +185,23 @@ fun transformLoopsToFuncs(f: FunctionDef): List<FunctionDef> {
   return listOf(resultResugared).plus(loopFuncs)
 }
 
-fun buildLoopTree(loops: Map<CPoint,Collection<CPoint>>): Map<CPoint, List<CPoint>> {
-  val enclosingLoopsOf = mutableMapOf<CPoint, MutableSet<CPoint>>()
+class LoopAnalysis(
+  val enclosingLoopsOf: Map<CPoint, Collection<CPoint>>,
+  val immEnclosingLoopOf: Map<CPoint, CPoint>,
+  val loopTree: Map<CPoint, Collection<CPoint>>
+)
+
+private fun makeLoopAnalysis(loops: Map<CPoint, Collection<CPoint>>): LoopAnalysis {
+  val enclosingLoops = mutableMapOf<CPoint, MutableSet<CPoint>>()
   loops.forEach { (h, b) ->
     b.intersect(loops.keys).forEach {
-      if (it != h)
-        enclosingLoopsOf.getOrPut(it) { mutableSetOf() }.add(h)
+      enclosingLoops.getOrPut(it) { mutableSetOf() }.add(h)
     }
   }
+  val strictEnclosingLoops = enclosingLoops.mapValues { it.value.minus(it.key) }
   val parentLoop = mutableMapOf<CPoint, CPoint>()
-  enclosingLoopsOf.forEach {
-    val parentAncestors = it.value.map { (enclosingLoopsOf[it] ?: mutableSetOf()).toSet() }.reduce { a,b -> a.union(b) }
+  strictEnclosingLoops.forEach {
+    val parentAncestors = it.value.flatMap { (strictEnclosingLoops[it]!!).toSet() }
     val parent = it.value.minus(parentAncestors)
     if (parent.isNotEmpty()) {
       parentLoop[it.key] = ensureSingle(parent)
@@ -172,27 +209,33 @@ fun buildLoopTree(loops: Map<CPoint,Collection<CPoint>>): Map<CPoint, List<CPoin
   }
   val a1 = parentLoop.map { it.key to listOf(it.value) }
   val a2 = loops.keys.minus(parentLoop.keys).map<CPoint, Pair<CPoint, List<CPoint>>> { it to emptyList() }
-  return reverse(a1
-      .plus(a2).toMap())
+  val loopTree = reverse(a1.plus(a2).toMap())
+  val loopAnalysis = LoopAnalysis(enclosingLoops, parentLoop, loopTree)
+  return loopAnalysis
 }
 
 fun loopToRecursion(f: String, args: List<String>, cfg: CFGraphImpl): CFGraphImpl {
   val entry = cfg.entry
   val head = ensureSingle(cfg.blocks[entry]!!.branch.next)
-  val exit = ensureSingle(cfg.transitions.values.flatten().minus(cfg.reverse.values.flatten()))
+  val exit = ensureSingle(cfg.transitions.values.flatten().toSet().minus(cfg.reverse.values.flatten()))
+  val recCallLabel = (cfg.transitions.keys.plus(cfg.transitions.values.flatten()).maxOrNull() ?: -1) + 1
+  val callSite = addCallSite(cfg, f, args, args)
+  val recCall = BasicBlock(callSite, Branch(null, listOf(exit)))
+
   val backEdgeOrigins = cfg.reverse[head]!!.filter { it != entry }.toSet()
+  fun replaceIfHead(next: CPoint) = if (next == head) recCallLabel else next
   val replaces = backEdgeOrigins.flatMap { n ->
     val b = cfg.get(n)
-    val callSite = addCallSite(cfg, f, args, args)
-    if (b.branch.next.size == 1) {
-      listOf(n to BasicBlock(b.stmts.plus(callSite), b.branch.copy(next = listOf(exit))))
-    } else {
-      TODO()
-    }
+    listOf(n to BasicBlock(b.stmts, b.branch.copy(next = b.branch.next.map(::replaceIfHead))))
   }
-  val newBlocks = cfg.blocks.plus(replaces).toList()
+  val newBlocks = cfg.blocks.plus(replaces).plus(recCallLabel to recCall).toList()
   val whileInfo = cfg.loops.find { it.head == head }!!
-  return CFGraphImpl(newBlocks, cfg.loops.minus(whileInfo), cfg.ifs.plus(
+  val newIfs = cfg.ifs.map {
+    if (it.body == head || it.orelse == head || it.exit == head)
+      IfInfo2(it.head, it.test, replaceIfHead(it.body), replaceIfHead(it.orelse), replaceIfHead(it.exit))
+    else it
+  }
+  return CFGraphImpl(newBlocks, cfg.loops.minus(whileInfo), newIfs.plus(
       IfInfo2(whileInfo.entry, head, whileInfo.body, whileInfo.exit, whileInfo.exit)))
 }
 

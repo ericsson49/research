@@ -226,9 +226,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
               if (e.args.size != 1) fail()
               genUnaryOp(genExpr(e.args[0]), EUnaryOp.valueOf(op))
             }
-            in setOf("list") -> {
-              genPyList(e.args.map { genExpr(it) })
-            }
             in setOf("dict") -> {
               genPyDict(e.args.map {
                 val t = it as Tuple
@@ -244,7 +241,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
 
           val argTypes = e.args.map { typer[it].asType() }
           val kwdTypes = e.keywords.map { it.arg!! to typer[it.value].asType() }
-          val (fh, argRefs) = type.resolveReturnType(argTypes, kwdTypes)
+          val (fh, argRefs) = type.resolveReturnType(typer.ctx, argTypes, kwdTypes)
 
           val (funcExpr, args) = genFunHandle(e.func, type, fh, argRefs, a1, a2, typer)
 
@@ -279,6 +276,8 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
         genIfExpr(testExpr, genExpr(e.body), genExpr(e.orelse))
       }
       is Tuple -> genTuple(e.elts.map { genExpr(it) })
+      is PyList -> genPyList(e.elts.map { genExpr(it) })
+      is PyDict -> genPyDict(e.keys.zip(e.values).map { genExpr(it.first) to genExpr(it.second) })
       is GeneratorExp -> genComprehension(e.elt, e.generators, typer)
       is Bytes -> genFunCall(RLit("pybytes.create"), listOf(e.s))
       is Lambda -> {
@@ -479,7 +478,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
   private fun coerceExprToType(ex: TExpr, type: RTType, typer: ExprTyper): RExpr {
     val expr = genExpr(ex, typer)
     val clazz = (type as NamedType).clazz
-    val (fh, argRefs) = clazz.resolveReturnType(listOf(typer[ex].asType()), emptyList())
+    val (fh, argRefs) = clazz.resolveReturnType(typer.ctx, listOf(typer[ex].asType()), emptyList())
     val (funcExpr, args) = genFunHandle(ex, clazz, fh, argRefs, listOf(expr), emptyList(), typer)
     return genFunCall(funcExpr, args)
   }

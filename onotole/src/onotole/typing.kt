@@ -1,5 +1,7 @@
 package onotole
 
+import java.util.*
+
 sealed class Sort
 sealed class MetaType: Sort()
 
@@ -54,6 +56,7 @@ fun TPyTuple(p: Pair<RTType,RTType>) = TPyTuple(p.first,p.second)
 fun TPyTuple(els: List<RTType>) = NamedType("Tuple", els)
 fun TPyMapping(k: RTType, v: RTType) = NamedType("Mapping", listOf(k, v))
 fun TPyMutableSequence(t: RTType) = NamedType("MutableSequence", listOf(t))
+fun TPyOptional(t: RTType) = NamedType("Optional", listOf(t))
 
 
 fun RTType.toTExpr(): TExpr = when(this) {
@@ -94,6 +97,15 @@ fun getCommonSuperType(a: RTType, b: RTType): RTType {
   if (a == TPyNothing) return b
   if (b == TPyNothing) return a
   if (a == TPyObject || b == TPyObject) return TPyObject
+  fun testOptional(t: RTType) = t == TPyNone || t is NamedType && t.name == "Optional"
+  fun extractOptionalTypeParam(t: RTType): RTType = when {
+    t == TPyNone -> TPyNothing
+    t is NamedType && t.name == "Optional" -> t.tParams[0]
+    else -> t
+  }
+  if (testOptional(a) || testOptional(b)) {
+    return TPyOptional(getCommonSuperType(extractOptionalTypeParam(a), extractOptionalTypeParam(b)))
+  }
   val commonSuperTypes = getAncestorClasses(a).intersect(getAncestorClasses(b))
   return commonSuperTypes.sortedWith { o1, o2 -> if (o1 == o2) 0 else if (isSubType(o1!!, o2!!)) -1 else 1 }.first()
 }

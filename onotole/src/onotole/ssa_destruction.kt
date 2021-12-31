@@ -3,7 +3,7 @@ package onotole
 fun isPhiCall(e: TExpr): Boolean = e is Call && e.func == Name("<Phi>", ExprContext.Load)
 
 fun destructSSA(ssa: CFGraphImpl, dom: DominanceAnalysis<CPoint>): Pair<CFGraphImpl,ExprRenamer> {
-  val phiStmts = ssa.blocks.values.flatMap { it.stmts }.filter { isPhiCall(it.rval) }
+  val phiStmts = ssa.allStmts.filter { isPhiCall(it.rval) }
       .map { (it.lval as VarLVal).v to (it.rval as Call).args.map { (it as Name).id } }
   val varToDef = ssa.blocks.flatMap { (l,bb) ->
     bb.stmts.mapIndexed { i,s ->

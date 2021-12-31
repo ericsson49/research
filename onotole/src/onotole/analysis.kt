@@ -19,16 +19,20 @@ class FuncCollection(funcs: List<FunSignature> = emptyList()) {
   fun addFunc(args: List<FArg>, retType: RTType) {
     funcs.add(FunSignature(args, retType))
   }
-  fun matches(fp: List<FArg>, args: List<RTType>, kwdArgs: List<Pair<String,RTType>>): List<ArgRef>? {
+  fun matches(ctx: NameResolver<Sort>, fp: List<FArg>, args: List<RTType>, kwdArgs: List<Pair<String,RTType>>): List<ArgRef>? {
     val slots = Array<ArgRef?>(fp.size) { null }
     for (i in args.indices) {
       if (i >= fp.size)
         return null
       else {
         val fpt = fp[i].type
-        if (fpt is TypeVar)
-          unifEx(fpt, args[i])
-        else if (!canAssignOrCoerceTo(args[i], fpt))
+        val fpt2 = if (fpt is TypeVar && ctx.contains(fpt.name))
+          ctx.resolve(fpt.name)!!.asType()
+        else
+          fpt
+        if (fpt2 is TypeVar)
+          unifEx(fpt2, args[i])
+        else if (!canAssignOrCoerceTo(args[i], fpt2))
           return null
         else
           slots[i] = PositionalRef(i)
@@ -61,12 +65,12 @@ class FuncCollection(funcs: List<FunSignature> = emptyList()) {
       return null
     return res
   }
-  fun resolve(args: List<RTType>, kwdArgs: List<Pair<String,RTType>> = emptyList()): RTType? =
-      resolveFP(args, kwdArgs)?.first?.retType
+  fun resolve(ctx: NameResolver<Sort>, args: List<RTType>, kwdArgs: List<Pair<String,RTType>> = emptyList()): RTType? =
+      resolveFP(ctx, args, kwdArgs)?.first?.retType
 
-  fun resolveFP(args: List<RTType>, kwdArgs: List<Pair<String,RTType>> = emptyList()): Pair<FunSignature,List<ArgRef>>? {
+  fun resolveFP(ctx: NameResolver<Sort>, args: List<RTType>, kwdArgs: List<Pair<String,RTType>> = emptyList()): Pair<FunSignature,List<ArgRef>>? {
     for(f in funcs) {
-      val match = matches(f.args, args, kwdArgs)
+      val match = matches(ctx, f.args, args, kwdArgs)
       if (match != null)
         return Pair(f,match)
     }
@@ -80,7 +84,7 @@ object TypeResolver {
   val metaclasses = mutableMapOf<String, MetaClass>()
   val nameToType = mutableMapOf<String, Clazz>()
   val funcSigs = mutableMapOf<String, FuncCollection>()
-  val funcResolvers = mutableMapOf<String, (List<RTType>, List<Pair<String, RTType>>) -> RTType>()
+  val funcResolvers = mutableMapOf<String, (NameResolver<Sort>, List<RTType>, List<Pair<String, RTType>>) -> RTType>()
   val typeInfos = mutableMapOf<Sort, TypeInfo>()
 
   val packageStack = mutableListOf<Pair<String,MutableMap<String,String>>>("" to mutableMapOf())
@@ -174,14 +178,24 @@ object TypeResolver {
   val topLevelTyper: ExprTyper get() = ExprTypes(topLevelResolver, IdentityHashMap())
 
   fun registerFuncResolver(funcRef: String, resolver: (List<RTType>) -> RTType) {
-    funcResolvers[funcRef] = { args, kwdArgs ->
+    funcResolvers[funcRef] = { _, args, kwdArgs ->
       if (kwdArgs.isNotEmpty()) fail()
       resolver(args)}
     register(FuncRefTI(funcRef))
   }
 
   fun registerFuncResolver(funcRef: String, resolver: (List<RTType>, List<Pair<String,RTType>>) -> RTType) {
-    funcResolvers[funcRef] = resolver
+    funcResolvers[funcRef] = { _, arg, kwdArgs ->
+      resolver(arg, kwdArgs)
+    }
+    register(FuncRefTI(funcRef))
+  }
+
+  @JvmName("registerFuncResolver1")
+  fun registerFuncResolver(funcRef: String, resolver: (NameResolver<Sort>, List<RTType>) -> RTType) {
+    funcResolvers[funcRef] = { ctx, arg, _ ->
+      resolver(ctx, arg)
+    }
     register(FuncRefTI(funcRef))
   }
 
@@ -212,7 +226,7 @@ object TypeResolver {
         val metaClass = resolveNameTyp(type.name)
         if (metaClass == null || metaClass !is MetaClass)
           fail("Unsupported class ${type.name}")
-        metaClass.instantiate(type.tParams.map { (it as NamedType).clazz })
+        metaClass.instantiate(type.tParams.map {(it as NamedType).clazz })
       }
       type is NamedType && type.tParams.isEmpty() && type.name in metaclasses -> {
         metaclasses[type.name]!!.instantiate(emptyList())
@@ -229,12 +243,12 @@ object TypeResolver {
     }
   }
 
-  val specialFuncs = setOf("list", "dict")
+  //val specialFuncs = setOf("list", "dict")
   val binOps = EBinOp.values().map { it.name }
   val boolOps = EBoolOp.values().map { it.name }
   val cmpOps = ECmpOp.values().map { it.name }
   val unaryOp = EUnaryOp.values().map { it.name }
-  val specialFuncNames = specialFuncs.plus(binOps).plus(boolOps).plus(cmpOps).plus(unaryOp).map { "<$it>" }.toSet()
+  val specialFuncNames = binOps.plus(boolOps).plus(cmpOps).plus(unaryOp).map { "<$it>" }.toSet()
 
   fun resolveSpecialCallType(name: String, args: List<RTType>): RTType {
     val op = name.substring(1,name.length-1)
@@ -422,7 +436,7 @@ object TypeResolver {
     }
   }
 
-  fun resolveReturnType(callable: Sort, argTypes: List<RTType>, kwdArgs: List<Pair<String, RTType>>): Pair<FunSignature,List<ArgRef>> {
+  fun resolveReturnType(ctx: NameResolver<Sort>, callable: Sort, argTypes: List<RTType>, kwdArgs: List<Pair<String, RTType>>): Pair<FunSignature,List<ArgRef>> {
     if (TPyNothing in listOf(callable).plus(argTypes).plus(kwdArgs.map { it.second })) {
       val retType = TPyNothing
       val sig = FunSignature(argTypes.mapIndexed { i,t -> FArg("_$i", t) }, retType)
@@ -439,10 +453,10 @@ object TypeResolver {
         val name = callable.name
         if (name in funcSigs) {
           val sig = funcSigs[name]!!
-          sig.resolveFP(argTypes, kwdArgs)
+          sig.resolveFP(ctx, argTypes, kwdArgs)
                   ?: fail("no function found for $name(${(argTypes+kwdArgs).joinToString(", ")})")
         } else {
-          val retType = funcResolvers[name]?.invoke(argTypes, kwdArgs) ?: fail("not found $name")
+          val retType = funcResolvers[name]?.invoke(ctx, argTypes, kwdArgs) ?: fail("not found $name")
           val sig = FunSignature(argTypes.mapIndexed { i,t -> FArg("_$i", t) }
                   .plus(kwdArgs.map { (a,t) -> FArg(a, t) }), retType
           )
@@ -452,21 +466,21 @@ object TypeResolver {
         }
       }
       is PartiallyAppliedFuncRef -> {
-        val (fh, argRefs) = callable.func.resolveReturnType(callable.params + argTypes, kwdArgs)
+        val (fh, argRefs) = callable.func.resolveReturnType(ctx, callable.params + argTypes, kwdArgs)
         val newRefs = argRefs.subList(callable.params.size, argRefs.size).map {
           if (it is PositionalRef) it.copy(idx = it.idx - callable.params.size) else it
         }
         fh to newRefs
       }
       is Clazz -> {
-        funcSigs[callable.name]?.resolveFP(argTypes, kwdArgs)// ?: fail("no function found for ${callable.name}($argTypes,$kwdArgs)")
+        funcSigs[callable.name]?.resolveFP(ctx, argTypes, kwdArgs)// ?: fail("no function found for ${callable.name}($argTypes,$kwdArgs)")
                 ?: FunSignature(argTypes.mapIndexed { i,a -> FArg("_$i", a)}, callable.toInstance()) to argTypes.indices.map { PositionalRef(it) }
       }
       is FunType -> {
         if (kwdArgs.isNotEmpty()) fail("keyword args are not supported")
         val sig = FunSignature(callable.argTypes.mapIndexed { i,t -> FArg("_$i", t) }, callable.retType)
         val coll = FuncCollection(listOf(sig))
-        coll.resolveFP(argTypes, kwdArgs)!!
+        coll.resolveFP(ctx, argTypes, kwdArgs)!!
       }
       else -> TODO()
     }
@@ -475,8 +489,8 @@ object TypeResolver {
 
 val Sort.typeInfo get() = TypeResolver.getTypeInfo(this)
 fun Sort.resolveAttrType(attr: String) = TypeResolver.resolveAttrType(this, attr)
-fun Sort.resolveReturnType(argTypes: List<RTType>, kwdArgs: List<Pair<String,RTType>>)
-    = TypeResolver.resolveReturnType(this, argTypes, kwdArgs)
+fun Sort.resolveReturnType(ctx: NameResolver<Sort>, argTypes: List<RTType>, kwdArgs: List<Pair<String,RTType>>)
+    = TypeResolver.resolveReturnType(ctx,this, argTypes, kwdArgs)
 fun MetaClass.instantiate(tps: List<Sort>): TypeInfo {
   val ti = typeInfo as MetaClassTInfo
   val nTParams = ti.nTParams ?: tps.size
@@ -582,26 +596,34 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
       }
       is Subscript -> {
         val typ = get(e.value)
-        when (e.slice) {
-          is Index -> {
-            val indices = when (e.slice.value) {
-              is Tuple -> e.slice.value.elts
-              else -> listOf(e.slice.value)
-            }.map { get(it) }
-            TypeResolver.resolveSubscriptType(typ, indices)
+        if (typ is NamedType && typ.name == "Tuple") {
+          if (e.slice is Index) {
+            if (e.slice.value is Num) {
+              typ.tParams[e.slice.value.n.toInt()]
+            } else TODO()
+          } else  TODO()
+        } else {
+          when (e.slice) {
+            is Index -> {
+              val indices = when (e.slice.value) {
+                is Tuple -> e.slice.value.elts
+                else -> listOf(e.slice.value)
+              }.map { get(it) }
+              TypeResolver.resolveSubscriptType(typ, indices)
+            }
+            is Slice -> TypeResolver.resolveSubscriptType(typ,
+                e.slice.lower?.let { get(it) },
+                e.slice.upper?.let { get(it) },
+                e.slice.step?.let { get(it) }
+            )
+            is ExtSlice -> fail("ExtSlice is not supported")
           }
-          is Slice -> TypeResolver.resolveSubscriptType(typ,
-              e.slice.lower?.let { get(it) },
-              e.slice.upper?.let { get(it) },
-              e.slice.step?.let { get(it) }
-          )
-          is ExtSlice -> fail("ExtSlice is not supported")
         }
       }
       is Call -> {
         val receiverType = get(e.func)
         fun tryResolve(typer: ExprTypes): RTType = run {
-          receiverType.resolveReturnType(e.args.map { typer[it].asType() },
+          receiverType.resolveReturnType(typer.ctx, e.args.map { typer[it].asType() },
                   e.keywords.map { it.arg!! to typer[it.value].asType() }).first.retType
         }
         val cacheBackup = cache.toMap()
@@ -641,6 +663,14 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
       }
       is Starred -> get(e.value).asType()
       is Tuple -> TPyTuple(e.elts.map { get(it).asType() })
+      is PyList -> TPyList(getCommonSuperType(e.elts.map { get(it).asType() }))
+      is PySet -> TPySet(getCommonSuperType(e.elts.map { get(it).asType() }))
+      is PyDict -> TPyDict(getCommonSuperType(e.keys.map { get(it).asType() }),
+          getCommonSuperType(e.values.map { get(it).asType() }))
+      is Let -> {
+        val newTyper = this.updated(e.bindings.map { it.arg!! to get(it.value) })
+        newTyper[e.value]
+      }
       else -> fail(e.toString())
     }
     return res

@@ -22,11 +22,11 @@ fun calcReachingDefs(f: FunctionDef): StmtAnnoMap<List<Stmt>> {
   v.procStmts(f.body, res)
   val stmts = res.groupBy { it.first }.mapValues { it.value.map { it.second } }
   val a = object : ForwardAnalysis<Set<Stmt>>() {
-    override fun procAssign(t: TExpr, v: TExpr, p: Stmt, ins: Set<Stmt>): Set<Stmt> {
+    override fun procAssign(t: TExpr, v: TExpr, p: Stmt, ctx: Set<Stmt>): Set<Stmt> {
       val names = getNames(t)
       val gen = setOf(p)
       val kill = names.flatMap { stmts[it] ?: emptyList() }.minus(p)
-      return ins.minus(kill).plus(gen)
+      return ctx.minus(kill).plus(gen)
     }
 
     override fun merge(a: Set<Stmt>, b: Set<Stmt>): Set<Stmt> = a.union(b)

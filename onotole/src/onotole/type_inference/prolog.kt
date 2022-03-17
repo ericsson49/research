@@ -1,4 +1,4 @@
-package onotole
+package onotole.type_inference
 
 import it.unibo.tuprolog.core.Atom
 import it.unibo.tuprolog.core.Struct
@@ -6,6 +6,7 @@ import it.unibo.tuprolog.core.Term
 import it.unibo.tuprolog.core.Var
 import it.unibo.tuprolog.dsl.prolog
 import it.unibo.tuprolog.theory.Theory
+import onotole.*
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -65,6 +66,7 @@ class ConstraintStore {
 class TypeConstraintGen {
   val constraints = ConstraintStore()
   val tmpVars = mutableListOf<String>()
+  val freshNames: FreshNames = FreshNames()
   fun newPVar(prefix: String = "T_tmp"): PVar {
     val n = prefix + tmpVars.size
     tmpVars.add(n)

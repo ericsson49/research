@@ -671,6 +671,12 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
         val newTyper = this.updated(e.bindings.map { it.arg!! to get(it.value) })
         newTyper[e.value]
       }
+      is CTV -> if (e.v is ClassVal) {
+        if (e.v.tParams.isEmpty() && e.v.eParams.isEmpty())
+          Clazz(e.v.name, emptyList())
+        else
+          TODO()
+      } else TODO()
       else -> fail(e.toString())
     }
     return res

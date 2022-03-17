@@ -119,49 +119,69 @@ class FreshNames {
 }
 
 
-abstract class ExprTransformer {
-  private fun defaultTransformComprehension(c: Comprehension): Comprehension =
-          c.copy(target = transform(c.target, true), iter = transform(c.iter), ifs = transform(c.ifs))
-  fun defaultTransform(e: TExpr, store: Boolean = false): TExpr = when(e) {
+abstract class ExprTransformer<Ctx> {
+  fun defaultTransformComprehension(c: Comprehension, ctx: Ctx): Comprehension =
+          c.copy(target = transform(c.target, ctx, true), iter = transform(c.iter, ctx), ifs = transform(c.ifs, ctx))
+  open fun defaultTransform(e: TExpr, ctx: Ctx, store: Boolean = false): TExpr = when(e) {
     is Constant -> e
     is Name -> e
-    is BinOp -> e.copy(left = transform(e.left), right = transform(e.right))
-    is BoolOp -> e.copy(values = transform(e.values))
-    is Compare -> e.copy(left = transform(e.left), comparators = transform(e.comparators))
-    is UnaryOp -> e.copy(operand = transform(e.operand))
-    is Attribute -> e.copy(value = transform(e.value))
+    is BinOp -> e.copy(left = transform(e.left, ctx), right = transform(e.right, ctx))
+    is BoolOp -> e.copy(values = transform(e.values, ctx))
+    is Compare -> e.copy(left = transform(e.left, ctx), comparators = transform(e.comparators, ctx))
+    is UnaryOp -> e.copy(operand = transform(e.operand, ctx))
+    is Attribute -> e.copy(value = transform(e.value, ctx))
     is Subscript -> {
-      val newValue = transform(e.value)
+      val newValue = transform(e.value, ctx)
       val newSlice = when(e.slice) {
-        is Index -> e.slice.copy(value = transform(e.slice.value))
+        is Index -> e.slice.copy(value = transform(e.slice.value, ctx))
         is Slice -> e.slice.copy(
-                lower = e.slice.lower?.let { transform(it) },
-                upper = e.slice.upper?.let { transform(it) },
-                step = e.slice.step?.let { transform(it) },
+                lower = e.slice.lower?.let { transform(it, ctx) },
+                upper = e.slice.upper?.let { transform(it, ctx) },
+                step = e.slice.step?.let { transform(it, ctx) },
         )
         else -> fail()
       }
       e.copy(value = newValue, slice = newSlice)
     }
-    is IfExp -> e.copy(test = transform(e.test), body = transform(e.body), orelse = transform(e.orelse))
-    is Tuple -> e.copy(elts = transform(e.elts))
-    is PyList -> e.copy(elts = transform(e.elts))
-    is PySet -> e.copy(elts = transform(e.elts))
-    is PyDict -> e.copy(keys = transform(e.keys), values = transform(e.values))
-    is Call -> e.copy(func = transform(e.func), args = transform(e.args),
-            keywords = e.keywords.map { it.copy(value = transform(it.value)) })
-    is Lambda -> e.copy(body = transform(e.body))
-    is GeneratorExp -> e.copy(elt = transform(e.elt), generators = e.generators.map(::defaultTransformComprehension))
-    is ListComp -> e.copy(elt = transform(e.elt), generators = e.generators.map(::defaultTransformComprehension))
-    is SetComp -> e.copy(elt = transform(e.elt), generators = e.generators.map(::defaultTransformComprehension))
-    is DictComp -> e.copy(key = transform(e.key), value = transform(e.value),
-            generators = e.generators.map(::defaultTransformComprehension))
-    is Starred -> e.copy(value = transform(e.value))
+    is IfExp -> e.copy(test = transform(e.test, ctx), body = transform(e.body, ctx), orelse = transform(e.orelse, ctx))
+    is Tuple -> e.copy(elts = transform(e.elts, ctx))
+    is PyList -> e.copy(elts = transform(e.elts, ctx))
+    is PySet -> e.copy(elts = transform(e.elts, ctx))
+    is PyDict -> e.copy(keys = transform(e.keys, ctx), values = transform(e.values, ctx))
+    is Call -> e.copy(func = transform(e.func, ctx), args = transform(e.args, ctx),
+            keywords = e.keywords.map { it.copy(value = transform(it.value, ctx)) })
+    is Lambda -> e.copy(body = transform(e.body, ctx))
+    is GeneratorExp -> e.copy(elt = transform(e.elt, ctx), generators = e.generators.map { defaultTransformComprehension(it, ctx) })
+    is ListComp -> e.copy(elt = transform(e.elt, ctx), generators = e.generators.map { defaultTransformComprehension(it, ctx) })
+    is SetComp -> e.copy(elt = transform(e.elt, ctx), generators = e.generators.map { defaultTransformComprehension(it, ctx) })
+    is DictComp -> e.copy(key = transform(e.key, ctx), value = transform(e.value, ctx),
+            generators = e.generators.map { defaultTransformComprehension(it, ctx) })
+    is Starred -> e.copy(value = transform(e.value, ctx))
+    is CTV -> when (e.v) {
+      is ConstExpr -> CTV(ConstExpr(transform(e.v.e, ctx)))
+      is ClassVal -> e
+      is FuncInst -> e
+      else -> TODO()
+    }
+    is Let -> {
+      val (newAssgnmts, newCtx) = procStmts(e.bindings.map { Assign(mkName(it.arg!!, true), it.value) }, ctx)
+      val newBindings = newAssgnmts.map { Keyword(((it as Assign).target as Name).id, it.value) }
+      e.copy(bindings = newBindings, value = transform(e.value, newCtx))
+    }
     else -> TODO("$e")
   }
-  abstract fun transform(e: TExpr, store: Boolean = false): TExpr
-  fun transform(c: List<TExpr>): List<TExpr> = c.map { transform(it) }
-  fun procStmts(c: List<Stmt>): List<Stmt> = c.map(this::procStmt)
+  abstract fun transform(e: TExpr, ctx: Ctx, store: Boolean = false): TExpr
+  fun transform(c: List<TExpr>, ctx: Ctx): List<TExpr> = c.map { transform(it, ctx) }
+  fun procStmts(c: List<Stmt>, ctx: Ctx): Pair<List<Stmt>, Ctx> {
+    var currCtx = ctx
+    val res = mutableListOf<Stmt>()
+    c.forEach { s ->
+      val (ns, nc) = procStmt(s, currCtx)
+      currCtx = nc
+      res.add(ns)
+    }
+    return res to currCtx
+  }
   fun convertLValToLoad(e: TExpr): TExpr = when(e) {
     is Name -> e.copy(ctx = ExprContext.Load)
     is Subscript -> e.copy(ctx = ExprContext.Load)
@@ -169,28 +189,43 @@ abstract class ExprTransformer {
     is Tuple -> e.copy(ctx = ExprContext.Load, elts = e.elts.map(::convertLValToLoad))
     else -> fail()
   }
-  fun procStmt(s: Stmt): Stmt {
+  abstract fun merge(a: Ctx, b: Ctx): Ctx
+  open fun procStmt(s: Stmt, ctx: Ctx): Pair<Stmt, Ctx> {
     return when(s) {
-      is Expr -> s.copy(value = transform(s.value))
-      is Assert -> s.copy(test = transform(s.test), msg = s.msg?.let { transform(it) })
-      is Assign -> s.copy(target = transform(s.target, true), value = transform(s.value))
-      is AnnAssign -> s.copy(target = transform(s.target, true),
-              annotation = transform(s.annotation),
-              value = s.value?.let { transform(it) })
-      is AugAssign -> procStmt(Assign(target = s.target, value = BinOp(convertLValToLoad(s.target), s.op, s.value)))
-      is If -> s.copy(test = transform(s.test), body = procStmts(s.body), orelse = procStmts(s.orelse))
-      is While -> s.copy(test = transform(s.test), body = procStmts(s.body))
-      is For -> s.copy(target = transform(s.target, true), iter = transform(s.iter), body = procStmts(s.body))
-      is Return -> s.value?.let { s.copy(value = transform(it)) } ?: s
-      is Pass -> s
-      is Continue -> s
-      is Break -> s
+      is Expr -> s.copy(value = transform(s.value, ctx)) to ctx
+      is Assert -> s.copy(test = transform(s.test, ctx), msg = s.msg?.let { transform(it, ctx) }) to ctx
+      is Assign -> s.copy(target = transform(s.target, ctx, true), value = transform(s.value, ctx)) to ctx
+      is AnnAssign -> s.copy(target = transform(s.target, ctx, true),
+              annotation = transform(s.annotation, ctx),
+              value = s.value?.let { transform(it, ctx) }) to ctx
+      is AugAssign -> procStmt(Assign(target = s.target, value = BinOp(convertLValToLoad(s.target), s.op, s.value)), ctx)
+      is If -> {
+        val test = transform(s.test, ctx)
+        val (body, bodyCtx) = procStmts(s.body, ctx)
+        val (orelse, orelseCtx) = procStmts(s.orelse, ctx)
+        s.copy(test = test, body = body, orelse = orelse) to merge(bodyCtx, orelseCtx)
+      }
+      is While -> {
+        val test = transform(s.test, ctx)
+        val (body, bodyCtx) = procStmts(s.body, ctx)
+        s.copy(test = test, body = body) to merge(ctx, bodyCtx)
+      }
+      is For -> {
+        val target = transform(s.target, ctx, true)
+        val iter = transform(s.iter, ctx)
+        val (body, bodyCtx) = procStmts(s.body, ctx)
+        s.copy(target = target, iter = iter, body = body) to merge(ctx, bodyCtx)
+      }
+      is Return -> (s.value?.let { s.copy(value = transform(it, ctx)) } ?: s) to ctx
+      is Pass -> s to ctx
+      is Continue -> s to ctx
+      is Break -> s to ctx
       else -> TODO("$s")
     }
   }
 }
 
-class ExprToCalls(): ExprTransformer() {
+class ExprToCalls(): ExprTransformer<Unit>() {
   val tmpVars = FreshNames()
   fun mkCall(name: String, args: List<TExpr>) = Call(Name(name, ExprContext.Load), args, emptyList())
   fun transform2(body: TExpr, cs: List<Comprehension>): TExpr {
@@ -207,18 +242,18 @@ class ExprToCalls(): ExprTransformer() {
       mkCall("<filter>", listOf(filterL, c))
     }
     val mapL = Lambda(args = lamArgs, body = body)
-    return transform(mkCall("<map>", listOf(mapL, coll)))
+    return transform(mkCall("<map>", listOf(mapL, coll)), Unit)
   }
-  override fun transform(e: TExpr, store: Boolean): TExpr {
+  override fun transform(e: TExpr, ctx: Unit, store: Boolean): TExpr {
     return when (e) {
-      is BinOp -> mkCall("<${e.op}>", transform(listOf(e.left, e.right)))
+      is BinOp -> mkCall("<${e.op}>", transform(listOf(e.left, e.right), ctx))
       is BoolOp -> {
         val redOp: (TExpr, TExpr) -> TExpr = when (e.op) {
           EBoolOp.And -> { a, b -> IfExp(a, b, NameConstant(false)) }
           EBoolOp.Or -> { a, b -> IfExp(a, NameConstant(true), b) }
         }
         //mkCall("<${e.op}>", transform(e.values))
-        transform(e.values).reduceRight(redOp)
+        transform(e.values, ctx).reduceRight(redOp)
       }
       is Compare -> {
         fun convert(l: TExpr, rest: List<Pair<ECmpOp, TExpr>>): TExpr {
@@ -231,13 +266,13 @@ class ExprToCalls(): ExprTransformer() {
 
             val (bs1, v1) = if (needTmp1 && needTmp2) {
               val tmp = tmpVars.fresh("tmp_c")
-              listOf(tmp to transform(l)) to mkName(tmp)
+              listOf(tmp to transform(l, ctx)) to mkName(tmp)
             } else emptyList<Pair<String, TExpr>>() to l
             val (bs2, v2) = if (needTmp2) {
               val tmp = tmpVars.fresh("tmp_c")
-              listOf(tmp to transform(r)) to mkName(tmp)
+              listOf(tmp to transform(r, ctx)) to mkName(tmp)
             } else emptyList<Pair<String, TExpr>>() to r
-            val cmp = transform(mkCall("<$op>", listOf(v1, v2)))
+            val cmp = transform(mkCall("<$op>", listOf(v1, v2)), ctx)
             val res = if (rest.size > 1) {
               val next = convert(v2, rest.subList(1, rest.size))
               IfExp(cmp, next, NameConstant(false))
@@ -259,35 +294,35 @@ class ExprToCalls(): ExprTransformer() {
         if (exprs.size == 1) transform(exprs[0])
         else transform(BoolOp(op = EBoolOp.And, values = exprs))*/
       }
-      is UnaryOp -> mkCall("<${e.op}>", listOf(transform(e.operand)))
+      is UnaryOp -> mkCall("<${e.op}>", listOf(transform(e.operand, ctx)))
       //is PyList -> mkCall("<list>", transform(e.elts))
       //is PySet -> mkCall("<set>", transform(e.elts))
       //is PyDict -> mkCall("<dict>", e.keys.zip(e.values).map {
       //  Tuple(elts = listOf(it.first, it.second), ctx = if (store) ExprContext.Store else ExprContext.Load) })
-      is GeneratorExp -> e.copy(elt = transform(e.elt), generators = e.generators.map {
-        it.copy(target = transform(it.target, true), iter = transform(it.iter), ifs = transform(it.ifs))
+      is GeneratorExp -> e.copy(elt = transform(e.elt, ctx), generators = e.generators.map {
+        it.copy(target = transform(it.target, ctx, true), iter = transform(it.iter, ctx), ifs = transform(it.ifs, ctx))
       })
-      is ListComp -> mkCall("list", listOf(transform(GeneratorExp(e.elt, e.generators))))
-      is SetComp -> mkCall("set", listOf(transform(GeneratorExp(e.elt, e.generators))))
+      is ListComp -> mkCall("list", listOf(transform(GeneratorExp(e.elt, e.generators), ctx)))
+      is SetComp -> mkCall("set", listOf(transform(GeneratorExp(e.elt, e.generators), ctx)))
       is DictComp -> mkCall("dict", listOf(transform(GeneratorExp(
           Tuple(elts = listOf(e.key, e.value), ctx = ExprContext.Load), e.generators
-      ))))
-      is Let ->
-        TODO()
-      else -> defaultTransform(e, store)
+      ), ctx)))
+      else -> defaultTransform(e, ctx, store)
     }
   }
+
+  override fun merge(a: Unit, b: Unit) { }
 }
 
-class LambdaToFuncs(val outerName: String, val localVars: Set<String>): ExprTransformer() {
+class LambdaToFuncs(val outerName: String, val localVars: Set<String>): ExprTransformer<Unit>() {
   val freshNames = FreshNames()
   val localFuncs = mutableListOf<FunctionDef>()
-  override fun transform(e: TExpr, store: Boolean): TExpr = when(e) {
+  override fun transform(e: TExpr, ctx: Unit, store: Boolean): TExpr = when(e) {
     is Lambda -> {
       val name = freshNames.fresh("lambda_" + outerName)
       val liveVars = liveVarAnalysis(e).intersect(localVars).toList()
       val funcArgs = e.args.copy(args = liveVars.map { Arg(it) }.plus(e.args.args))
-      localFuncs.add(FunctionDef(name = name, args = funcArgs, body = listOf(Return(transform(e.body)))))
+      localFuncs.add(FunctionDef(name = name, args = funcArgs, body = listOf(Return(transform(e.body, ctx)))))
       if (liveVars.isEmpty()) {
         Name(name, ExprContext.Load)
       } else {
@@ -297,8 +332,10 @@ class LambdaToFuncs(val outerName: String, val localVars: Set<String>): ExprTran
         ))
       }
     }
-    else -> defaultTransform(e, store)
+    else -> defaultTransform(e, ctx, store)
   }
+
+  override fun merge(a: Unit, b: Unit) {}
 }
 
 fun mkCtx(store: Boolean) = if (store) ExprContext.Store else ExprContext.Load
@@ -552,9 +589,9 @@ fun gatherLocalVars(f: FunctionDef): Set<String> {
   return res.plus(argParamNames)
 }
 
-fun desugarExprs(s: Stmt): Stmt = ExprToCalls().procStmt(s)
+fun desugarExprs(s: Stmt): Stmt = ExprToCalls().procStmt(s, Unit).first
 fun desugarExprs(f: FunctionDef): FunctionDef {
-  val body = ExprToCalls().procStmts(f.body)
+  val body = ExprToCalls().procStmts(f.body, Unit).first
   //val localVars = gatherLocalVars(f)
   //val lambdaToFuncs = LambdaToFuncs(f.name, localVars)
   //return lambdaToFuncs.localFuncs.plus(f.copy(body = lambdaToFuncs.procStmts(body)))
@@ -591,7 +628,12 @@ fun forLoopsDestructor(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
 }
 class ForLoopsDestructor(): SimpleStmtTransformer() {
   val tmpVars = FreshNames()
-  override fun doTransform(s: Stmt): List<Stmt>? = forLoopsDestructor(tmpVars, s)
+  override fun doTransform(s: Stmt): List<Stmt>? {
+    val res = forLoopsDestructor(tmpVars, s)
+    return if (res != null) {
+      transform(res)
+    } else res
+  }
 }
 fun destructForLoops(f: FunctionDef): FunctionDef = ForLoopsDestructor().transform(f)
 

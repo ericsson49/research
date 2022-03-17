@@ -1,4 +1,4 @@
-package onotole
+package onotole.type_inference
 
 import it.unibo.tuprolog.core.*
 import it.unibo.tuprolog.core.List
@@ -8,6 +8,7 @@ import it.unibo.tuprolog.solve.Solution
 import it.unibo.tuprolog.solve.classic.classicWithDefaultBuiltins
 import it.unibo.tuprolog.theory.Theory
 import it.unibo.tuprolog.unify.Unificator
+import onotole.fail
 import kotlin.collections.List as KList
 
 class TPVars() {

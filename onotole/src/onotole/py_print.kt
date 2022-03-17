@@ -92,6 +92,15 @@ fun pyPrint(e: TExpr): String {
     is DictComp -> "{" + pyPrint(e.key) + ": " + pyPrint(e.value) + " " + e.generators.joinToString(" ") { pyPrint(it) } + "}"
     is Starred -> "*" + pyPrint(e.value)
     is Let -> pyPrint(mkCall(Lambda(Arguments(args = e.bindings.map { Arg(it.arg!!) }), e.value), e.bindings.map { it.value }))
+    is CTV -> {
+      when(e.v) {
+        is ConstExpr -> pyPrint(e.v.e)
+        is ClassVal -> pyPrint(e.v.toTExpr())
+        is FuncTempl -> e.v.func.name
+        is FuncInst -> e.v.name + (if (e.v.sig.tParams.isNotEmpty()) e.v.sig.tParams.joinToString(",", "[", "]") else "")
+        else -> TODO()
+      }
+    }
     else -> fail("unsupported $e")
   }
 }
@@ -156,7 +165,25 @@ fun pyPrintType(e: TExpr): String = when(e) {
     }
     getFullName(e)
   }
+  is CTV -> {
+    when(e.v) {
+      is ConstExpr -> pyPrint(e.v.e)
+      is ClassVal -> pyPrint(e.v.toTExpr())
+      is ExTypeVar -> "Any"
+      else -> TODO()
+    }
+  }
   else -> fail("not implemented $e")
+}
+
+fun ClassVal.toTExpr(): TExpr {
+  val name = Name(this.name, ExprContext.Load)
+  return if (this.tParams.size + this.eParams.size == 0)
+    name
+  else {
+    val elems = this.tParams.map { it.toTExpr() }.plus(this.eParams.map { it.e })
+    Subscript(name, Index(if (elems.size == 1) elems[0] else Tuple(elems, ExprContext.Load)), ExprContext.Load)
+  }
 }
 
 fun pyPrint(a: Arg) = a.arg + (a.annotation?.let { ": " + pyPrintType(it) } ?: "")

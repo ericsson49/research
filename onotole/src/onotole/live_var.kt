@@ -65,6 +65,14 @@ fun liveVarAnalysis(e: TExpr): Set<String> {
       val kill = getVarNamesInStoreCtx(gen.target)
       out1.minus(kill).union(liveVarAnalysis(gen.iter))
     }
+    is ListComp -> {
+      if (e.generators.size != 1)
+        fail("not yet implemented")
+      val gen = e.generators[0]
+      val out1 = liveVarAnalysis(e.elt).union(liveVarAnalysis(gen.ifs))
+      val kill = getVarNamesInStoreCtx(gen.target)
+      out1.minus(kill).union(liveVarAnalysis(gen.iter))
+    }
     is Call -> liveVarAnalysis(listOf(e.func).plus(e.args).plus(e.keywords.map { it.value }))
     is Constant -> emptySet()
     is Attribute -> liveVarAnalysis(e.value)
@@ -83,6 +91,18 @@ fun liveVarAnalysis(e: TExpr): Set<String> {
     is PySet -> liveVarAnalysis(e.elts)
     is PyDict -> liveVarAnalysis(e.keys.plus(e.values))
     is Let -> liveVarAnalysis(e.value).minus(e.bindings.map { it.arg!! }.plus(e.bindings.map { liveVarAnalysis(it.value) }.flatten()))
+    is CTV -> when(e.v) {
+      is ConstExpr -> liveVarAnalysis(e.v.e)
+      is ClassVal -> setOf(e.v.name)
+          .plus(e.v.tParams.flatMap { liveVarAnalysis(CTV(it)) })
+          .plus(e.v.eParams.flatMap { liveVarAnalysis(CTV(it)) })
+      is FuncInst -> setOf(e.v.name)
+      else -> TODO()
+    }
+    is BinOp -> liveVarAnalysis(e.left).plus(liveVarAnalysis(e.right))
+    is Compare -> liveVarAnalysis(listOf(e.left) + e.comparators)
+    is BoolOp -> liveVarAnalysis(e.values)
+    is UnaryOp -> liveVarAnalysis(e.operand)
     else -> fail("unsupported $e")
   }
 }

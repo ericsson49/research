@@ -56,12 +56,13 @@ enum class ExprContext {
 
 sealed class TExpr
 data class CTValue(val vtype: VType): TExpr()
+data class CTV(val v: CTVal): TExpr()
 data class Let(val bindings: List<Keyword>, val value: TExpr): TExpr()
 data class BoolOp(val op: EBoolOp, val values: List<TExpr>): TExpr()
 //class NamedExpr(target: TExpr, value: TExpr): TExpr()
 data class BinOp(val left: TExpr, val op: EBinOp, val right: TExpr): TExpr()
 data class UnaryOp(val op: EUnaryOp, val operand: TExpr): TExpr()
-data class Lambda(val args: Arguments, val body: TExpr): TExpr()
+data class Lambda(val args: Arguments, val body: TExpr, val returns: TExpr? = null): TExpr()
 data class IfExp(val test: TExpr, val body: TExpr, val orelse: TExpr): TExpr()
 data class PyDict(val keys: List<TExpr>, val values: List<TExpr>): TExpr()
 data class PySet(val elts: List<TExpr>): TExpr()

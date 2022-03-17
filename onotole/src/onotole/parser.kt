@@ -433,9 +433,9 @@ fun transformAndDesugar(def: TopLevelDef): TopLevelDef = when(def) {
 object PhaseInfo {
   val prevPhase = mapOf(
       "altair" to "phase0",
-      "merge" to "altair",
-      "sharding" to "merge",
-      "custody_game" to "sharding"
+      "bellatrix" to "altair",
+      //"sharding" to "merge",
+      //"custody_game" to "sharding"
   )
   fun getPkgDeps(phase: String): Set<String> {
     return setOf("ssz").plus(prevPhase[phase]?.let { getPkgDeps(it).plus(it) } ?: emptySet())
@@ -444,16 +444,19 @@ object PhaseInfo {
     return Paths.get("../eth2.0-specs/tests/fork_choice/defs_${phase}_dev.txt")
   }
   val cache = mutableMapOf<String,List<TopLevelDef>>()
-  fun getDeclaredPhaseDefs(phase: String): List<TopLevelDef> {
+  fun getDeclaredPhaseDefs(phase: String, desugar: Boolean): List<TopLevelDef> {
     return cache.getOrPut(phase) {
       val defs = filterOutDefinitions(parseSpecFile(getPath(phase)), phase)
-      defs.map(::transformAndDesugar)
+      if (desugar)
+        defs.map(::transformAndDesugar)
+      else
+        defs.map { if (it is FuncTLDef) it.copy(func = transformForOps(it.func)) else it }
     }
   }
-  fun getPhaseDefs(phase: String): Pair<List<TopLevelDef>,List<TopLevelDef>> {
-    val defs = getDeclaredPhaseDefs(phase)
+  fun getPhaseDefs(phase: String, desugar: Boolean = true): Pair<List<TopLevelDef>,List<TopLevelDef>> {
+    val defs = getDeclaredPhaseDefs(phase, desugar)
     return prevPhase[phase]?.let { prev ->
-      val (prevDefs, _) = getPhaseDefs(prev)
+      val (prevDefs, _) = getPhaseDefs(prev, desugar)
       val (_, combinedDefs) = combine(prevDefs, defs)
       val newNames = combinedDefs.map { it.name }.toSet()
       prevDefs.filter { it.name !in newNames }.plus(combinedDefs) to combinedDefs

@@ -1,5 +1,5 @@
 T__0=1
-DIGIT=2
+T__1=2
 WORD=3
 LPAR=4
 RPAR=5
@@ -9,9 +9,8 @@ COMMA=8
 ARR=9
 COL=10
 WS=11
-NB_STRING_LIT=12
-BSTRING_LIT=13
 '?'=1
+'<:'=2
 '('=4
 ')'=5
 '['=6

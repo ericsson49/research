@@ -18,36 +18,6 @@ public interface TypeExprListener extends ParseTreeListener {
 	 */
 	void exitClsName(TypeExprParser.ClsNameContext ctx);
 	/**
-	 * Enter a parse tree produced by {@link TypeExprParser#funDecl}.
-	 * @param ctx the parse tree
-	 */
-	void enterFunDecl(TypeExprParser.FunDeclContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link TypeExprParser#funDecl}.
-	 * @param ctx the parse tree
-	 */
-	void exitFunDecl(TypeExprParser.FunDeclContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link TypeExprParser#arg}.
-	 * @param ctx the parse tree
-	 */
-	void enterArg(TypeExprParser.ArgContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link TypeExprParser#arg}.
-	 * @param ctx the parse tree
-	 */
-	void exitArg(TypeExprParser.ArgContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link TypeExprParser#argList}.
-	 * @param ctx the parse tree
-	 */
-	void enterArgList(TypeExprParser.ArgListContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link TypeExprParser#argList}.
-	 * @param ctx the parse tree
-	 */
-	void exitArgList(TypeExprParser.ArgListContext ctx);
-	/**
 	 * Enter a parse tree produced by {@link TypeExprParser#type}.
 	 * @param ctx the parse tree
 	 */
@@ -67,4 +37,44 @@ public interface TypeExprListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitTypeParamList(TypeExprParser.TypeParamListContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link TypeExprParser#clsHead}.
+	 * @param ctx the parse tree
+	 */
+	void enterClsHead(TypeExprParser.ClsHeadContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link TypeExprParser#clsHead}.
+	 * @param ctx the parse tree
+	 */
+	void exitClsHead(TypeExprParser.ClsHeadContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link TypeExprParser#clsDecl}.
+	 * @param ctx the parse tree
+	 */
+	void enterClsDecl(TypeExprParser.ClsDeclContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link TypeExprParser#clsDecl}.
+	 * @param ctx the parse tree
+	 */
+	void exitClsDecl(TypeExprParser.ClsDeclContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link TypeExprParser#arg}.
+	 * @param ctx the parse tree
+	 */
+	void enterArg(TypeExprParser.ArgContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link TypeExprParser#arg}.
+	 * @param ctx the parse tree
+	 */
+	void exitArg(TypeExprParser.ArgContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link TypeExprParser#funDecl}.
+	 * @param ctx the parse tree
+	 */
+	void enterFunDecl(TypeExprParser.FunDeclContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link TypeExprParser#funDecl}.
+	 * @param ctx the parse tree
+	 */
+	void exitFunDecl(TypeExprParser.FunDeclContext ctx);
 }

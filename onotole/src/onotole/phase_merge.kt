@@ -50,7 +50,9 @@ fun findFuncsToCopy(d1: List<TopLevelDef>, d2: List<TopLevelDef>, changedClasses
   val revCurrFuncDefs = reverse(currFuncDeps)
 
   val newFuncs = currFDefs.filter { it.key !in prevFDefs || prevFDefs[it.key]!! != it.value }.keys
-  val usedFuncsInit = currFDefs.values.flatMap { d -> findDeps(d.func) }.toSet().intersect(funcNames)
+  val rootFuncs = currFDefs.keys + setOf("on_tick", "on_block", "on_attestation")
+  val rootDefs = rootFuncs.map { currFDefs[it] ?: prevFDefs[it] ?: TODO() }
+  val usedFuncsInit = rootDefs.flatMap { d -> findDeps(d.func) }.toSet().intersect(funcNames)
 
   val usedFuncs = transClosure(usedFuncsInit) { currFuncDeps[it] ?: prevFuncDeps[it] ?: emptySet() }
 

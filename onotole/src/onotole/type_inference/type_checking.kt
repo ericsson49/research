@@ -11,8 +11,8 @@ import onotole.ClassVal
 import onotole.ConstExpr
 import onotole.ExTypeVar
 import onotole.Expr
-import onotole.FreshNames
 import onotole.FuncInst
+import onotole.FunctionDef
 import onotole.GeneratorExp
 import onotole.If
 import onotole.IfExp
@@ -40,8 +40,9 @@ import onotole.typelib.TLTVar
 import onotole.typelib.parseTypeDecl
 
 sealed class CConstr
-data class ConEQ(val a: FTerm, val b: FTerm): CConstr()
-data class ConST(val a: FTerm, val b: FTerm): CConstr()
+sealed interface SimpleCon
+data class ConEQ(val a: FTerm, val b: FTerm): CConstr(), SimpleCon
+data class ConST(val a: FTerm, val b: FTerm): CConstr(), SimpleCon
 sealed class CallHandle
 data class CallOp(val op: String): CallHandle()
 data class GetAttr(val tgt: FTerm, val attr: String): CallHandle()
@@ -85,22 +86,19 @@ class TypeChecker() {
         val valType = resolveExprType(e.value)
         when(e.slice) {
           is Index -> {
+            val v = cs.newVar("I")
             if (e.slice.value is CTV
                 && e.slice.value.v is ConstExpr && e.slice.value.v.e is Num) {
               val idx = e.slice.value.v.e.n.toInt()
-              val v = cs.newVar("I_")
               cs.addConstr(ConCall(v, GetIdxConst(valType, idx), listOf()))
-              v
             } else {
-              val v = cs.newVar("I_")
               val idxType = resolveExprType(e.slice.value)
               cs.addConstr(ConCall(v, GetIdx(valType), listOf(idxType)))
-              v
             }
-
+            v
           }
           is Slice -> {
-            val v = cs.newVar("S_")
+            val v = cs.newVar("S")
             val lower = if (e.slice.lower != null) {
               resolveExprType(e.slice.lower)
             } else NONE
@@ -156,7 +154,7 @@ class TypeChecker() {
       }
       is IfExp -> {
         cs.addST(resolveExprType(e.test), FAtom("pylib.bool"), true)
-        val v = cs.newVar("Tif")
+        val v = cs.newVar("Iif")
         cs.addST(resolveExprType(e.body), v)
         cs.addST(resolveExprType(e.orelse), v)
         v
@@ -205,17 +203,26 @@ class TypeChecker() {
         val argTypes = e.args.args.map { convert(it.annotation!!) }
         val retType = convert(e.returns!!)
 
-        if (argTypes.all { it !is FVar }) {
-          val localVars = e.args.args.map { "T${it.arg}" }
-          val newVars = vars.plus(localVars.zip(argTypes))
-          val resType = resolveExprType(e.body, newVars, cs)
-          cs.addEQ(retType, resType)
-        }
+        val localVars = e.args.args.map { "T${it.arg}" }
+        val newVars = vars.plus(localVars.zip(argTypes))
+        val resType = resolveExprType(e.body, newVars, cs)
+        cs.addEQ(retType, resType)
         FAtom("pylib.Callable", argTypes.plus(retType))
       }
       is Starred -> resolveExprType(e.value)
       else -> TODO()
     }
+  }
+
+  fun processFunc(f: FunctionDef, cs: CConstrStore) {
+    val args = f.args.args.map { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!!, classParseCassInfo)) }.toMap()
+    args.forEach { (v, t) ->
+      cs.addEQ(cs.mkVar(v), t)
+    }
+    f.body.forEach { s ->
+      processStmt(s, args, cs)
+    }
+    cs.addST(cs.mkVar("Treturn"), toFAtom(parseTypeDecl(f.returns!!, classParseCassInfo)))
   }
 
   fun processStmt(s: Stmt, vars: Map<String, FTerm>, cs: CConstrStore) {
@@ -253,7 +260,7 @@ class TypeChecker() {
                 val step = if (s.target.slice.step != null) {
                   resolveExprType(s.target.slice.step, vars, cs)
                 } else NONE
-                cs.addConstr(ConCall(NONE, SetSlice(subscrValType), listOf(subscrValType, lower, upper, step)), true)
+                cs.addConstr(ConCall(NONE, SetSlice(subscrValType), listOf(lower, upper, step, valType)), true)
               }
               else -> TODO()
             }
@@ -330,25 +337,42 @@ fun convert(c: CConstr, f: (FTerm) -> FTerm): CConstr = when(c) {
       kwds = c.kwds.map { it.copy(second = f(it.second)) }
   )
 }
-fun tc_solve(cs: Collection<CConstr>, fn: FreshNames) {
+
+fun tc_check_delayed(cs: CoStore, delayedConstraints: Collection<CConstr>) {
+  delayedConstraints.forEach { c ->
+    when (c) {
+      is ConEQ -> cs.addAll(listOf(c))
+      is ConST -> cs.addAll(listOf(c))
+      is ConCall -> {
+        tc_solve(cs, listOf(c))
+      }
+    }
+  }
+}
+fun tc_solve(cs: Collection<CConstr>): CoStore {
   val cs = cs.map(::convertOptionalType)
-  val eqcs = cs.filterIsInstance<ConEQ>().toMutableSet()
-  val sts = cs.filterIsInstance<ConST>().toMutableSet()
-  val calls = cs.filterIsInstance<ConCall>().toMutableSet()
+  val coStore = CoStore()
+  coStore.addAll(cs.filterIsInstance<ConEQ>())
+  coStore.addAll(cs.filterIsInstance<ConST>())
+  val calls2 = cs.filterIsInstance<ConCall>()
+  tc_solve(coStore, calls2)
+  return coStore
+}
+
+fun tc_solve(store: CoStore, calls: List<ConCall>) {
+  var currCalls = calls.toSet()
   do {
-    val cs1 = eqcs.flatMap { listOf(it.a to it.b, it.b to it.a) }.plus(sts.map { it.a to it.b })
-    val (eqs, lbs, ubs) = norm3(cs1, fn)
-    val vars = eqs.plus(lbs)
-    val calls2 = calls.map { convert(it) { t -> applySubst(t, eqs)} as ConCall }
+    store.checkSat()
+    val calls2 = currCalls.map { convert(it) { t -> applySubst(t, store.eqs) } as ConCall }
+    val vars = store.lbs.filterValues { it.size == 1 }.mapValues { it.value.first() }
     val (derived, inactive) = checkCallConstraints(calls2, vars)
-    calls.clear()
-    calls.addAll(inactive)
-    eqcs.addAll(derived.filterIsInstance<ConEQ>())
-    sts.addAll(derived.filterIsInstance<ConST>())
-    calls.addAll(derived.filterIsInstance<ConCall>())
-    if (derived.isEmpty() && inactive.isNotEmpty())
-      TODO()
+    val derived2 = derived.map(::convertOptionalType)
+    store.addAll(derived2.filterIsInstance<ConEQ>())
+    store.addAll(derived2.filterIsInstance<ConST>())
+    currCalls = inactive.plus(derived2.filterIsInstance<ConCall>()).toSet()
   } while (derived.isNotEmpty())
+  if (currCalls.isNotEmpty())
+    fail()
 }
 
 fun checkCallConstraints(calls: Collection<ConCall>, vars: Map<FVar,FTerm>): Pair<Collection<CConstr>,Collection<ConCall>> {
@@ -434,6 +458,11 @@ fun applyCallConstraint(rr: FTerm, c: CallHandle, args: List<FAtom>, kwds: List<
       retType
     }
     is GetAttr -> resolveAttributeGet(c.tgt as FAtom, c.attr)
+    is SetAttr -> {
+      val valType = resolveAttributeGet(c.tgt as FAtom, c.attr)
+      res.addAll(tryConvert(args[0], valType))
+      FAtom("pylib.None")
+    }
     is GetIdxConst -> {
       val tgt = c.tgt as FAtom
       if (tgt.n == "pylib.Tuple")
@@ -442,9 +471,34 @@ fun applyCallConstraint(rr: FTerm, c: CallHandle, args: List<FAtom>, kwds: List<
         resolveIndexGet(tgt, FAtom("pylib.int"))
     }
     is GetIdx -> resolveIndexGet(c.tgt as FAtom, args[0])
+    is SetIdx -> {
+      val valType = resolveIndexGet(c.tgt as FAtom, args[0])
+      res.addAll(tryConvert(args[1], valType))
+      FAtom("pylib.None")
+    }
     is GetSlice -> resolveSliceGet(c.tgt as FAtom, null, null, null)
-    else -> TODO()
+    is SetSlice -> {
+      val valType = resolveSliceGet(c.tgt as FAtom, null, null, null)
+      res.addAll(tryConvert(args[3], valType))
+      FAtom("pylib.None")
+    }
   }
   res.add(ConST(r, rr))
   return res
+}
+
+fun tryConvert(a: FTerm, b: FTerm): List<CConstr> {
+  fun checkST(a: FAtom, b: FAtom) = tryCheckST(a, b) == true
+  return when {
+    a is FAtom && b is FAtom -> {
+      when {
+        a.n == "pylib.int" && b.n == "pylib.bool" -> emptyList()
+        a.n == "pylib.int" && checkST(b, FAtom("ssz.uint")) -> emptyList()
+        a.n == "pylib.bool" && checkST(b, FAtom("ssz.uint")) -> emptyList()
+        a.n == "pylib.PyList" && b.n == "ssz.List" -> listOf(ConST(a.ps[0], b.ps[0]))
+        else -> null
+      }
+    }
+    else -> null
+  } ?: listOf(ConST(a, b))
 }

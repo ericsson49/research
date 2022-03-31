@@ -12,7 +12,9 @@ val pylib = mkLibraryModule("pylib", emptySet(), listOf(
         "__mod__" to "(int)->int",
         "__pow__" to "(int)->int",
         "__bitxor__" to "(int)->int",
-        "__neg__" to "()->int"
+        "__rshift__" to "(int)->int",
+        "__rrshift__" to "(int)->int",
+        "__neg__" to "()->int",
     ),
     parseClassDescr("str <: object"),
     parseClassDescr("bytes <: Sequence[int]",

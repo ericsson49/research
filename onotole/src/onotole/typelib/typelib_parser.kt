@@ -238,7 +238,10 @@ fun parseTypeDecl(t: TExpr, clsInfo: (String) -> TLClassHead?): TLTClass {
     }
     is CTV -> if (t.v is ClassVal)
       parseTypeDecl(t.v.toTExpr(), clsInfo)
-    else TODO()
+    else if (t.v is ConstExpr)
+      parseTypeDecl(t.v.e, clsInfo)
+    else
+      TODO()
     else -> TODO()
   }
 }

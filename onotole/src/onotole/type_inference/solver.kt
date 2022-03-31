@@ -86,8 +86,7 @@ fun tryMeet(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
         r1 == true && r2 == true -> TODO() // shouldn't happen as it means a==b
         r1 == true -> a to a
         r2 == true -> b to b
-        r1 == false && r2 == false ->
-          fail("can't calculate meet")
+        r1 == false && r2 == false -> a to b
         else -> a to b
       }
     }
@@ -111,6 +110,8 @@ fun tryJoin(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
   val OBJ = FAtom("pylib.object")
   return when {
     a == OBJ || b == OBJ -> OBJ to OBJ
+    a.n == "pylib.None" -> b to b
+    b.n == "pylib.None" -> a to a
     a == b -> a to b
     else -> {
       val ancestorsOfA = getAncestors(a).map { it.n to it }.toMap()
@@ -240,18 +241,24 @@ fun tryCheckST(a: FAtom, b: FAtom): Boolean? {
 fun st(a: FAtom, b: FAtom): Pair<Boolean,Set<Constraint>> {
   return when {
     a == b -> true to emptySet()
+    a.n == "pylib.None" -> true to emptySet()
     //a.n == "pylib.None" && b.n == "pylib.Optional" -> true to emptySet()
     //a.n == "pylib.Optional" -> st(a.ps[0] as FAtom, b)
     //b.n == "pylib.Optional" -> st(a, b.ps[0] as FAtom)
     (a.n == "Tuple" || a.n == "pylib.Tuple") && (b.n == "pylib.Sequence" || b.n == "pylib.Iterable") -> {
       true to a.ps.map { it to b.ps[0] }.toSet()
     }
+    a.n == "pylib.bytes" && b.n == "phase0.BLSPubkey" -> true to emptySet()
+    a.n == "ssz.uint8" && b.n == "altair.ParticipationFlags" -> true to emptySet()
+    a.n == "pylib.int" && b.n == "pylib.bool" -> true to emptySet()
     a.n == "ssz.Hash32" && b.n == "phase0.Root" -> true to emptySet()
+    a.n == "ssz.Bytes96" && b.n == "phase0.BLSSignature" -> true to emptySet()
     else -> {
       val ancestorsOfA = getAncestors(a)
       val am = ancestorsOfA.find { it.n == b.n }
       if (am != null) {
-        if (am.ps.size != b.ps.size) fail()
+        if (am.ps.size != b.ps.size)
+          fail()
         val (coP,inP,conP) = getTypeParams(am)
         val cs = am.ps.zip(b.ps)
         val coCS = coP.map { cs[it] }

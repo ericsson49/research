@@ -235,7 +235,7 @@ fun resolveExprType(e: TExpr, vars: Map<String, FTerm>, cs: IConstrStore<FTerm>)
       val bodyVal = resolveExprType(e.body)
       val orelseVal = resolveExprType(e.orelse)
       if (bodyVal != null || orelseVal != null) {
-        val v = cs.freshVar("Tif")
+        val v = cs.freshVar("Iif")
         bodyVal?.let { cs.addST(it, v) }
         orelseVal?.let { cs.addST(it, v) }
         v
@@ -251,7 +251,7 @@ fun resolveExprType(e: TExpr, vars: Map<String, FTerm>, cs: IConstrStore<FTerm>)
     is Tuple -> {
       val eltTypes = e.elts.map { resolveExprType(it) }
       if (eltTypes.any { it == null }) null
-      else FAtom("Tuple", eltTypes.map { it!! })
+      else FAtom("pylib.Tuple", eltTypes.map { it!! })
     }
     is GeneratorExp -> {
       if (e.generators.size != 1) fail()
@@ -404,12 +404,12 @@ fun toFTerm(t: TLType): FTerm = when(t) {
   else -> TODO()
 }
 fun toFAtom(cls: TLTClass): FAtom = FAtom(cls.name, cls.params.filter { it !is TLTConst }.map { toFTerm(it) })
-fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
+
+fun inferTypes2(fd: FunctionDef): Map<String,ClassVal> {
   val f = convertToAndOutOfSSA(fd)
   pyPrintFunc(f)
   println()
 
-  val args = f.args.args.map { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!!, classParseCassInfo)) }.toMap()
   val tc = TypeChecker()
   val fn = FreshNames()
   val constrs = mutableListOf<CConstr>()
@@ -424,10 +424,36 @@ fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
         constrs.add(c)
     }
   }
-  f.body.forEach { s ->
-    tc.processStmt(s, args, ccs)
+  tc.processFunc(f, ccs)
+  val coStore = tc_solve(constrs)
+  tc_check_delayed(coStore, delayedConstrs)
+
+  val vars = coStore.eqs.keys.plus(coStore.lbs.keys).plus(coStore.ubs.keys)
+  val varValues = vars.map { v ->
+    val value = coStore.eqs[v]
+        ?: coStore.lbs[v]?.let { if (it.size != 1) fail() else it.first() }
+        ?: coStore.ubs[v]?.let { if (it.size != 1) fail() else it.first() }
+        ?: TODO()
+    v.v to value
+  }.toMap()
+  fun getVars(t: FTerm): Set<FVar> = when(t) {
+    is FVar -> setOf(t)
+    is FAtom -> t.ps.flatMap(::getVars).toSet()
   }
-  tc_solve(constrs, fn)
+  val vs = postorder(varValues.mapValues { getVars(it.value) }.mapKeys { FVar(it.key) })
+  val varValues2 = mutableMapOf<String,FTerm>()
+  vs.forEach { v ->
+    varValues2[v.v] = replaceTypeVars(varValues[v.v]!!, varValues2)
+  }
+  return varValues2.mapValues { it.value.toClassVal() }
+}
+
+fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
+  val f = convertToAndOutOfSSA(fd)
+  pyPrintFunc(f)
+  println()
+
+  val args = f.args.args.map { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!!, classParseCassInfo)) }.toMap()
 
   var curr: Map<String,FAtom> = args
   var currEqs: List<Pair<String,FAtom>> = emptyList()
@@ -437,18 +463,10 @@ fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
     f.body.forEach { s ->
       processStmt(s, currVars, constraints)
     }
-    //val (eqs, lbs, ubs) = norm2(constraints.stConstraints, constraints.fn)
     constraints.simplify()
     currEqs = constraints.eqs.eqs.sub.map { it.key.name to constraints.eqs.convertBack(it.value) }.filter { it.second is FAtom }.map { it.first to it.second as FAtom }
     val res = solve(constraints.stConstraints, constraints.fn).mapKeys { it.key.v }
     val res2 = res.mapValues { replaceTypeVars(it.value, res) as FAtom }
-//    fun cmp() {
-//      val r1 = lbs.plus(eqs).filterKeys { !it.startsWith("L_") }.filterValues { it is FAtom }
-//      val r2 = res.plus(currEqs).filterKeys { !it.startsWith("C_") }
-//      if (r1 != r2)
-//        println()
-//    }
-//    cmp()
     val prev = curr
     curr = curr.plus(res2)
   } while (prev != curr)
@@ -457,7 +475,7 @@ fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
   return res1.mapValues { it.value.toClassVal() }
 }
 
-fun replaceTypeVars(t: FTerm, vars: Map<String,FAtom>): FTerm = when(t) {
+fun replaceTypeVars(t: FTerm, vars: Map<String,FTerm>): FTerm = when(t) {
   is FVar -> vars[t.v] ?: t
   is FAtom -> t.copy(ps = t.ps.map { replaceTypeVars(it, vars) })
 }

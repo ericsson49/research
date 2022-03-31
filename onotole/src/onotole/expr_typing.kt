@@ -5,6 +5,7 @@ import onotole.type_inference.TypeVarReplacer
 import onotole.type_inference.TypingContext
 import onotole.type_inference.inferConstTypes
 import onotole.type_inference.inferTypes
+import onotole.type_inference.inferTypes2
 import onotole.type_inference.toFAtom
 import onotole.typelib.*
 
@@ -690,11 +691,16 @@ class CompileTimeCalc() : BaseNameTransformer() {
           val index = if (e.slice is Index) e.slice.value else fail()
           val indices = if (index is Tuple) index.elts else listOf(index)
           val clsTempl = value.v.clsTempl
-          if (clsTempl.name != "pylib.Tuple" && indices.size != clsTempl.noTParams + clsTempl.noEParams)
-            fail()
           val indices2 = indices.map { transform(it, ctx, false) }
-          val tparams = indices2.subList(0, clsTempl.noTParams)
-          val eparams = indices2.subList(clsTempl.noTParams, clsTempl.noTParams + clsTempl.noEParams)
+          val (tparams, eparams) = if (clsTempl.name == "pylib.Tuple") {
+            indices2 to emptyList()
+          } else {
+            if (indices.size != clsTempl.noTParams + clsTempl.noEParams)
+              fail()
+            val tparams = indices2.subList(0, clsTempl.noTParams)
+            val eparams = indices2.subList(clsTempl.noTParams, clsTempl.noTParams + clsTempl.noEParams)
+            tparams to eparams
+          }
           if (!tparams.all { it is CTV && it.v is ClassVal }) fail()
           if (!eparams.all { it is CTV && it.v is ConstExpr })
             fail()
@@ -983,7 +989,7 @@ fun main() {
   val constTypes_p0 = inferConstTypes(p0Module.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_p0)
   p0Module.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val types = inferTypes(it.func)
+    val types = inferTypes2(it.func)
     val res = TypeVarReplacer(types).procStmts(it.func.body, Unit).first
     pyPrintFunc(it.func.copy(body = res))
     println("------------")
@@ -993,7 +999,7 @@ fun main() {
   val constTypes_alt = inferConstTypes(altairModule.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_alt)
   altairModule.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val types = inferTypes(it.func)
+    val types = inferTypes2(it.func)
     val res = TypeVarReplacer(types).procStmts(it.func.body, Unit).first
     pyPrintFunc(it.func.copy(body = res))
     println("------------")
@@ -1005,7 +1011,7 @@ fun main() {
   val constTypes_btx = inferConstTypes(bellatrixModule.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_btx)
   bellatrixModule.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val types = inferTypes(it.func)
+    val types = inferTypes2(it.func)
     val res = TypeVarReplacer(types).procStmts(it.func.body, Unit).first
     pyPrintFunc(it.func.copy(body = res))
     println("------------")

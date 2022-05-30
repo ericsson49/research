@@ -2,7 +2,6 @@ package onotole.typelib
 
 import antlr.TypeExprLexer
 import antlr.TypeExprParser
-import onotole.AliasResolver
 import onotole.AnnAssign
 import onotole.Assign
 import onotole.Attribute
@@ -18,10 +17,8 @@ import onotole.Pass
 import onotole.Subscript
 import onotole.TExpr
 import onotole.Tuple
-import onotole.classParseCassInfo
 import onotole.fail
 import onotole.mkName
-import onotole.toTExpr
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
 
@@ -46,7 +43,7 @@ data class TLFuncDef(val func: FunctionDef): TLModDef() {
 }
 
 data class TLConstDecl(override val name: String, val type: TLTClass): TLModDecl()
-data class TLClassDecl(val head: TLClassHead, val parent: TLTClass?, val attrs: Map<String,TLType>): TLModDecl() {
+data class TLClassDecl(val userDefined: Boolean, val head: TLClassHead, val parent: TLTClass?, val attrs: Map<String,TLType>): TLModDecl() {
   override val name = head.name
 }
 
@@ -54,7 +51,7 @@ data class TLClassHead(val name: String, val tvars: List<String> = emptyList()) 
   val noTParams = tvars.filter { it[0].isUpperCase() }.size
   val noEParams = tvars.filter { it[0].isLowerCase() }.size
 }
-data class TLSig(val tParams: List<TLType>, val args: List<Pair<String,TLType>>, val ret: TLType)
+data class TLSig(val tParams: List<TLType>, val args: List<Pair<String,TLType>>, val ret: TLType, val defaults: List<TExpr> = emptyList())
 data class TLFuncDecl(override val name: String, val sigs: List<TLSig>): TLModDecl()
 sealed class TLType
 data class TLTConst(val const: ConstExpr): TLType()
@@ -111,12 +108,14 @@ fun resolveAliasesInPkg(mod: TLModule, deps: Collection<TLModule>): TLModule {
 
 fun mkModule(mod: String, deps: Collection<String>, defs: Collection<TLModDef>, extern: Collection<TLModDecl> = emptyList()): TLModLoader {
   return TLModLoader(mod, deps) { deps ->
-    val newEntries = importModule(mod, deps, defs.plus(extern))
+    val allEntries = defs.plus(extern)
+    val modNames = ModuleNames(mod, allEntries, deps)
+    val newEntries = importModule(modNames, allEntries)
     val entries = defs.flatMap {
-      when(it) {
+      when (it) {
         is TLConstDef -> emptyList() //parseConstDecl(it)
-        is TLClassDef -> listOf(parseClassDescr(it.cls, classParseCassInfo))
-        is TLFuncDef -> listOf(parseFuncDecl(it.func, classParseCassInfo))
+        is TLClassDef -> listOf(parseClassDescr(it.cls, modNames::getClassHead))
+        is TLFuncDef -> listOf(parseFuncDecl(it.func, modNames::getClassHead))
       }
     }.plus(extern)
     val newDecls = newEntries.filterIsInstance<TLModDecl>()
@@ -131,12 +130,6 @@ fun parsePkgDecl(pkg: String, cds: List<TLClassHead>, fds: List<TLFuncDecl>, ext
       .plus(fds.map { it.name to pkg + "." + it.name })
   val aliases = extAliases.plus(intAliases)
   return cds.map { resolveAliases(it, aliases) } to fds.map { resolveAliases(it, aliases) }
-}
-
-fun resolveAliases(c: TLConstDef, aliases: Map<String, String>): TLConstDef {
-  val name = aliases[c.name] ?: c.name
-  val res = AliasResolver(aliases::get).transform(c.value.const.e, Unit)
-  return c.copy(name = name, value = TLTConst(ConstExpr(res)))
 }
 
 fun resolveAliases(c: TLConstDecl, aliases: Map<String, String>): TLConstDecl {
@@ -175,7 +168,7 @@ fun parseClassDescr(cn: String, vararg attrs: Pair<String,String>) = parseClassD
 fun parseClassDescr(cd: Pair<String,Map<String,String>>): TLClassDecl {
   val c = parseClassDecl(cd.first)
   val attrs = cd.second.map { it.key to parseAttrDecl(c.first, it.value) }.toMap()
-  return TLClassDecl(c.first, c.second, attrs)
+  return TLClassDecl(false, c.first, c.second, attrs)
 }
 
 fun parseClassDecl(cd: String): Pair<TLClassHead,TLTClass?> {
@@ -206,15 +199,13 @@ fun parseTypeDecl(t: TypeExprParser.TypeContext, tvars: List<String>): TLType {
 
 fun parseConstDecl(cd: Assign) = TLConstDef((cd.target as Name).id, TLTConst(ConstExpr(cd.value)))
 
-fun parseClassDescr(cd: ClassDef, clsInfo: Map<String, TLClassHead>): TLClassDecl {
+fun parseClassDescr(cd: ClassDef, clsInfo: (String) -> TLClassHead?): TLClassDecl {
   if (cd.bases.size != 1) TODO()
   val base = parseTypeDecl(cd.bases[0], clsInfo)
   val attrs = cd.body.filter { it !is Pass }.map { it as AnnAssign }.map { (it.target as Name).id to parseTypeDecl(it.annotation, clsInfo) }.toMap()
-  return TLClassDecl(TLClassHead(cd.name), parent = base, attrs = attrs)
+  return TLClassDecl(true, TLClassHead(cd.name), parent = base, attrs = attrs)
 }
-fun parseTypeDecl(t: TExpr, clsInfo: Map<String, TLClassHead>): TLTClass {
-  return parseTypeDecl(t, clsInfo::get)
-}
+
 fun parseTypeDecl(t: TExpr, clsInfo: (String) -> TLClassHead?): TLTClass {
   fun getFullName(t: TExpr): String = when(t) {
     is Name -> t.id
@@ -236,19 +227,24 @@ fun parseTypeDecl(t: TExpr, clsInfo: (String) -> TLClassHead?): TLTClass {
         fail()
       TLTClass(className, elts.zip(kinds).map { (e,k) -> if (k) parseTypeDecl(e, clsInfo) else TLTConst(ConstExpr(e)) })
     }
-    is CTV -> if (t.v is ClassVal)
-      parseTypeDecl(t.v.toTExpr(), clsInfo)
-    else if (t.v is ConstExpr)
-      parseTypeDecl(t.v.e, clsInfo)
-    else
-      TODO()
+    is CTV -> parseTypeDecl(t)
+    else -> TODO()
+  }
+}
+fun parseTypeDecl(cls: ClassVal): TLTClass {
+  return TLTClass(cls.name, cls.tParams.map { parseTypeDecl(it) } + cls.eParams.map { TLTConst(it) })
+}
+
+fun parseTypeDecl(c: CTV): TLTClass {
+  return when(c.v) {
+    is ClassVal -> parseTypeDecl(c.v)
     else -> TODO()
   }
 }
 
-fun parseFuncDecl(fd: FunctionDef, clsInfo: Map<String, TLClassHead>): TLFuncDecl {
+fun parseFuncDecl(fd: FunctionDef, clsInfo: (String) -> TLClassHead?): TLFuncDecl {
   val args = fd.args.args.map { it.arg to parseTypeDecl(it.annotation!!, clsInfo) }
-  val sig = TLSig(emptyList(), args = args, ret = parseTypeDecl(fd.returns!!, clsInfo))
+  val sig = TLSig(emptyList(), args = args, ret = parseTypeDecl(fd.returns!!, clsInfo), defaults = fd.args.defaults)
   return TLFuncDecl(fd.name, listOf(sig))
 }
 

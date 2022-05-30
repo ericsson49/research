@@ -17,50 +17,16 @@ data class FAtom(val n: String, val ps: List<FTerm> = emptyList()): FTerm() {
 
 typealias Constraint = Pair<FTerm, FTerm>
 
-val TOP = FAtom("object")
-val bases: Map<String, Pair<String,List<Int>>> = mapOf(
-    "uint" to ("int" to emptyList()),
-    "bool" to ("int" to emptyList()),
-    "list" to ("seq" to listOf(0))
-)
-
-fun getTypeParams(a: FAtom): Triple<List<Int>,List<Int>,List<Int>> {
-  return when(a.n) {
-    "pylib.Set" -> Triple(listOf(0), emptyList(), emptyList())
-    "pylib.Iterator" -> Triple(listOf(0), emptyList(), emptyList())
-    "pylib.Iterable" -> Triple(listOf(0), emptyList(), emptyList())
-    "pylib.Sequence" -> Triple(listOf(0), emptyList(), emptyList())
-    "pylib.PyList" -> Triple(emptyList(), listOf(0), emptyList())
-    "pylib.Callable" ->
-      Triple(listOf(a.ps.size-1), emptyList(), (0 until (a.ps.size-1)).toList())
-    "pylib.Dict" -> Triple(emptyList(), listOf(0,1), emptyList())
-    "pylib.Tuple" -> Triple(a.ps.indices.toList(), emptyList(), emptyList())
-    "ssz.List" -> Triple(emptyList(), listOf(0), emptyList())
-    "ssz.Vector" -> Triple(emptyList(), listOf(0), emptyList())
-    else -> if (a.ps.isEmpty())
-      Triple(listOf(), listOf(), listOf())
-    else
-      TODO()
-  }
-}
-
-fun getBase(cls: FAtom): FAtom? {
-  return when(cls.n) {
-    "pylib.object" -> null
-    "pylib.Tuple" -> FAtom("pylib.object")
-    in TypingContext.classes -> {
-      val classDescr = TypingContext.classes[cls.n]!!
-      val cd = classDescr.head
-      if (cls.ps.size != cd.noTParams)
-        fail()
-      val tvAssgn = cd.tvars.zip(cls.ps).toMap()
-      classDescr.parent?.let { it.toFAtom(tvAssgn) as FAtom }
-    }
-    else -> FAtom("pylib.object")
-  }
-}
+context (TypingCtx)
 fun getAncestors(a: FAtom): List<FAtom> = listOf(a).plus(getBase(a)?.let { getAncestors(it) } ?: emptyList())
 
+context (TypingCtx)
+fun getAncestorByClassName(a: FAtom, cn: String): FAtom? {
+  val ancestorsOfA = getAncestors(a)
+  return ancestorsOfA.find { it.n == cn }
+}
+
+context (TypingCtx)
 fun tryMeet(elems: Set<FAtom>): Set<FAtom> {
   if (elems.size == 1)
     return elems
@@ -73,7 +39,7 @@ fun tryMeet(elems: Set<FAtom>): Set<FAtom> {
     return elems
   }
 }
-
+context (TypingCtx)
 fun tryMeet(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
   val a = if (a.n == "pylib.Optional") a.ps[0] as FAtom else a
   val b = if (b.n == "pylib.Optional") b.ps[0] as FAtom else b
@@ -92,7 +58,7 @@ fun tryMeet(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
     }
   }
 }
-
+context (TypingCtx)
 fun tryJoin(elems: Set<FAtom>): Set<FAtom> {
   if (elems.size == 1)
     return elems
@@ -105,6 +71,7 @@ fun tryJoin(elems: Set<FAtom>): Set<FAtom> {
     return elems
   }
 }
+context (TypingCtx)
 fun tryJoin(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
   class ContinueException: RuntimeException()
   val OBJ = FAtom("pylib.object")
@@ -114,8 +81,8 @@ fun tryJoin(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
     b.n == "pylib.None" -> a to a
     a == b -> a to b
     else -> {
-      val ancestorsOfA = getAncestors(a).map { it.n to it }.toMap()
-      val ancestorsOfB = getAncestors(b).map { it.n to it }.toMap()
+      val ancestorsOfA = getAncestors(a).associateBy { it.n }
+      val ancestorsOfB = getAncestors(b).associateBy { it.n }
       val commonAncestors = ancestorsOfA.keys.intersect(ancestorsOfB.keys)
       val bases = ancestorsOfA.keys.filter { it in commonAncestors }
       for (lub in bases) {
@@ -162,7 +129,7 @@ fun tryJoin(a: FAtom, b: FAtom): Pair<FAtom,FAtom> {
     }
   }
 }
-
+context (TypingCtx)
 fun join(a: FAtom?, b: FAtom?, fn: FreshNames): Pair<FAtom?,List<Constraint>> {
   return when {
     a == b -> a to emptyList()
@@ -220,7 +187,7 @@ fun join(a: FAtom?, b: FAtom?, fn: FreshNames): Pair<FAtom?,List<Constraint>> {
     }
   }
 }
-
+context (TypingCtx)
 fun tryCheckST(a: FAtom, b: FAtom): Boolean? {
   val (res, cs) = st(a, b)
   return if (!res) false
@@ -238,13 +205,11 @@ fun tryCheckST(a: FAtom, b: FAtom): Boolean? {
     }
   }
 }
+context (TypingCtx)
 fun st(a: FAtom, b: FAtom): Pair<Boolean,Set<Constraint>> {
   return when {
     a == b -> true to emptySet()
     a.n == "pylib.None" -> true to emptySet()
-    //a.n == "pylib.None" && b.n == "pylib.Optional" -> true to emptySet()
-    //a.n == "pylib.Optional" -> st(a.ps[0] as FAtom, b)
-    //b.n == "pylib.Optional" -> st(a, b.ps[0] as FAtom)
     (a.n == "Tuple" || a.n == "pylib.Tuple") && (b.n == "pylib.Sequence" || b.n == "pylib.Iterable") -> {
       true to a.ps.map { it to b.ps[0] }.toSet()
     }
@@ -254,8 +219,7 @@ fun st(a: FAtom, b: FAtom): Pair<Boolean,Set<Constraint>> {
     a.n == "ssz.Hash32" && b.n == "phase0.Root" -> true to emptySet()
     a.n == "ssz.Bytes96" && b.n == "phase0.BLSSignature" -> true to emptySet()
     else -> {
-      val ancestorsOfA = getAncestors(a)
-      val am = ancestorsOfA.find { it.n == b.n }
+      val am = getAncestorByClassName(a, b.n)
       if (am != null) {
         if (am.ps.size != b.ps.size)
           fail()
@@ -285,7 +249,7 @@ fun <N> postorder(graph: Map<N,Collection<N>>): List<N> {
   graph.keys.forEach(::walk)
   return res
 }
-
+context (TypingCtx)
 fun solve(cs: Collection<Constraint>, fn: FreshNames): Map<FVar,FAtom> {
   val lowerBounds = mutableMapOf<FVar, FAtom>()
   val tested = mutableSetOf<Pair<FAtom,FAtom>>()
@@ -339,6 +303,7 @@ interface IConstrStore<T> {
   fun addEQ(a: T, b: T)
 }
 
+context (TypingCtx)
 class ConstrStore: IConstrStore<FTerm> {
   val fn = FreshNames()
   val eqs: TUPEQStore2 = TUPEQStore2(fn)
@@ -435,25 +400,27 @@ class ConstrStore: IConstrStore<FTerm> {
 }
 
 fun main() {
-  val b = ConstrStore()
+  with(TypingContext) {
+    val b = ConstrStore()
 /*
-  b.addST(b.mkAtom("seq","T"), b.mkVar("B"))
-  b.addST(b.mkVar("B"), b.mkAtom("seq", "U"))
-  b.addST(b.mkAtom("seq", "U"), b.mkAtom("seq", "T"))
-  b.addST(b.mkAtom("list", "U"), b.mkVar("A"))
-  b.addST(b.mkVar("A"), b.mkAtom("list", "T"))
+    b.addST(b.mkAtom("seq","T"), b.mkVar("B"))
+    b.addST(b.mkVar("B"), b.mkAtom("seq", "U"))
+    b.addST(b.mkAtom("seq", "U"), b.mkAtom("seq", "T"))
+    b.addST(b.mkAtom("list", "U"), b.mkVar("A"))
+    b.addST(b.mkVar("A"), b.mkAtom("list", "T"))
 */
 /*
-  b.addST(b.mkAtom("uint"), b.mkVar("T0"))
-  b.addST(b.mkVar("T0"), b.mkVar("T2"))
-  b.addST(b.mkVar("T1"), b.mkVar("T2"))
-  b.addST(b.mkAtom("int"), b.mkVar("T1"))
+    b.addST(b.mkAtom("uint"), b.mkVar("T0"))
+    b.addST(b.mkVar("T0"), b.mkVar("T2"))
+    b.addST(b.mkVar("T1"), b.mkVar("T2"))
+    b.addST(b.mkAtom("int"), b.mkVar("T1"))
 */
-  b.addST(b.mkAtom("list", b.mkAtom("list", "V")), b.mkVar("A"))
-  b.addST(b.mkAtom("list", b.mkAtom("list", "U")), b.mkVar("A"))
-  //b.addEQ(b.mkVar("U"), b.mkVar("V"))
+    b.addST(b.mkAtom("list", b.mkAtom("list", "V")), b.mkVar("A"))
+    b.addST(b.mkAtom("list", b.mkAtom("list", "U")), b.mkVar("A"))
+    //b.addEQ(b.mkVar("U"), b.mkVar("V"))
 
-  b.simplify()
-  solve(b.stConstraints, b.fn)
-  println()
+    b.simplify()
+    solve(b.stConstraints, b.fn)
+    println()
+  }
 }

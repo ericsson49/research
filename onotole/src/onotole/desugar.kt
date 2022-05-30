@@ -1,5 +1,6 @@
 package onotole
 
+import onotole.rewrite.RuleSetTransformer
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -160,12 +161,20 @@ abstract class ExprTransformer<Ctx> {
     is CTV -> when (e.v) {
       is ConstExpr -> CTV(ConstExpr(transform(e.v.e, ctx)))
       is ClassVal -> e
+      is ClassTemplate -> e
       is FuncInst -> e
+      is FuncTempl -> e
       else -> TODO()
     }
     is Let -> {
       val (newAssgnmts, newCtx) = procStmts(e.bindings.map { Assign(mkName(it.arg!!, true), it.value) }, ctx)
-      val newBindings = newAssgnmts.map { Keyword(((it as Assign).target as Name).id, it.value) }
+      val newBindings = newAssgnmts.map {
+        when(it) {
+          is Assign -> Keyword((it.target as Name).id, it.value)
+          is AnnAssign -> Keyword((it.target as Name).id, it.value!!)
+          else -> TODO()
+        }
+      }
       e.copy(bindings = newBindings, value = transform(e.value, newCtx))
     }
     else -> TODO("$e")
@@ -458,7 +467,7 @@ class Desugar {
         if (ts.isNotEmpty())
           While(
                   NameConstant(true),
-                  body = ts.plus(If(v, newBody, listOf(Break())))
+                  body = ts.plus(If(v, newBody, listOf(Break)))
           )
         else
           s.copy(test = v, body = newBody)
@@ -500,6 +509,7 @@ abstract class StmtVisitor<Ctx> {
       is For -> {
         procStmts(s.body, ctx)
       }
+      else -> {}
     }
   }
 }
@@ -548,6 +558,7 @@ abstract class ExprVisitor<Ctx>: StmtVisitor<Ctx>() {
         e.generators.forEach { procComprehension(it, ctx) }
       }
       is Starred -> procExpr(e.value, ctx)
+      else -> {}
     }
   }
   override fun visitStmt(s: Stmt, ctx: Ctx) {
@@ -609,13 +620,8 @@ fun tupleAssignDestructor(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
     )
   } else null
 }
-class TupleAssignDestructor(): SimpleStmtTransformer() {
-  val tmpVars = FreshNames()
-  override fun doTransform(s: Stmt): List<Stmt>? = tupleAssignDestructor(tmpVars, s)
-}
-fun destructTupleAssign(f: FunctionDef): FunctionDef {
-  return TupleAssignDestructor().transform(f)
-}
+
+fun destructTupleAssign(f: FunctionDef): FunctionDef = RuleSetTransformer(::tupleAssignDestructor).transform(f)
 
 fun forLoopsDestructor(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
    return if (s is For) {
@@ -626,16 +632,8 @@ fun forLoopsDestructor(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
     )
   } else null
 }
-class ForLoopsDestructor(): SimpleStmtTransformer() {
-  val tmpVars = FreshNames()
-  override fun doTransform(s: Stmt): List<Stmt>? {
-    val res = forLoopsDestructor(tmpVars, s)
-    return if (res != null) {
-      transform(res)
-    } else res
-  }
-}
-fun destructForLoops(f: FunctionDef): FunctionDef = ForLoopsDestructor().transform(f)
+
+fun destructForLoops(f: FunctionDef): FunctionDef = RuleSetTransformer(::forLoopsDestructor).transform(f)
 
 fun main() {
   val ignoredFuncs = setOf("cache_this", "hash", "ceillog2", "floorlog2")

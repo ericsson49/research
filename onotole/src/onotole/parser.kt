@@ -285,10 +285,10 @@ fun toStmt(v: Item?): Stmt {
     }
     "If" -> If(test = pm.toExpr("test"), body = pm.toStmts("body"), orelse = pm.toStmts("orelse"))
     "Assert" -> Assert(test = pm.toExpr("test"), msg = pm.toExprOpt("msg"))
-    "Pass" -> Pass()
+    "Pass" -> Pass
     "Return" -> Return(value = pm.toExprOpt("value"))
-    "Continue" -> Continue()
-    "Break" -> Break()
+    "Continue" -> Continue
+    "Break" -> Break
     "Try" -> Try(body = pm.toStmts("body"), handlers = toExceptHandlers(pm["handlers"]), orelse = pm.toStmts("orelse"), finalbody = pm.toStmts("finalbody"))
     "Nonlocal" -> Nonlocal(names = toIdentifiers(pm["names"]))
     "Raise" -> Raise(exc = pm.toExprOpt("exc"), cause = pm.toExprOpt("cause"))

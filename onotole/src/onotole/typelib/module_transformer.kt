@@ -1,16 +1,16 @@
 package onotole.typelib
 
-import onotole.AliasResolver
 import onotole.AnnAssign
 import onotole.Attribute
+import onotole.BaseNameTransformer
 import onotole.CTV
 import onotole.CTVal
 import onotole.ClassTemplate
 import onotole.ClassVal
-import onotole.CompileTimeCalc
 import onotole.ConstExpr
 import onotole.ExprContext
 import onotole.ExprTransformer
+import onotole.FreshNames
 import onotole.FuncTempl
 import onotole.FunctionDef
 import onotole.Index
@@ -18,16 +18,21 @@ import onotole.Name
 import onotole.NameConstant
 import onotole.Pass
 import onotole.PkgVal
-import onotole.StaticNameResolver
 import onotole.Stmt
 import onotole.Subscript
 import onotole.TExpr
 import onotole.Tuple
 import onotole.TypeResolver
+import onotole.aliasResolveRule
 import onotole.allArgs
 import onotole.fail
 import onotole.getFunArgs
+import onotole.mkCompileTimeCalcRule
 import onotole.mkName
+import onotole.nameResolveRule
+import onotole.pyPrintFunc
+import onotole.rewrite.combineRules
+import onotole.staticNameResolveRule
 
 class ModuleNames(val mod: String, _entries: Collection<TLModEntry>, deps: Collection<TLModule>) {
   val pkgs = deps.map { it.name }.plus(mod)
@@ -62,10 +67,7 @@ class ModuleNames(val mod: String, _entries: Collection<TLModEntry>, deps: Colle
           is TLConstDef -> ConstExpr(mkName(n))
           is TLClassDef -> toCTVal(resolveAliases(TLClassHead(entry.name), aliases))
           is TLFuncDef -> {
-            val sig = TLSig(emptyList(), entry.func.allArgs.map {
-              it.arg to parseTypeDecl(it.annotation!!, ::getClassHead)
-            }, parseTypeDecl(entry.func.returns!!, ::getClassHead))
-            val fd = TLFuncDecl(entry.name, listOf(sig))
+            val fd = parseFuncDecl(entry.func, ::getClassHead)
             FuncTempl(resolveAliases(fd, aliases))
           }
         }
@@ -110,9 +112,9 @@ class TestResolver(val globals: ModuleNames, val locals: Set<String>) {
   fun get(n: String) = globals.resolveName(n)
   fun isSpecialFunc(n: String) = n in TypeResolver.specialFuncNames
   fun isLocal(n: String) = n in locals
-  fun getVal(n: String, store: Boolean): TExpr {
+  fun getVal(n: String): CTV? {
     return if (isSpecialFunc(n) || isLocal(n))
-      Name(n, ctx = if (store) ExprContext.Store else ExprContext.Load)
+      null
     else CTV(get(n))
   }
   fun resolveAlias(n: String) = if (n !in locals) globals.aliases[n] else null
@@ -120,27 +122,35 @@ class TestResolver(val globals: ModuleNames, val locals: Set<String>) {
 }
 
 class ModuleTransformer(globals: ModuleNames) {
-  val snResolver = StaticNameResolver()
-  val ctCalc = CompileTimeCalc()
+  val transformer = BaseNameTransformer(combineRules(
+      aliasResolveRule,
+      nameResolveRule,
+      staticNameResolveRule,
+      mkCompileTimeCalcRule(FreshNames())
+  ))
   val globalCtx = TestResolver(globals, emptySet())
-  val aliasResolver = AliasResolver(globalCtx::resolveAlias)
 
   fun processStmts(c: List<Stmt>, resolver: TestResolver): List<Stmt> {
-    val stmts = aliasResolver.procStmts(c, Unit).first
-    val stmts2 = snResolver.procStmts(stmts, resolver).first
-    return ctCalc.procStmts(stmts2, resolver).first
+    return transformer.procStmts(c, resolver).first
   }
   fun transform(e: TExpr, resolver: TestResolver, store: Boolean = false): TExpr {
-    val e1 = aliasResolver.transform(e, Unit, store)
-    val e2 = snResolver.transform(e1, resolver, store)
-    return ctCalc.transform(e2, resolver, store)
+    return transformer.transform(e, resolver, store)
   }
 
-  fun transformType(t: TExpr) = transform(t, globalCtx, false)
+  fun transformType(t: TExpr): TExpr {
+    val te = when(t) {
+      is NameConstant -> if (t.value == null) Name("pylib.None", ExprContext.Load) else fail()
+      else -> t
+    }
+    return transform(te, globalCtx, false)
+  }
 
-  fun transformName(n: String) = aliasResolver.resolveAlias(n) ?: n
+  fun transformName(n: String) = globalCtx.resolveAlias(n) ?: n
 
   fun transform(fd: FunctionDef): FunctionDef {
+    println("---dbg----")
+    pyPrintFunc(fd)
+    println("----------")
     val stmts = processStmts(fd.body, globalCtx.updated(getFunArgs(fd).map { it.first.arg }))
     val ret = fd.returns?.let { transformType(it) }
     val args = fd.args.copy(
@@ -179,8 +189,7 @@ fun <C> transformModEntry(t: ExprTransformer<C>, c: C, s: TLModDef): TLModDef = 
 }
 
 
-fun importModule(modName: String, deps: Collection<TLModule>, entries: Collection<TLModEntry>): List<TLModEntry> {
-  val modNames = ModuleNames(modName, entries, deps)
+fun importModule(modNames: ModuleNames, entries: Collection<TLModEntry>): List<TLModEntry> {
   val transformer = ModuleTransformer(modNames)
   return entries.map { s ->
     when (s) {

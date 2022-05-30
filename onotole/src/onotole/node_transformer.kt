@@ -1,5 +1,7 @@
 package onotole
 
+import onotole.rewrite.RuleSetTransformer1
+import onotole.rewrite.StmtTransformRule1
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -47,27 +49,25 @@ abstract class SimpleStmtTransformer {
   }
 }
 
-fun forOpsTransformer(s: Stmt): List<Stmt>? = when {
-  s is FunctionDef -> if (s.name == "for_ops") emptyList() else TODO()
-  s is Expr && s.value is Call && s.value.func is Name && s.value.func.id == "for_ops" && s.value.args.size == 2 && s.value.keywords.isEmpty() -> {
-    listOf(For(Name("operation", ExprContext.Store), s.value.args[0],
-        listOf(Expr(Call(
-            s.value.args[1],
-            listOf(Name("state", ExprContext.Load), Name("operation", ExprContext.Load)),
-            emptyList()
-        )))))
+val _forOpsTransformer: StmtTransformRule1 = { s ->
+  when {
+    s is FunctionDef -> if (s.name == "for_ops") emptyList() else TODO()
+    s is Expr && s.value is Call && s.value.func is Name && s.value.func.id == "for_ops" && s.value.args.size == 2 && s.value.keywords.isEmpty() -> {
+      listOf(For(Name("operation", ExprContext.Store), s.value.args[0],
+          listOf(Expr(Call(
+              s.value.args[1],
+              listOf(Name("state", ExprContext.Load), Name("operation", ExprContext.Load)),
+              emptyList()
+          )))))
+    }
+    else -> null
   }
-  else -> null
 }
 
-object ForOpsTransformer: SimpleStmtTransformer() {
-  override fun doTransform(s: Stmt): List<Stmt>? = forOpsTransformer(s)
-}
+fun transformForOps(f: FunctionDef) = RuleSetTransformer1(_forOpsTransformer).transform(f)
 
-fun transformForOps(f: FunctionDef) = ForOpsTransformer.transform(f)
-
-fun enumerateTransformer(s: Stmt): List<Stmt>? {
-  return if (s is For && s.iter is Call && s.iter.func is Name && s.iter.func.id == "enumerate") {
+val _enumerateTransformer: StmtTransformRule1 = { s ->
+  if (s is For && s.iter is Call && s.iter.func is Name && s.iter.func.id == "enumerate") {
     if (s.target !is Tuple || s.target.elts.size != 2) TODO()
     val idxExpr = s.target.elts[0]
     val eltExpr = s.target.elts[1]
@@ -79,11 +79,7 @@ fun enumerateTransformer(s: Stmt): List<Stmt>? {
   } else null
 }
 
-object EnumerateTransformer: SimpleStmtTransformer() {
-  override fun doTransform(s: Stmt): List<Stmt>? = enumerateTransformer(s)
-}
-
-fun transformForEnumerate(f: FunctionDef) = EnumerateTransformer.transform(f)
+fun transformForEnumerate(f: FunctionDef) = RuleSetTransformer1(_enumerateTransformer).transform(f)
 
 fun main() {
   val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_phase0_dev.txt")

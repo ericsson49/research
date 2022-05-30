@@ -3,6 +3,7 @@ package onotole.type_inference
 import onotole.fail
 import onotole.kosaraju
 
+context (TypingCtx)
 class CoStore() {
   val eqs = mutableMapOf<FVar,FTerm>()
   val lbs = mutableMapOf<FVar,Set<FAtom>>()
@@ -112,10 +113,26 @@ fun applySubst(a: FTerm, sub: Map<FVar,FTerm>): FTerm = when(a) {
 fun makeSubst(comps: Collection<Collection<FVar>>): Map<FVar,FVar> {
   return comps.flatMap { it.zipWithNext() }.toMap()
 }
-
+context (TypingCtx)
 fun checkST(a: FAtom, b: FAtom): Collection<Constraint>? {
   val (ok, newCS) = st(a, b)
   return if (ok) newCS else null
+}
+context (TypingCtx)
+fun isST(a: FAtom, b: FAtom) = checkST(a, b) != null
+
+context (TypingCtx)
+fun canConvertTo(a: FAtom, b: FAtom): Boolean {
+  fun getSeqElem(c: FAtom): FAtom? {
+    return getAncestorByClassName(c, "pylib.Sequence")?.ps?.get(0) as? FAtom
+  }
+
+  return when {
+    (b.n == "ssz.List" || b.n == "ssz.Vector") && getSeqElem(a) != null -> canConvertTo(getSeqElem(a)!!, b.ps[0] as FAtom)
+    isST(a, FAtom("ssz.Bytes32")) && isST(b, FAtom("ssz.Bytes32")) -> true
+    isST(a, b) -> true
+    else -> false
+  }
 }
 
 fun makeDAG(v2v: Collection<Pair<FVar,FVar>>): Triple<Collection<List<FVar>>, Map<FVar,List<FVar>>, Map<FVar,List<FVar>>> {

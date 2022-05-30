@@ -4,6 +4,8 @@ import onotole.lib_defs.Additional
 import onotole.lib_defs.BLS
 import onotole.lib_defs.PyLib
 import onotole.lib_defs.SSZLib
+import onotole.rewrite.RuleSetTransformer
+import onotole.rewrite.StmtTransformRule
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -33,7 +35,7 @@ fun whileSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
       tmp to listOf(Assign(mkName(tmp, true), s.test))
     } else s.test.id to emptyList()
     listOf(While(test = NameConstant(true),
-        body = testStmts.plus(If(mkName(tmpName), s.body, listOf(Break())))))
+        body = testStmts.plus(If(mkName(tmpName), s.body, listOf(Break)))))
   } else null
 }
 fun ifSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
@@ -42,6 +44,12 @@ fun ifSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
     listOf(Assign(mkName(tmp, true), s.test), s.copy(test = mkName(tmp)))
   } else null
 }
+inline fun <reified T: TExpr> on(e: TExpr): T? = if (e is T) e else null
+
+fun tule(e: TExpr) {
+  on<Subscript>(e)?.ctx
+}
+
 fun assignSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
   fun isSimpleTarget(tgt: TExpr): Boolean = when(tgt) {
     is Name -> true
@@ -99,9 +107,9 @@ fun assignSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
 }
 
 fun callsSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
-  fun isSimpleFuncRef(e: TExpr) = isNameOrConst(e) || e is Attribute
+  fun isSimpleFuncRef(e: TExpr) = isNameOrConst(e) || e is Attribute || e is CTV
   fun isComplexExpr(e: TExpr): Boolean = when(e) {
-    is Constant, is Name, is Lambda, is Let -> false
+    is CTV, is Constant, is Name, is Lambda, is Let -> false
     is Attribute -> !isNameOrConst(e.value)
     is Subscript -> !isNameOrConst(e.value) || when(e.slice) {
       is Index -> !isNameOrConst(e.slice.value)
@@ -232,9 +240,8 @@ fun callsSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
   }
 }
 
-class SimplifyControlStatements: SimpleStmtTransformer() {
-  val tmpVars = FreshNames()
-  private val transformers = listOf<(FreshNames, Stmt) -> List<Stmt>?>(
+fun desugarStmts(f: FunctionDef): FunctionDef {
+  return RuleSetTransformer(listOf(
       ::forLoopsDestructor,
       ::whileSimplifier,
       ::ifSimplifier,
@@ -242,19 +249,8 @@ class SimplifyControlStatements: SimpleStmtTransformer() {
       ::assertSimplifier,
       ::assignSimplifier,
       ::callsSimplifier
-  )
-  override fun doTransform(s: Stmt): List<Stmt>? {
-    transformers.forEach { t ->
-      val res = t.invoke(tmpVars, s)
-      if (res != null) {
-        return transform(res)
-      }
-    }
-    return null
-  }
+  )).transform(f)
 }
-
-fun desugarStmts(f: FunctionDef) = SimplifyControlStatements().transform(f)
 
 fun main() {
   PyLib.init()

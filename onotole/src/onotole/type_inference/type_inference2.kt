@@ -3,7 +3,7 @@ package onotole.type_inference
 import onotole.*
 import onotole.typelib.*
 
-object TypingContext {
+object TypingContext: TypingCtx {
   var classes: MutableMap<String,TLClassDecl> = mutableMapOf()
   var constTypes = mutableMapOf<String,FAtom>()
   fun initConstants(consts: Map<String,FAtom>) {
@@ -11,9 +11,46 @@ object TypingContext {
   }
 
   fun registerModules(res: List<TLModule>) {
-    classes.putAll((res.flatMap { it.declarations }).filterIsInstance<TLClassDecl>().map { it.head.name to it }.toMap())
+    classes.putAll((res.flatMap { it.declarations }).filterIsInstance<TLClassDecl>().associateBy { it.head.name })
   }
+
+  override fun getBase(cls: FAtom): FAtom? {
+    return when(cls.n) {
+      "pylib.object" -> null
+      "pylib.Tuple" -> FAtom("pylib.object")
+      in classes -> {
+        val classDescr = classes[cls.n]!!
+        val cd = classDescr.head
+        if (cls.ps.size != cd.noTParams) fail()
+        val tvAssgn = cd.tvars.zip(cls.ps).toMap()
+        classDescr.parent?.let { it.toFAtom(tvAssgn) as FAtom }
+      }
+      else -> FAtom("pylib.object")
+    }
+  }
+
+  override fun getTypeParams(a: FAtom): Triple<List<Int>,List<Int>,List<Int>> {
+    return when(a.n) {
+      "pylib.Set" -> Triple(listOf(0), emptyList(), emptyList())
+      "pylib.Iterator" -> Triple(listOf(0), emptyList(), emptyList())
+      "pylib.Iterable" -> Triple(listOf(0), emptyList(), emptyList())
+      "pylib.Sequence" -> Triple(listOf(0), emptyList(), emptyList())
+      "pylib.PyList" -> Triple(emptyList(), listOf(0), emptyList())
+      "pylib.Callable" ->
+        Triple(listOf(a.ps.size-1), emptyList(), (0 until (a.ps.size-1)).toList())
+      "pylib.Dict" -> Triple(emptyList(), listOf(0,1), emptyList())
+      "pylib.Tuple" -> Triple(a.ps.indices.toList(), emptyList(), emptyList())
+      "ssz.List" -> Triple(emptyList(), listOf(0), emptyList())
+      "ssz.Vector" -> Triple(emptyList(), listOf(0), emptyList())
+      else -> if (a.ps.isEmpty())
+        Triple(listOf(), listOf(), listOf())
+      else
+        TODO()
+    }
+  }
+
 }
+
 fun resolveAttributeGet(cls: FAtom, attr: String): FTerm {
   if (cls.n == "pylib.Optional") {
     return resolveAttributeGet(cls.ps[0] as FAtom, attr)
@@ -36,6 +73,7 @@ fun resolveAttributeGet(cls: FAtom, attr: String): FTerm {
   TODO()
 }
 
+context (TypingCtx)
 fun resolveIndexGet(cls: FAtom, idx: FTerm): FTerm {
   return resolveAttributeCall(cls, "__getitem__").first
 }
@@ -61,6 +99,7 @@ fun TLType.toFAtom(tvm: Map<String,FTerm>): FTerm = when(this) {
 val int_funcs = setOf(
     "add", "sub","mult","floordiv","mod"
 ).flatMap { setOf(it, "r$it") }.map { "__${it}__" }.toSet()
+context (TypingCtx)
 fun resolveAttributeCall(cls: FAtom, attr: String): Pair<FTerm,List<FTerm>> {
   val attr = attr.toLowerCase()
 
@@ -95,10 +134,12 @@ fun resolveAttributeCall(cls: FAtom, attr: String): Pair<FTerm,List<FTerm>> {
   fail()
 }
 
+context (TypingCtx)
 fun resolveConstExprType(ce: ConstExpr): FAtom {
   return calcConstExprType(ce.e, TypingContext.constTypes, emptyMap())
 }
 
+context (TypingCtx)
 fun resolveExprType(e: TExpr, vars: Map<String, FTerm>, cs: IConstrStore<FTerm>): FTerm? {
   fun resolveExprType(e: TExpr) = resolveExprType(e, vars, cs)
   return when(e) {
@@ -156,7 +197,7 @@ fun resolveExprType(e: TExpr, vars: Map<String, FTerm>, cs: IConstrStore<FTerm>)
         val argTypes = e.args.map { resolveExprType(it) }
         val kwdTypes = e.keywords.map { it.arg!! to resolveExprType(it.value) }
         val fh = if (e.func.v is ClassVal) {
-          toFAtom(parseTypeDecl(e.func.v.toTExpr(), classParseCassInfo))
+          toFAtom(parseTypeDecl(e.func.v))
         } else if (e.func.v is FuncInst) {
           if (argTypes.plus(kwdTypes.map { it.second }).all { it != null }) {
             val funcParams = e.func.v.sig.args.toMap()
@@ -304,7 +345,7 @@ fun resolveExprType(e: TExpr, vars: Map<String, FTerm>, cs: IConstrStore<FTerm>)
     else -> TODO()
   }
 }
-
+context (TypingCtx)
 private fun processStmt(s: Stmt, vars: Map<String, FTerm>, cs: IConstrStore<FTerm>) {
   when(s) {
     is Expr -> resolveExprType(s.value, vars, cs)
@@ -347,6 +388,7 @@ private fun processStmt(s: Stmt, vars: Map<String, FTerm>, cs: IConstrStore<FTer
                 resolveExprType(s.target.slice.step, vars, cs)
               }
             }
+            else -> TODO()
           }
         }
         is Attribute -> {
@@ -366,7 +408,7 @@ private fun processStmt(s: Stmt, vars: Map<String, FTerm>, cs: IConstrStore<FTer
     }
     is AnnAssign -> {
       val vn = (s.target as Name).id
-      cs.addEQ(cs.mkVar("T$vn"), toFAtom(parseTypeDecl(s.annotation, classParseCassInfo)))
+      cs.addEQ(cs.mkVar("T$vn"), toFAtom(parseTypeDecl(s.annotation as CTV)))
       if (s.value != null) {
         val valType = resolveExprType(s.value, vars, cs)
         if (valType != null) {
@@ -410,42 +452,46 @@ fun inferTypes2(fd: FunctionDef): Map<String,ClassVal> {
   pyPrintFunc(f)
   println()
 
-  val tc = TypeChecker()
-  val fn = FreshNames()
-  val constrs = mutableListOf<CConstr>()
-  val delayedConstrs = mutableListOf<CConstr>()
-  val ccs = object : CConstrStore {
-    override fun newVar(n: String) = FVar(fn.fresh(n))
-    override fun mkVar(n: String) = FVar(n)
-    override fun addConstr(c: CConstr, delayed: Boolean) {
-      if (delayed)
-        delayedConstrs.add(c)
-      else
-        constrs.add(c)
+  with(TypingContext) {
+    val tc = TypeChecker()
+    val fn = FreshNames()
+    val constrs = mutableListOf<CConstr>()
+    val delayedConstrs = mutableListOf<CConstr>()
+    val ccs = object : CConstrStore {
+      override fun newVar(n: String) = FVar(fn.fresh(n))
+      override fun mkVar(n: String) = FVar(n)
+      override fun addConstr(c: CConstr, delayed: Boolean) {
+        if (delayed)
+          delayedConstrs.add(c)
+        else
+          constrs.add(c)
+      }
     }
-  }
-  tc.processFunc(f, ccs)
-  val coStore = tc_solve(constrs)
-  tc_check_delayed(coStore, delayedConstrs)
+    tc.processFunc(f, ccs)
+    val coStore = tc_solve(constrs)
+    tc_check_delayed(coStore, delayedConstrs)
 
-  val vars = coStore.eqs.keys.plus(coStore.lbs.keys).plus(coStore.ubs.keys)
-  val varValues = vars.map { v ->
-    val value = coStore.eqs[v]
-        ?: coStore.lbs[v]?.let { if (it.size != 1) fail() else it.first() }
-        ?: coStore.ubs[v]?.let { if (it.size != 1) fail() else it.first() }
-        ?: TODO()
-    v.v to value
-  }.toMap()
-  fun getVars(t: FTerm): Set<FVar> = when(t) {
-    is FVar -> setOf(t)
-    is FAtom -> t.ps.flatMap(::getVars).toSet()
+    val vars = coStore.eqs.keys.plus(coStore.lbs.keys).plus(coStore.ubs.keys)
+    val varValues = vars.associate { v ->
+      val value = coStore.eqs[v]
+          ?: coStore.lbs[v]?.let { if (it.size != 1) fail() else it.first() }
+          ?: coStore.ubs[v]?.let { if (it.size != 1) fail() else it.first() }
+          ?: TODO()
+      v.v to value
+    }
+
+    fun getVars(t: FTerm): Set<FVar> = when (t) {
+      is FVar -> setOf(t)
+      is FAtom -> t.ps.flatMap(::getVars).toSet()
+    }
+
+    val vs = postorder(varValues.mapValues { getVars(it.value) }.mapKeys { FVar(it.key) })
+    val varValues2 = mutableMapOf<String, FTerm>()
+    vs.forEach { v ->
+      varValues2[v.v] = replaceTypeVars(varValues[v.v]!!, varValues2)
+    }
+    return varValues2.mapValues { it.value.toClassVal() }
   }
-  val vs = postorder(varValues.mapValues { getVars(it.value) }.mapKeys { FVar(it.key) })
-  val varValues2 = mutableMapOf<String,FTerm>()
-  vs.forEach { v ->
-    varValues2[v.v] = replaceTypeVars(varValues[v.v]!!, varValues2)
-  }
-  return varValues2.mapValues { it.value.toClassVal() }
 }
 
 fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
@@ -453,26 +499,28 @@ fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
   pyPrintFunc(f)
   println()
 
-  val args = f.args.args.map { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!!, classParseCassInfo)) }.toMap()
+  val args = f.args.args.associate { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!! as CTV)) }
 
-  var curr: Map<String,FAtom> = args
-  var currEqs: List<Pair<String,FAtom>> = emptyList()
-  do {
-    val constraints = ConstrStore()
-    val currVars = curr.plus(currEqs)
-    f.body.forEach { s ->
-      processStmt(s, currVars, constraints)
-    }
-    constraints.simplify()
-    currEqs = constraints.eqs.eqs.sub.map { it.key.name to constraints.eqs.convertBack(it.value) }.filter { it.second is FAtom }.map { it.first to it.second as FAtom }
-    val res = solve(constraints.stConstraints, constraints.fn).mapKeys { it.key.v }
-    val res2 = res.mapValues { replaceTypeVars(it.value, res) as FAtom }
-    val prev = curr
-    curr = curr.plus(res2)
-  } while (prev != curr)
+  with(TypingContext) {
+    var curr: Map<String, FAtom> = args
+    var currEqs: List<Pair<String, FAtom>> = emptyList()
+    do {
+      val constraints = ConstrStore()
+      val currVars = curr.plus(currEqs)
+      f.body.forEach { s ->
+        processStmt(s, currVars, constraints)
+      }
+      constraints.simplify()
+      currEqs = constraints.eqs.eqs.sub.map { it.key.name to constraints.eqs.convertBack(it.value) }.filter { it.second is FAtom }.map { it.first to it.second as FAtom }
+      val res = solve(constraints.stConstraints, constraints.fn).mapKeys { it.key.v }
+      val res2 = res.mapValues { replaceTypeVars(it.value, res) as FAtom }
+      val prev = curr
+      curr = curr.plus(res2)
+    } while (prev != curr)
 
-  val res1 = (curr + currEqs).mapValues { replaceTypeVars(it.value, curr) }
-  return res1.mapValues { it.value.toClassVal() }
+    val res1 = (curr + currEqs).mapValues { replaceTypeVars(it.value, curr) }
+    return res1.mapValues { it.value.toClassVal() }
+  }
 }
 
 fun replaceTypeVars(t: FTerm, vars: Map<String,FTerm>): FTerm = when(t) {

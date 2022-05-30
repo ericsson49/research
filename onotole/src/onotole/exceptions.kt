@@ -66,6 +66,7 @@ fun canThrowException(typer: ExprTyper, e: Subscript): Boolean {
         return true
       }
     }
+    else -> TODO()
   }
   return false
 }

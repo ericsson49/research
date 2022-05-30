@@ -55,7 +55,6 @@ enum class ExprContext {
 }
 
 sealed class TExpr
-data class CTValue(val vtype: VType): TExpr()
 data class CTV(val v: CTVal): TExpr()
 data class Let(val bindings: List<Keyword>, val value: TExpr): TExpr()
 data class BoolOp(val op: EBoolOp, val values: List<TExpr>): TExpr()
@@ -127,6 +126,6 @@ data class Assert(val test: TExpr, val msg: TExpr? = null): Stmt()
 //class Global(names: List<identifier> = listOf()): Stmt()
 class Nonlocal(names: List<identifier> = listOf()): Stmt()
 data class Expr(val value: TExpr): Stmt()
-class Pass: Stmt()
-class Break: Stmt()
-class Continue: Stmt()
+object Pass : Stmt()
+object Break : Stmt()
+object Continue : Stmt()

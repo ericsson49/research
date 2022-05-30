@@ -335,8 +335,8 @@ class CfgToStmtConvertor(val cfg: CFGImpl) {
     if (exitsLastCtrl(p) && lastCtrlIsIf(p)) return emptyList()
     if (continuesLastCtrl(p) && lastCtrlIsWhile(p)) return emptyList()
     if (p == exit) return listOf(Return())
-    if (exitsLastLoop(p)) return listOf(Break())
-    if (continuesLastLoop(p)) return listOf(Continue())
+    if (exitsLastLoop(p)) return listOf(Break)
+    if (continuesLastLoop(p)) return listOf(Continue)
 
     val ctrl = (cfg.ifs+cfg.loops).find { it.entry == p }
     val (stmts, next) = if (ctrl != null) {
@@ -392,7 +392,7 @@ class CfgToStmtConvertor(val cfg: CFGImpl) {
     } else {
       While(test = NameConstant(true),
           body = testInstrs
-              .plus(If(UnaryOp(EUnaryOp.Not, testExpr), listOf(Break())))
+              .plus(If(UnaryOp(EUnaryOp.Not, testExpr), listOf(Break)))
               .plus(body))
     }
     ctrls.remove(wi)
@@ -461,8 +461,8 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
     if (continuesLastCtrl(p) && lastCtrlIsWhile(p)) return emptyList()
     if (extract(p).first is ExitInstr)
       fail() //listOf(Return())
-    if (exitsLastLoop(p)) return listOf(Break())
-    if (continuesLastLoop(p)) return listOf(Continue())
+    if (exitsLastLoop(p)) return listOf(Break)
+    if (continuesLastLoop(p)) return listOf(Continue)
 
     val ctrl = (cfg.ifs+cfg.loops).find { it.entry == p }
     val (stmts, next) = if (ctrl != null) {
@@ -531,7 +531,7 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
     } else {
       While(test = NameConstant(true),
           body = testInstrs
-              .plus(If(UnaryOp(EUnaryOp.Not, testExpr), listOf(Break())))
+              .plus(If(UnaryOp(EUnaryOp.Not, testExpr), listOf(Break)))
               .plus(body))
     }
     ctrls.remove(wi)

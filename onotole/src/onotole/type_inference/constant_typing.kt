@@ -22,6 +22,7 @@ fun classValToTLType(c: ClassVal): TLTClass {
   val eps = c.eParams.map { TLTConst(it) }
   return TLTClass(c.name, tps.plus(eps))
 }
+context (TypingCtx)
 fun calcConstExprType(e: TExpr, cache: Map<String,FAtom>, consts: Map<String,TExpr>): FAtom = when(e) {
   is CTV -> when(e.v) {
     is ConstExpr -> calcConstExprType(e.v.e, cache, consts)
@@ -72,9 +73,11 @@ fun inferConstTypes(consts: Collection<Pair<String, TExpr>>): Map<String, FAtom>
   val cache = mutableMapOf<String, FAtom>()
   cache.putAll(TypingContext.constTypes)
   val constMap = consts.toMap()
-  return consts.map { (c, e) ->
-    val t = calcConstExprType(e, cache, constMap)
-    cache[c] = t
-    c to t
-  }.toMap()
+  with(TypingContext) {
+    return consts.associate { (c, e) ->
+      val t = calcConstExprType(e, cache, constMap)
+      cache[c] = t
+      c to t
+    }
+  }
 }

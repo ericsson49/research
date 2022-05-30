@@ -32,10 +32,8 @@ import onotole.TExpr
 import onotole.Tuple
 import onotole.TypeResolver
 import onotole.While
-import onotole.classParseCassInfo
 import onotole.fail
 import onotole.mkName
-import onotole.toTExpr
 import onotole.typelib.TLTVar
 import onotole.typelib.parseTypeDecl
 
@@ -63,6 +61,7 @@ interface CConstrStore {
   fun addEQ(a: FTerm, b: FTerm, delayed: Boolean = false) = addConstr(ConEQ(a, b), delayed)
   fun addST(a: FTerm, b: FTerm, delayed: Boolean = false) = addConstr(ConST(a, b), delayed)
 }
+context (TypingCtx)
 class TypeChecker() {
   val NONE = FAtom("pylib.None")
   fun resolveExprType(e: TExpr, vars: Map<String, FTerm>, cs: CConstrStore): FTerm {
@@ -87,9 +86,10 @@ class TypeChecker() {
         when(e.slice) {
           is Index -> {
             val v = cs.newVar("I")
-            if (e.slice.value is CTV
-                && e.slice.value.v is ConstExpr && e.slice.value.v.e is Num) {
-              val idx = e.slice.value.v.e.n.toInt()
+            val sliceValue = if (e.slice.value is CTV && e.slice.value.v is ConstExpr)
+              e.slice.value.v.e else e.slice.value
+            if (sliceValue is Num) {
+              val idx = sliceValue.n.toInt()
               cs.addConstr(ConCall(v, GetIdxConst(valType, idx), listOf()))
             } else {
               val idxType = resolveExprType(e.slice.value)
@@ -119,7 +119,7 @@ class TypeChecker() {
           val argTypes = e.args.map { resolveExprType(it) }
           val kwdTypes = e.keywords.map { it.arg!! to resolveExprType(it.value) }
           val fh = if (e.func.v is ClassVal) {
-            toFAtom(parseTypeDecl(e.func.v.toTExpr(), classParseCassInfo))
+            toFAtom(parseTypeDecl(e.func.v))
           } else if (e.func.v is FuncInst) {
             val funcParams = e.func.v.sig.args.toMap()
             val argParams = e.func.v.sig.args.subList(0, argTypes.size).map { it.second.toFAtom(emptyMap()) }
@@ -215,14 +215,19 @@ class TypeChecker() {
   }
 
   fun processFunc(f: FunctionDef, cs: CConstrStore) {
-    val args = f.args.args.map { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!!, classParseCassInfo)) }.toMap()
+    fun toFAtom(t: TExpr) = when((t as CTV).v) {
+      is ClassVal -> toFAtom((t.v as ClassVal).toTLTClass())
+      else -> TODO()
+    }
+
+    val args = f.args.args.map { "T" + it.arg to toFAtom(parseTypeDecl(it.annotation!! as CTV)) }.toMap()
     args.forEach { (v, t) ->
       cs.addEQ(cs.mkVar(v), t)
     }
     f.body.forEach { s ->
       processStmt(s, args, cs)
     }
-    cs.addST(cs.mkVar("Treturn"), toFAtom(parseTypeDecl(f.returns!!, classParseCassInfo)))
+    cs.addST(cs.mkVar("Treturn"), toFAtom(f.returns!!))
   }
 
   fun processStmt(s: Stmt, vars: Map<String, FTerm>, cs: CConstrStore) {
@@ -281,7 +286,7 @@ class TypeChecker() {
       }
       is AnnAssign -> {
         val vn = (s.target as Name).id
-        cs.addEQ(cs.mkVar("T$vn"), toFAtom(parseTypeDecl(s.annotation, classParseCassInfo)))
+        cs.addEQ(cs.mkVar("T$vn"), toFAtom(parseTypeDecl(s.annotation as CTV)))
         if (s.value != null) {
           val valType = resolveExprType(s.value, vars, cs)
           cs.addST(valType, cs.mkVar("T$vn"))
@@ -337,7 +342,7 @@ fun convert(c: CConstr, f: (FTerm) -> FTerm): CConstr = when(c) {
       kwds = c.kwds.map { it.copy(second = f(it.second)) }
   )
 }
-
+context (TypingCtx)
 fun tc_check_delayed(cs: CoStore, delayedConstraints: Collection<CConstr>) {
   delayedConstraints.forEach { c ->
     when (c) {
@@ -349,6 +354,7 @@ fun tc_check_delayed(cs: CoStore, delayedConstraints: Collection<CConstr>) {
     }
   }
 }
+context (TypingCtx)
 fun tc_solve(cs: Collection<CConstr>): CoStore {
   val cs = cs.map(::convertOptionalType)
   val coStore = CoStore()
@@ -358,7 +364,7 @@ fun tc_solve(cs: Collection<CConstr>): CoStore {
   tc_solve(coStore, calls2)
   return coStore
 }
-
+context (TypingCtx)
 fun tc_solve(store: CoStore, calls: List<ConCall>) {
   var currCalls = calls.toSet()
   do {
@@ -374,7 +380,7 @@ fun tc_solve(store: CoStore, calls: List<ConCall>) {
   if (currCalls.isNotEmpty())
     fail()
 }
-
+context (TypingCtx)
 fun checkCallConstraints(calls: Collection<ConCall>, vars: Map<FVar,FTerm>): Pair<Collection<CConstr>,Collection<ConCall>> {
   val derived = mutableListOf<CConstr>()
   val inactive = mutableListOf<ConCall>()
@@ -416,6 +422,7 @@ fun checkCallConstraints(calls: Collection<ConCall>, vars: Map<FVar,FTerm>): Pai
   }
   return derived to inactive
 }
+context (TypingCtx)
 fun applyCallConstraint(rr: FTerm, c: CallHandle, args: List<FAtom>, kwds: List<Pair<String,FAtom>>): Collection<CConstr> {
   val res = mutableSetOf<CConstr>()
   val r = when(c) {
@@ -487,6 +494,7 @@ fun applyCallConstraint(rr: FTerm, c: CallHandle, args: List<FAtom>, kwds: List<
   return res
 }
 
+context (TypingCtx)
 fun tryConvert(a: FTerm, b: FTerm): List<CConstr> {
   fun checkST(a: FAtom, b: FAtom) = tryCheckST(a, b) == true
   return when {

@@ -88,7 +88,8 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
     else if (elts.size == 3)
       "Triple"
     else
-      fail("too many tuple elements")
+      "Tuple" + elts.size
+      //fail("too many tuple elements")
     return atomic(tupleName + "(" + elts.joinToString(", ") { render(it) } + ")")
   }
 
@@ -124,6 +125,8 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
       fh to resArgs
     } else if (e is Attribute) {
       genAttrBase(genExpr(e.value, exprTypes), e.attr) to resArgs
+    } else if (e is CTV && e.v is FuncInst) {
+      RLit(e.v.name) to resArgs
     } else {
       genExpr(e, exprTypes) to resArgs
     }
@@ -204,8 +207,8 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
   }
 
   override fun genFunBegin(n: String, args: List<Pair<Arg, String?>>, typ: String): String {
-    val args = args.map { genArg(it.first) }.joinToString(", ")
-    return "function method $n($args): $typ {"
+    val args = args.joinToString(", ") { genArg(it.first) }
+    return "method $n($args) returns (ret_: $typ) {"
   }
 
   override fun genToplevel(n: String, e: TExpr) {
@@ -216,8 +219,8 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
     when(base) {
       "boolean" -> "false"
       "uint8" -> "0"
-      "uint64" -> ""
-      else -> "${base}()"
+      "uint64" -> "0"
+      else -> initializers[base] ?: "${base}()"
     }
   }
 
@@ -226,22 +229,31 @@ class DafnyGen(currPkg: String, importedPkgs: Set<String>): BaseGen(currPkg, imp
   }
 
   override fun genClsField(name: String, typ: String, init: String?): String {
-    return "  ${name}: $typ"
+    return "  var ${name}: $typ;"
   }
 
+  val initializers = mutableMapOf<String,String>()
   override fun genValueClass(name: String, base: TExpr) {
     val baseType = parseType(exprTyper, base)
     val baseName = typeToStr(baseType)
     println("type $name = $baseName")
     println("function method ${name}_(x: $baseName): $name { x }")
+    println("const ${name}_default := ${name}_(0);")
+    initializers[name] = "${name}_default"
   }
 
   override fun genContainerClass(name: String, base: TExpr, fields: List<Triple<String, String, String?>>) {
-    println("datatype $name = $name(")
-    println(fields.joinToString(",\n") {
-      genClsField(it.first, it.second, it.third)
+    println("class $name {")
+    println("  constructor() {")
+    fields.forEach { (name, type, init) ->
+      println("    $name := $init;")
+    }
+    println("  }")
+    println(fields.joinToString("\n") {
+      genClsField(it.first, it.second, it.third!!)
     })
-    println(")")
+    println("}")
+    initializers[name] = "new $name()"
   }
 
 }

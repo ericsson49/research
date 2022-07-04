@@ -27,6 +27,10 @@ fun extractNamesFromTypeExpr(e: TExpr): Set<String> {
       else -> fail()
     }
     is Attribute -> setOf(processAttr(e))
+    is CTV -> when(e.v) {
+      is ClassVal -> extractNamesFromTypeExpr(e.v.toTExpr())
+      else -> TODO()
+    }
     else -> fail()
   }
 }

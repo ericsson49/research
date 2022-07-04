@@ -17,6 +17,7 @@ import onotole.Pass
 import onotole.Subscript
 import onotole.TExpr
 import onotole.Tuple
+import onotole.asClassVal
 import onotole.fail
 import onotole.mkName
 import org.antlr.v4.runtime.CharStreams
@@ -232,7 +233,7 @@ fun parseTypeDecl(t: TExpr, clsInfo: (String) -> TLClassHead?): TLTClass {
   }
 }
 fun parseTypeDecl(cls: ClassVal): TLTClass {
-  return TLTClass(cls.name, cls.tParams.map { parseTypeDecl(it) } + cls.eParams.map { TLTConst(it) })
+  return TLTClass(cls.name, cls.tParams.map { parseTypeDecl(it.asClassVal()) } + cls.eParams.map { TLTConst(it) })
 }
 
 fun parseTypeDecl(c: CTV): TLTClass {

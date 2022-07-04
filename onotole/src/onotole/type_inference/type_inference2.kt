@@ -34,6 +34,7 @@ object TypingContext: TypingCtx {
       "pylib.Set" -> Triple(listOf(0), emptyList(), emptyList())
       "pylib.Iterator" -> Triple(listOf(0), emptyList(), emptyList())
       "pylib.Iterable" -> Triple(listOf(0), emptyList(), emptyList())
+      "pylib.Collection" -> Triple(listOf(0), emptyList(), emptyList())
       "pylib.Sequence" -> Triple(listOf(0), emptyList(), emptyList())
       "pylib.PyList" -> Triple(emptyList(), listOf(0), emptyList())
       "pylib.Callable" ->
@@ -82,7 +83,7 @@ fun resolveSliceGet(cls: FAtom, lower: FTerm?, upper: FTerm?, step: FTerm?): FTe
   return when(cls.n) {
     "ssz.Bitlist" -> FAtom("pylib.Sequence", listOf(FAtom("pylib.int")))
     "ssz.Bitvector" -> FAtom("pylib.Sequence", listOf(FAtom("pylib.int")))
-    "ssz.Hash32","phase0.Root" -> FAtom("pylib.bytes")
+    "ssz.Bytes32","phase0.Root" -> FAtom("pylib.bytes")
     "pylib.Sequence" -> cls
     "pylib.PyList" -> FAtom("pylib.Sequence", cls.ps)
     else -> TODO()
@@ -132,6 +133,35 @@ fun resolveAttributeCall(cls: FAtom, attr: String): Pair<FTerm,List<FTerm>> {
     else -> TODO()
   }
   fail()
+}
+
+context (TypingCtx)
+fun resolveSpecialOpType(op: String, args: List<FAtom>): FTerm {
+  return when(op) {
+    in TypeResolver.binOps, in TypeResolver.cmpOps -> {
+      if (args.size != 2) fail()
+      val (aType, bType) = args[0] to args[1]
+      if (op in TypeResolver.binOps) {
+        if (aType.n != bType.n && st(bType, aType).first)
+          resolveAttributeCall(bType, "__r" + op + "__").first
+        else
+          resolveAttributeCall(aType, "__" + op + "__").first
+      } else if (op in TypeResolver.cmpOps) {
+        FAtom("pylib.bool")
+      } else TODO("shouldn't happen")
+    }
+    in TypeResolver.boolOps -> TODO()
+    in TypeResolver.unaryOp -> {
+      if (args.size != 1) fail()
+      val aType = args[0]
+      if (op == "Not") {
+        FAtom("pylib.bool")
+      } else if (op == "USub") {
+        resolveAttributeCall(aType, "__neg__").first
+      } else TODO()
+    }
+    else -> fail()
+  }
 }
 
 context (TypingCtx)
@@ -447,10 +477,10 @@ fun toFTerm(t: TLType): FTerm = when(t) {
 }
 fun toFAtom(cls: TLTClass): FAtom = FAtom(cls.name, cls.params.filter { it !is TLTConst }.map { toFTerm(it) })
 
-fun inferTypes2(fd: FunctionDef): Map<String,ClassVal> {
-  val f = convertToAndOutOfSSA(fd)
-  pyPrintFunc(f)
-  println()
+fun inferTypes2(fd: FunctionDef, ssa: Boolean = false): Map<String,ClassVal> {
+  val f = if (ssa) fd else convertToAndOutOfSSA(fd)
+  //pyPrintFunc(f)
+  //println()
 
   with(TypingContext) {
     val tc = TypeChecker()

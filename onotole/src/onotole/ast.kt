@@ -27,7 +27,7 @@ data class Arguments(
     val kwarg: Arg? = null,
     val defaults: List<TExpr> = listOf())
 
-data class Comprehension(val target: TExpr, val iter: TExpr, val ifs: List<TExpr>, val is_async: int)
+data class Comprehension(val target: TExpr, val iter: TExpr, val ifs: List<TExpr>, val targetAnno: TExpr? = null)
 
 enum class ECmpOp {
   Eq, NotEq, Lt, LtE, Gt, GtE, Is, IsNot, In, NotIn
@@ -63,7 +63,7 @@ data class BinOp(val left: TExpr, val op: EBinOp, val right: TExpr): TExpr()
 data class UnaryOp(val op: EUnaryOp, val operand: TExpr): TExpr()
 data class Lambda(val args: Arguments, val body: TExpr, val returns: TExpr? = null): TExpr()
 data class IfExp(val test: TExpr, val body: TExpr, val orelse: TExpr): TExpr()
-data class PyDict(val keys: List<TExpr>, val values: List<TExpr>): TExpr()
+data class PyDict(val keys: List<TExpr>, val values: List<TExpr>, val keyAnno: ClassValParam? = null, val valueAnno: ClassValParam? = null): TExpr()
 data class PySet(val elts: List<TExpr>): TExpr()
 data class ListComp(val elt: TExpr, val generators: List<Comprehension>): TExpr()
 data class SetComp(val elt: TExpr, val generators: List<Comprehension>): TExpr()
@@ -81,7 +81,7 @@ data class Attribute(val value: TExpr, val attr: identifier, val ctx: ExprContex
 data class Subscript(val value: TExpr, val slice: TSlice, val ctx: ExprContext): TExpr()
 data class Starred(val value: TExpr, val ctx: ExprContext): TExpr()
 data class Name(val id: identifier, val ctx: ExprContext): TExpr()
-data class PyList(val elts: List<TExpr>, val ctx: ExprContext): TExpr()
+data class PyList(val elts: List<TExpr>, val valueAnno: ClassValParam? = null): TExpr()
 data class Tuple(val elts: List<TExpr>, val ctx: ExprContext): TExpr()
 
 data class Str(val s: String): Constant(s, "str")
@@ -106,6 +106,7 @@ data class ClassDef(val name: identifier,
 data class Return(val value: TExpr? = null): Stmt()
 
 //class Delete(targets: List<TExpr> = listOf()): Stmt()
+data class VarDeclaration(val isVar: Boolean, val target: List<Name>, val annotation: TExpr?, val value: TExpr?): Stmt()
 data class Assign(val target: TExpr, val value: TExpr/*, val type_comment: string? = null*/): Stmt()
 data class AugAssign(val target: TExpr, val op: EBinOp, val value: TExpr): Stmt()
 data class AnnAssign(val target: TExpr, val annotation: TExpr, val value: TExpr? = null/*, val simple: int*/): Stmt()
@@ -126,6 +127,6 @@ data class Assert(val test: TExpr, val msg: TExpr? = null): Stmt()
 //class Global(names: List<identifier> = listOf()): Stmt()
 class Nonlocal(names: List<identifier> = listOf()): Stmt()
 data class Expr(val value: TExpr): Stmt()
-object Pass : Stmt()
-object Break : Stmt()
-object Continue : Stmt()
+data class Pass(private val no: Unit = Unit) : Stmt()
+data class Break(private val no: Unit = Unit) : Stmt()
+data class Continue(private val no: Unit = Unit) : Stmt()

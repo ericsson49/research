@@ -115,6 +115,12 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       args: List<RExpr>, kwdArgs: List<Pair<String,RExpr>>, typer: ExprTyper
   ): Pair<RExpr, List<String>>
 
+  open fun genLet(e: Let, typer: ExprTyper): RExpr {
+    val args = Arguments(args = e.bindings.map { Arg(it.arg!!, typer[it.value].asType().toTExpr()) })
+    val type = typer[e].asType().toTExpr()
+    return genExpr(mkCall(Lambda(args, e.value, type), e.bindings.map { it.value }), typer)
+  }
+
   fun genFunCall(funcExpr: RExpr, args: List<String>) =
       RInfix("", funcExpr, RSeq("(", ")", ",", args.map { RLit(it) }))
   fun genAttrBase(e: RExpr, a: identifier): RExpr = RInfix(".", e, RLit(a))
@@ -158,7 +164,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
   }
 
   fun genLValExpr(e: TExpr, typer: ExprTyper, liveVars: Set<String>? = null): DestructionInfo {
-    fun genExpr(e: TExpr) = genExpr(e,typer)
     return when(e) {
       is Name -> DestructionInfo(genLValExpr_NoTuple(e, typer, liveVars).first, null)
       is Attribute -> {
@@ -171,7 +176,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       }
       is Tuple -> {
         if (!destructLValTuples) {
-          //val exprHolder = genTuple(e.elts.map { genLValExpr(it, exprTypes, liveVars).exprHolder.expr }, true)
           DestructionInfo(LVTuple(e.elts.map { genLValExpr(it, typer, liveVars).exprHolder }), null)
         } else {
           val exprHolder = freshName()
@@ -205,6 +209,10 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       is Attribute -> {
         genAttrLoad(genExpr(e.value), e.attr, getExprType(e.value) is Clazz)
       }
+      is BinOp -> genExpr(mkCall("<${e.op}>", listOf(e.left, e.right)))
+      is BoolOp -> genExpr(mkCall("<${e.op}>", e.values))
+      is Compare -> genExpr(convertCompareSimple(e))
+      is UnaryOp -> genExpr(mkCall("<${e.op}>", listOf(e.operand)))
       is Call -> {
         val resType = getExprType(e)
         val type = getExprType(e.func)
@@ -279,6 +287,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       is PyList -> genPyList(e.elts.map { genExpr(it) })
       is PyDict -> genPyDict(e.keys.zip(e.values).map { genExpr(it.first) to genExpr(it.second) })
       is GeneratorExp -> genComprehension(e.elt, e.generators, typer)
+      is ListComp -> genExpr(mkCall("list", listOf(GeneratorExp(e.elt, e.generators))))
       is Bytes -> genFunCall(RLit("pybytes.create"), listOf(e.s))
       is Lambda -> {
         val lamType = typer[e] as FunType
@@ -286,6 +295,11 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
         atomic(genLambda(e.args.args.map(::genArg), emptyList(), genExpr(e.body, newExprTypes)))
       }
       is Starred -> RPrefix("*", genExpr(e.value))
+      is CTV -> when(e.v) {
+        is ConstExpr -> genExpr(e.v.e)
+        else -> TODO()
+      }
+      is Let -> genLet(e, typer)
       else -> fail(e.toString())
     }
   }
@@ -323,6 +337,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
   abstract fun typeToStr(t: RTType): String
   abstract val destructLValTuples: Boolean
 
+  context (FuncGenCtx)
   fun genStmt(s: Stmt): List<String> {
     val ctx = analyses.varTypings[s]!!
     val exprTypes = exprTyper.updated(ctx)
@@ -331,59 +346,32 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
 
     fun genExpr(e: TExpr) = genExpr(e, exprTypes)
     fun getExprType(e: TExpr): RTType = exprTypes[e].asType()
-    fun getVarDecl(vs: VarSlot, s: Stmt): Pair<Boolean?, String> {
-      val decl: Boolean?
-      val name: String
-      when(vs.def) {
-        is StmtVarDef -> {
-          val defStmt = vs.def.s
-          if (defStmt === s) {
-            decl = vs.refs != null && !vs.refs.isEmpty()
-            name = vs.varName.toString()
-          } else {
-            val tt = varInfo.newSlots[defStmt]!![vs.name]!!
-            decl = null
-            name = tt.varName.toString()
-          }
-        }
-        is PhiVarDef -> {
-          decl = null
-          name = vs.varName.toString()
-        }
-        else -> fail("gggg")
-      }
-      return Pair(decl, name)
-    }
-
-    fun addVarDecl(vs: VarSlot, loop: Boolean) {
-      val phiVar = vs.def as PhiVarDef
-      val phiWeb = varInfo.phiWebMap[phiVar]!!
-      val defS = (phiWeb.defStmt!! as StmtVarDef).s
-      val varAssignment: String
-      if (defS == s) {
-        if (loop) {
-          val info = varInfo.ifAnnoMap[s]!![vs.name]!!
-          val phiWeb = varInfo.phiWebMap[info.target.def as PhiVarDef]!!
-          val targetName = phiWeb.lastDef!!.varName
-          varAssignment = genVarAssignment(true, LVName(targetName.toString()), null, info.elseCopy!!.varName.toString())
-        } else {
-          val types = phiWeb.getNonPhiDefs().map { vd ->
-            when (vd) {
-              is StmtVarDef -> analyses.varTypingsAfter[vd.s]!![vs.name]!!.asType()
-              is ParamVarDef -> analyses.funcArgs.find { it.name == vs.name }!!.type
-              else -> fail("shouldn't happen")
-            }
-          }
-          val phiVarType = getCommonSuperType(types)
-          varAssignment = genVarAssignment(false, LVName(vs.varName.toString()), typeToStr(phiVarType), null)
-        }
-        res.add(varAssignment)
-      } else {
-        //TODO()
-      }
-    }
 
     when (s) {
+      is VarDeclaration -> {
+        if (s.annotation != null) {
+          if (s.target.size != 1) fail()
+          val name = s.target[0].id
+          res.add(genVarAssignment(s.isVar, LVName(name), genNativeType(s.annotation), s.value?.let { render(genExpr(it)) }))
+        } else if (s.target.size == 1) {
+          res.add(genVarAssignment(s.isVar, LVName(s.target[0].id), null, render(genExpr(s.value!!))))
+        } else {
+          val tuple = Tuple(s.target, ExprContext.Store)
+          val destructInfo = genLValExpr(tuple, exprTypes)
+          val vh = destructInfo.exprHolder
+          val exprType = getExprType(s.value!!)
+          var expr: RExpr = genExpr(s.value)
+          if (destructInfo.type != null && destructInfo.type != exprType) {
+            expr = coerceExprToType(s.value, destructInfo.type, exprTypes)
+          }
+          if (!destructLValTuples) {
+            res.add(genVarAssignment(false, vh, null, render(expr)))
+          } else {
+            res.add(genVarAssignment(false, vh, null, render(expr)))
+            res.addAll(genDestructors(destructInfo))
+          }
+        }
+      }
       is Return -> {
         val exprType = s.value?.let { getExprType(it) } ?: TPyNone
         if (!canAssignOrCoerceTo(exprType, returnType))
@@ -392,15 +380,11 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       }
       is Expr -> res.add(genExprStmt(render(genExpr(s.value))))
       is Assign -> {
-        val target = s.target
-
-        when(target) {
+        when(val target = s.target) {
           is Name -> {
-            varInfo.newSlots[s]?.values?.forEach {
-              val vd = getVarDecl(it, s)
-              res.add(genVarAssignment(vd.first, LVName(vd.second), null, render(genExpr(s.value))))
-            }
+            res.add(genVarAssignment(null, LVName(target.id), null, render(genExpr(s.value))))
           }
+          is Tuple -> fail()
           else -> {
             val destructInfo = genLValExpr(target, exprTypes)
             val vh = destructInfo.exprHolder
@@ -419,9 +403,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
         }
       }
       is While -> {
-        (varInfo.newSlots[s] ?: emptyMap()).values.forEach { vs ->
-          addVarDecl(vs, true)
-        }
         val type = getExprType(s.test)
         val testExpr = if (type == TPyBool) render(genExpr(s.test)) else "pybool(${render(genExpr(s.test))})"
         res.add(genWhileHead(testExpr))
@@ -431,9 +412,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
         res.add("}")
       }
       is If -> {
-        (varInfo.newSlots[s] ?: emptyMap()).values.forEach { vs ->
-          addVarDecl(vs, false)
-        }
         val type = getExprType(s.test)
         val testExpr = if (type == TPyBool) render(genExpr(s.test)) else "pybool(${render(genExpr(s.test))})"
         res.add(genIfHead(testExpr))
@@ -446,9 +424,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
         res.add("}")
       }
       is For -> {
-        (varInfo.newSlots[s] ?: emptyMap()).values.forEach { vs ->
-          addVarDecl(vs, true)
-        }
         val dInfo = genLValExpr(s.target, exprTypes)
         res.add(genForHead(dInfo.exprHolder, render(genExpr(s.iter))))
         res.addAll(genDestructors(dInfo))
@@ -459,12 +434,6 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
         res.add(genAssertStmt(render(genExpr(s.test)), s.msg?.let { render(genExpr(it)) }))
       }
       is AugAssign -> res.add(genAugAssignment(genLValExpr(s.target, exprTypes).exprHolder, s.op, genExpr(s.value)))
-      is AnnAssign -> {
-        varInfo.newSlots[s]?.values?.forEach {
-          val vd = getVarDecl(it, s)
-          res.add(genVarAssignment(vd.first, LVName(vd.second), genNativeType(s.annotation), render(genExpr(s.value!!))))
-        }
-      }
       is FunctionDef -> res.addAll(genFunc(s))
       is Pass -> res.add("// pass")
       is Continue -> res.add("continue")
@@ -477,7 +446,7 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
 
   private fun coerceExprToType(ex: TExpr, type: RTType, typer: ExprTyper): RExpr {
     val expr = genExpr(ex, typer)
-    val clazz = (type as NamedType).clazz
+    val clazz = (type as NamedType).`class`
     val (fh, argRefs) = clazz.resolveReturnType(typer.ctx, listOf(typer[ex].asType()), emptyList())
     val (funcExpr, args) = genFunHandle(ex, clazz, fh, argRefs, listOf(expr), emptyList(), typer)
     return genFunCall(funcExpr, args)
@@ -487,20 +456,9 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
     genVarAssignment(false, it.first, null, it.second)
   }
 
-  var _analyses: Analyses? = null
-  val analyses: Analyses
-    get() = _analyses!!
+  data class FuncGenCtx(val analyses: Analyses, val returnType: RTType)
 
-  var _returnType: RTType = TPyNone
-  val returnType: RTType
-    get() = _returnType
-
-  var _varInfo: VarInfo? = null
-  val varInfo: VarInfo
-    get() = _varInfo!!
-
-  var _exprTyper: ExprTyper? = null
-  val exprTyper: ExprTyper get() = _exprTyper ?: TypeResolver.topLevelTyper
+  val exprTyper = TypeResolver.topLevelTyper
 
   abstract fun genComment(comment: String)
   abstract fun genFunBegin(n: String, args: List<Pair<Arg,String?>>, typ: String): String
@@ -528,20 +486,25 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
       genComment(comment.substring(1, comment.length-1))
     }
 
-    _exprTyper = TypeResolver.topLevelTyper
-    _analyses = inferVarTypes(exprTyper, f)
-    _returnType = parseType(exprTyper, f.returns!!)
-    _varInfo = varSlotAnalysis(f)
+    val returnType = parseType(exprTyper, f.returns!!)
+    val vdTransform = VarDeclTransform(f, exprTyper)
 
-    val defautls = List(f.args.args.size - f.args.defaults.size) { null }.plus(f.args.defaults.map { render(genExpr(it, exprTyper)) })
-    val args = f.args.args.zip(defautls)
+    //println("---------------")
+    //pyPrintFunc(f)
+    val body2 = vdTransform.transform(body)
+    //pyPrintFunc(f.copy(body = body2))
+    //println("---------------")
+
+    val defaults = List(f.args.args.size - f.args.defaults.size) { null }.plus(f.args.defaults.map { render(genExpr(it, exprTyper)) })
+    val args = f.args.args.zip(defaults)
     val typ = genNativeType(f.returns!!)
     val res = mutableListOf<String>()
     res.add(genFunBegin(f.name, args, typ))
-    for (s in body) {
-      res.addAll(genStmt(s).map { "  $it" })
+    for (s in body2) {
+      with(FuncGenCtx(vdTransform.newAnalyses, returnType)) {
+        res.addAll(genStmt(s).map { "  $it" })
+      }
     }
-    _exprTyper = null
     res.add("}")
     return res
   }
@@ -553,6 +516,12 @@ abstract class BaseGen(val currPkg: String, val importedPkgs: Set<String>) {
   fun genNativeType(t: TExpr): String {
     return when (t) {
       is NameConstant, is Name, is Subscript, is Attribute -> typeToStr(parseType(exprTyper, t))
+      is CTV -> when(t.v) {
+        is ClassVal -> if (t.v.name == "pylib.Callable")
+          typeToStr(NamedType(t.v.name, t.v.tParams.map { parseType(exprTyper, it.asClassVal().toTExpr()) }))
+        else genNativeType(t.v.toTExpr())
+        else -> TODO()
+      }
       else -> fail("not supported $t")
     }
   }

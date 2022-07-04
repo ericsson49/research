@@ -19,30 +19,33 @@ abstract class SimpleStmtTransformer {
     }
     return if (foundNew) res else c
   }
-  fun transform(s: Stmt): List<Stmt> {
+  open fun transform(s: Stmt): List<Stmt> {
     val res = doTransform(s)
-    if (res != null && (res.size != 1 || res[0] != s)) {
-      return res
+    return if (res != null && (res.size != 1 || res[0] != s)) {
+      res
     } else {
-      return listOf(when (s) {
-        is If -> {
-          val newBody = transform(s.body)
-          val newOrelse = transform(s.orelse)
-          if (newBody == s.body && newOrelse == s.orelse) s
-          else s.copy(body = newBody, orelse = newOrelse)
-        }
-        is While -> {
-          val newBody = transform(s.body)
-          if (newBody == s.body) s else s.copy(body = newBody)
-        }
-        is For -> {
-          val newBody = transform(s.body)
-          if (newBody == s.body) s else s.copy(body = newBody)
-        }
-        else -> s
-      })
+      defaultTransform(s)
     }
   }
+
+  fun defaultTransform(s: Stmt) = listOf(when (s) {
+    is If -> {
+      val newBody = transform(s.body)
+      val newOrelse = transform(s.orelse)
+      if (newBody == s.body && newOrelse == s.orelse) s
+      else s.copy(body = newBody, orelse = newOrelse)
+    }
+    is While -> {
+      val newBody = transform(s.body)
+      if (newBody == s.body) s else s.copy(body = newBody)
+    }
+    is For -> {
+      val newBody = transform(s.body)
+      if (newBody == s.body) s else s.copy(body = newBody)
+    }
+    else -> s
+  })
+
   open fun transform(f: FunctionDef): FunctionDef {
     val newBody = transform(f.body)
     return if (newBody == f.body) f else f.copy(body = newBody)
@@ -69,12 +72,12 @@ fun transformForOps(f: FunctionDef) = RuleSetTransformer1(_forOpsTransformer).tr
 val _enumerateTransformer: StmtTransformRule1 = { s ->
   if (s is For && s.iter is Call && s.iter.func is Name && s.iter.func.id == "enumerate") {
     if (s.target !is Tuple || s.target.elts.size != 2) TODO()
-    val idxExpr = s.target.elts[0]
+    val idxExpr = s.target.elts[0] as Name
     val eltExpr = s.target.elts[1]
     listOf(For(
         target = idxExpr,
         iter = mkCall("range", listOf(mkCall("len", s.iter.args))),
-        body = listOf(Assign(eltExpr, Subscript(s.iter.args[0], Index(idxExpr), ExprContext.Load))).plus(s.body)
+        body = listOf(Assign(eltExpr, Subscript(s.iter.args[0], Index(idxExpr.copy(ctx = ExprContext.Load)), ExprContext.Load))).plus(s.body)
     ))
   } else null
 }

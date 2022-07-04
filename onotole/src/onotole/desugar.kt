@@ -234,25 +234,45 @@ abstract class ExprTransformer<Ctx> {
   }
 }
 
+fun convertCompareSimple(e: Compare): TExpr {
+  val exprs = listOf(e.left).plus(e.comparators.subList(0, e.comparators.size-1))
+        .zip(e.ops).zip(e.comparators).map { (l_o, r) ->
+    val (l, o) = l_o
+    mkCall("<$o>", listOf(l, r))
+  }
+  return if (exprs.size == 1) exprs[0]
+  else BoolOp(op = EBoolOp.And, values = exprs)
+}
+fun convertCompare(fresh: (String) -> String, l: TExpr, rest: List<Pair<ECmpOp, TExpr>>, tr: (TExpr) -> TExpr): TExpr {
+  if (rest.isEmpty()) {
+    TODO()
+  } else {
+    val (op, r) = rest[0]
+    val needTmp1 = l !is Constant && l !is Name
+    val needTmp2 = rest.size > 1 && r !is Constant && r !is Name
+
+    val (bs1, v1) = if (needTmp1 && needTmp2) {
+      val tmp = fresh("tmp_c")
+      listOf(tmp to tr(l)) to mkName(tmp)
+    } else emptyList<Pair<String, TExpr>>() to l
+    val (bs2, v2) = if (needTmp2) {
+      val tmp = fresh("tmp_c")
+      listOf(tmp to tr(r)) to mkName(tmp)
+    } else emptyList<Pair<String, TExpr>>() to r
+    val cmp = tr(mkCall("<$op>", listOf(v1, v2)))
+    val res = if (rest.size > 1) {
+      val next = convertCompare(fresh, v2, rest.subList(1, rest.size), tr)
+      IfExp(cmp, next, NameConstant(false))
+    } else cmp
+    val bs = bs1.plus(bs2)
+    return if (bs.isNotEmpty())
+      Let(bs.map { Keyword(it.first, it.second) }, res)
+    else res
+  }
+}
+
 class ExprToCalls(): ExprTransformer<Unit>() {
   val tmpVars = FreshNames()
-  fun mkCall(name: String, args: List<TExpr>) = Call(Name(name, ExprContext.Load), args, emptyList())
-  fun transform2(body: TExpr, cs: List<Comprehension>): TExpr {
-    if (cs.size != 1) fail()
-    val c = cs[0]
-    fun processTarget(t: TExpr): List<Arg> = when(t) {
-      is Name -> listOf(Arg(t.id))
-      is Tuple -> t.elts.flatMap(::processTarget)
-      else -> fail()
-    }
-    val lamArgs = Arguments(args = processTarget(c.target))
-    val coll = c.ifs.fold(c.iter) { c, ifE ->
-      val filterL = Lambda(args = lamArgs, body = ifE)
-      mkCall("<filter>", listOf(filterL, c))
-    }
-    val mapL = Lambda(args = lamArgs, body = body)
-    return transform(mkCall("<map>", listOf(mapL, coll)), Unit)
-  }
   override fun transform(e: TExpr, ctx: Unit, store: Boolean): TExpr {
     return when (e) {
       is BinOp -> mkCall("<${e.op}>", transform(listOf(e.left, e.right), ctx))
@@ -265,34 +285,7 @@ class ExprToCalls(): ExprTransformer<Unit>() {
         transform(e.values, ctx).reduceRight(redOp)
       }
       is Compare -> {
-        fun convert(l: TExpr, rest: List<Pair<ECmpOp, TExpr>>): TExpr {
-          if (rest.isEmpty()) {
-            TODO()
-          } else {
-            val (op, r) = rest[0]
-            val needTmp1 = l !is Constant && l !is Name
-            val needTmp2 = rest.size > 1 && r !is Constant && r !is Name
-
-            val (bs1, v1) = if (needTmp1 && needTmp2) {
-              val tmp = tmpVars.fresh("tmp_c")
-              listOf(tmp to transform(l, ctx)) to mkName(tmp)
-            } else emptyList<Pair<String, TExpr>>() to l
-            val (bs2, v2) = if (needTmp2) {
-              val tmp = tmpVars.fresh("tmp_c")
-              listOf(tmp to transform(r, ctx)) to mkName(tmp)
-            } else emptyList<Pair<String, TExpr>>() to r
-            val cmp = transform(mkCall("<$op>", listOf(v1, v2)), ctx)
-            val res = if (rest.size > 1) {
-              val next = convert(v2, rest.subList(1, rest.size))
-              IfExp(cmp, next, NameConstant(false))
-            } else cmp
-            val bs = bs1.plus(bs2)
-            return if (bs.isNotEmpty())
-              Let(bs.map { Keyword(it.first, it.second) }, res)
-            else res
-          }
-        }
-        convert(e.left, e.ops.zip(e.comparators))
+        convertCompare(tmpVars::fresh, e.left, e.ops.zip(e.comparators)) { transform(it, ctx)}
 
 
         /*val exprs = listOf(e.left).plus(e.comparators.subList(0, e.comparators.size-1))
@@ -358,7 +351,7 @@ fun mkSubscript(v: String, s: TSlice, store: Boolean = false) = mkSubscript(mkNa
 fun mkSubscript(e: TExpr, s: TSlice, store: Boolean = false) = Subscript(e, s, mkCtx(store))
 fun mkAssign(t: TExpr, e: TExpr) = Assign(t, e)
 
-fun mkCall(f: String, args: List<TExpr>) = onotole.mkCall(mkName(f), args)
+fun mkCall(f: String, args: List<TExpr>) = mkCall(mkName(f), args)
 fun mkCall(e: TExpr, args: List<TExpr>) = Call(e, args = args, keywords = emptyList())
 
 class Desugar {
@@ -467,7 +460,7 @@ class Desugar {
         if (ts.isNotEmpty())
           While(
                   NameConstant(true),
-                  body = ts.plus(If(v, newBody, listOf(Break)))
+                  body = ts.plus(If(v, newBody, listOf(Break())))
           )
         else
           s.copy(test = v, body = newBody)

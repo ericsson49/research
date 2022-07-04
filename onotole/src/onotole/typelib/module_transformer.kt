@@ -148,9 +148,6 @@ class ModuleTransformer(globals: ModuleNames) {
   fun transformName(n: String) = globalCtx.resolveAlias(n) ?: n
 
   fun transform(fd: FunctionDef): FunctionDef {
-    println("---dbg----")
-    pyPrintFunc(fd)
-    println("----------")
     val stmts = processStmts(fd.body, globalCtx.updated(getFunArgs(fd).map { it.first.arg }))
     val ret = fd.returns?.let { transformType(it) }
     val args = fd.args.copy(

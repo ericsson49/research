@@ -1,6 +1,8 @@
 package onotole
 
 import onotole.lib_defs.FunDecl
+import onotole.type_inference.toClassVal
+import onotole.type_inference.toFAtom
 import java.util.*
 
 fun canBeCoercedTo(a: RTType, b: RTType): Boolean = when {
@@ -226,7 +228,7 @@ object TypeResolver {
         val metaClass = resolveNameTyp(type.name)
         if (metaClass == null || metaClass !is MetaClass)
           fail("Unsupported class ${type.name}")
-        metaClass.instantiate(type.tParams.map {(it as NamedType).clazz })
+        metaClass.instantiate(type.tParams.map {(it as NamedType).`class` })
       }
       type is NamedType && type.tParams.isEmpty() && type.name in metaclasses -> {
         metaclasses[type.name]!!.instantiate(emptyList())
@@ -378,7 +380,7 @@ object TypeResolver {
         }
       }
       is MetaClass -> {
-        (type.instantiate(indices).type as NamedType).clazz
+        (type.instantiate(indices).type as NamedType).`class`
       }
       else -> TODO()
     }
@@ -474,13 +476,14 @@ object TypeResolver {
       }
       is Clazz -> {
         funcSigs[callable.name]?.resolveFP(ctx, argTypes, kwdArgs)// ?: fail("no function found for ${callable.name}($argTypes,$kwdArgs)")
-                ?: FunSignature(argTypes.mapIndexed { i,a -> FArg("_$i", a)}, callable.toInstance()) to argTypes.indices.map { PositionalRef(it) }
+            ?: (FunSignature(argTypes.mapIndexed { i, a -> FArg("_$i", a) }, callable.toInstance()) to argTypes.indices.map { PositionalRef(it) })
       }
       is FunType -> {
         if (kwdArgs.isNotEmpty()) fail("keyword args are not supported")
         val sig = FunSignature(callable.argTypes.mapIndexed { i,t -> FArg("_$i", t) }, callable.retType)
         val coll = FuncCollection(listOf(sig))
-        coll.resolveFP(ctx, argTypes, kwdArgs)!!
+        coll.resolveFP(ctx, argTypes, kwdArgs)
+            ?: fail()
       }
       else -> TODO()
     }
@@ -502,19 +505,31 @@ fun MetaClass.instantiate(tps: List<Sort>): TypeInfo {
   return DataTInfo(ti.name, tParams, baseType = ti.baseClassF(tParams), attrs = ti._attrs)
 }
 
+fun parseSort(typer: ExprTyper, t: TExpr): Sort {
+  return if (t == NameConstant(null)) TPyNone
+  else typer[t]
+}
 fun parseType(typer: ExprTyper, t: String): RTType = parseType(typer, Name(t, ExprContext.Load))
 fun parseType(typer: ExprTyper, t: TExpr): RTType {
-  return if (t == NameConstant(null))
+  return when(val res = parseSort(typer, t)) {
+    is NamedType -> res
+    is Clazz -> res.toInstance()
+    is MetaClass -> res.toInstance()
+    else -> TODO()
+  }
+  /*return if (t == NameConstant(null))
     TPyNone
   else {
     val res = typer[t]
-    if (res is Clazz) {
+    if (res is NamedType) {
+      res
+    } else if (res is Clazz) {
       res.toInstance()
     } else if (res is MetaClass) {
       res.toInstance()
     } else
       TODO()
-  }
+  }*/
 }
 
 fun getFArg(typer: ExprTyper, a: Arg, default: TExpr?) = FArg(a.arg, parseType(typer, a.annotation!!), default)
@@ -548,7 +563,7 @@ fun MetaClass.toInstance(): NamedType {
     fail()
   return res
 }
-val NamedType.clazz get() = Clazz(this.name, this.tParams)
+val NamedType.`class` get() = Clazz(this.name, this.tParams)
 
 fun Sort.asType(): RTType = when(this) {
   is RTType -> this
@@ -575,7 +590,16 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
       is Str -> TPyStr
       is Bytes -> TPyBytes
       is Name ->
-        ctx.resolve(e.id)
+        if (e.ctx == ExprContext.Store)
+          fail()
+        else if (e.id.endsWith("_default"))
+          NamedType(e.id.substring(0, e.id.length-"_default".length))
+        else ctx.resolve(e.id)
+          ?: (if (e.id.startsWith("pylib."))
+            ctx.resolve(e.id.substring("pylib.".length))
+          else if (e.id.startsWith("ssz."))
+            ctx.resolve(e.id.substring("ssz.".length))
+          else null)
           ?: fail(e.toString())
       is NameConstant -> when (e.value) {
         true -> TPyBool
@@ -594,6 +618,7 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
           TPySequence(newTyper[e.elt].asType())
         }
       }
+      is ListComp -> get(mkCall("list", listOf(GeneratorExp(e.elt, e.generators))))
       is Subscript -> {
         val typ = get(e.value)
         if (typ is NamedType && typ.name == "Tuple") {
@@ -620,6 +645,10 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
           }
         }
       }
+      is BinOp -> get(mkCall("<${e.op}>", listOf(e.left, e.right)))
+      is BoolOp -> TPyBool
+      is Compare -> TPyBool
+      is UnaryOp -> get(mkCall("<${e.op}>", listOf(e.operand)))
       is Call -> {
         val receiverType = get(e.func)
         fun tryResolve(typer: ExprTypes): RTType = run {
@@ -671,12 +700,26 @@ private class ExprTypes(override val ctx: NameResolver<Sort>, private val cache:
         val newTyper = this.updated(e.bindings.map { it.arg!! to get(it.value) })
         newTyper[e.value]
       }
-      is CTV -> if (e.v is ClassVal) {
-        if (e.v.tParams.isEmpty() && e.v.eParams.isEmpty())
-          Clazz(e.v.name, emptyList())
-        else
-          TODO()
-      } else TODO()
+      is CTV -> {
+        fun toNamedType(c: ClassVal): RTType {
+          if (c.name == "Callable" || c.name == "pylib.Callable")
+            return FunType(
+                c.tParams.subList(0, c.tParams.size-1).map { toNamedType(it.asClassVal()) },
+                toNamedType(c.tParams[c.tParams.size-1].asClassVal())
+            )
+          val name = if (c.name.startsWith("pylib."))
+            c.name.substring("pylib.".length)
+          else c.name
+          return NamedType(name, c.tParams.map { toNamedType(it.asClassVal()) })
+        }
+        when (e.v) {
+          is ClassVal -> (toNamedType(e.v) as NamedType).`class`
+          is FuncInst -> FunType(e.v.sig.args.map { toNamedType(it.second.toFAtom(emptyMap()).toClassVal()) },
+              toNamedType(e.v.sig.ret.toFAtom(emptyMap()).toClassVal()))
+          is ConstExpr -> get(e.v.e)
+          else -> TODO()
+        }
+      }
       else -> fail(e.toString())
     }
     return res
@@ -735,7 +778,13 @@ typealias CTX = Map<String,Sort>
 data class Analyses(
     val varTypings: StmtAnnoMap<NameResolver<Sort>>,
     val varTypingsAfter: StmtAnnoMap<NameResolver<Sort>>,
-    val funcArgs: List<FArg>)
+    val funcArgs: List<FArg>) {
+  fun deepCopy(): Analyses {
+    return Analyses(varTypings.clone() as StmtAnnoMap<NameResolver<Sort>>,
+        varTypingsAfter.clone() as StmtAnnoMap<NameResolver<Sort>>,
+        funcArgs)
+  }
+}
 
 fun inferVarTypes(outerTyper: ExprTyper, f: FunctionDef): Analyses {
   val args = getFArgs(outerTyper, f)
@@ -745,10 +794,10 @@ fun inferVarTypes(outerTyper: ExprTyper, f: FunctionDef): Analyses {
     fun getExprType(e: TExpr) = typer[e]
     return when (e) {
       is Name -> {
-        if (e.id !in typer || e.id in outerTyper && getExprType(e) == outerTyper[e]) {
+        if (e.id !in typer || e.id in outerTyper && typer.ctx.resolve(e.id) == outerTyper.ctx.resolve(e.id)) {
           listOf(e.id to t)
         } else {
-          val type = getExprType(e).asType()
+          val type = typer.ctx.resolve(e.id)!!.asType()
           if (!isSubType(t, type)) {
             fail("type mismatch")
           }
@@ -797,7 +846,7 @@ fun inferVarTypes(outerTyper: ExprTyper, f: FunctionDef): Analyses {
 
     fun procAssgnTarget(exprTyper: ExprTyper, e: TExpr, st: Stmt): List<SST> = run {
       when (e) {
-        is Name -> listOf(Pair(e.id, exprTyper[e].asType()))
+        is Name -> listOf(Pair(e.id, exprTyper.ctx.resolve(e.id)!!.asType()))
         is Tuple -> e.elts.flatMap { procAssgnTarget(exprTyper, it, st) }
         is Subscript -> emptyList()
         is Attribute -> emptyList()
@@ -830,14 +879,14 @@ fun inferVarTypes(outerTyper: ExprTyper, f: FunctionDef): Analyses {
         for(k in bups.keys.union(eups.keys)) {
           val bu = bups[k]
           val eu = eups[k]
-          if (bu != null && eu != null && bu != eu) {
-            fail("ggg")
-          }
-          if (bu != null) {
+          if (bu != null && eu != null) {
+            val u = getCommonSuperType(bu, eu)
+            vups[k] = u
+            upds.addAll(gatherUpdates(typer, Name(k, ExprContext.Load), u))
+          } else if (bu != null) {
             vups[k] = bu
             upds.addAll(gatherUpdates(typer, Name(k, ExprContext.Load), bu))
-          }
-          if (eu != null) {
+          } else if (eu != null) {
             vups[k] = eu
             upds.addAll(gatherUpdates(typer, Name(k, ExprContext.Load), eu))
           }

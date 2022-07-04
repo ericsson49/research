@@ -320,7 +320,7 @@ object PyLib {
   }
 
   fun mutableSequenceAppend(argTypes: List<RTType>): RTType {
-    return if (argTypes.size == 2 && isSubType(argTypes[1], getSeqElemTyp(argTypes[0]))) {
+    return if (argTypes.size == 2 && canAssignOrCoerceTo(argTypes[1], getSeqElemTyp(argTypes[0]))) {
       TPyNone
     } else {
       fail("not supported")

@@ -12,13 +12,14 @@ import onotole.Num
 import onotole.Str
 import onotole.TExpr
 import onotole.TypeResolver
+import onotole.asClassVal
 import onotole.fail
 import onotole.typelib.TLTClass
 import onotole.typelib.TLTConst
 
 
 fun classValToTLType(c: ClassVal): TLTClass {
-  val tps = c.tParams.map { classValToTLType(it) }
+  val tps = c.tParams.map { classValToTLType(it.asClassVal()) }
   val eps = c.eParams.map { TLTConst(it) }
   return TLTClass(c.name, tps.plus(eps))
 }

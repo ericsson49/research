@@ -6,13 +6,11 @@ sealed class Sort
 sealed class MetaType: Sort()
 
 data class PackageRef(val name: String): MetaType()
-data class Clazz(val name: String, val tParams: List<RTType> = emptyList()): RTType()
+data class Clazz(val name: String, val tParams: List<RTType> = emptyList()): MetaType()
 data class MetaClass(val name: String): MetaType()
 sealed class FuncRef: MetaType()
 data class SpecialFuncRef(val name: String): FuncRef()
 data class NamedFuncRef(val name: String): FuncRef()
-sealed class TFParam
-data class TypParam(val type: RTType): TFParam()
 data class PartiallyAppliedFuncRef(val func: NamedFuncRef, val params: List<RTType>): FuncRef()
 
 sealed class RTType: Sort()
@@ -21,7 +19,6 @@ data class NamedType(val name: String, val tParams: List<RTType> = emptyList(), 
     tParams.plus(eParams).joinToString(",", "$name<", ">")
   else name
 }
-data class MetaNamedType(val name: String, val typeVars: List<String> = emptyList()): Sort()
 class UnificationException(val unif: List<Pair<TypeVar,RTType>>): RuntimeException("unification request")
 
 data class TypeVar(val name: String) : RTType() {
@@ -90,7 +87,8 @@ fun getMappingTypeParams(x: RTType): Pair<RTType,RTType> {
   return anc.tParams[0] to anc.tParams[1]
 }
 
-fun getCommonSuperType(ts: Iterable<RTType>): RTType = ts.reduce(::getCommonSuperType)
+fun getCommonSuperType(ts: Iterable<RTType>): RTType =
+    ts.reduce(::getCommonSuperType)
 
 fun getCommonSuperType(a: RTType, b: RTType): RTType {
   if (a == b) return a
@@ -133,6 +131,7 @@ fun getTypePramVariances(cls: String, size: Int): Triple<List<Int>,List<Int>,Lis
 fun unifEx(a: TypeVar, b: RTType): Nothing =
         throw UnificationException(listOf(a to b))
 fun isSubType(a: RTType, b: RTType): Boolean = a == b
+        || b is NamedType && a == TPyNone
         || b is NamedType && isSimpleType(b) && _isSubType1(a, b)
         || b is NamedType && isGenType(b) && b.name == "Optional" && (a == TPyNone || isSubType(a, b.tParams[0]))
         || b is NamedType && _isSubType2(a,b)

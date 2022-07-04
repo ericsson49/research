@@ -63,7 +63,7 @@ fun pyPrint(e: TExpr): String {
         val op = e.func.id.substring(1,e.func.id.length-1)
         val args = e.args
         val expr = when(op) {
-          "list" -> PyList(args, ExprContext.Load)
+          "list" -> PyList(args)
           "dict" -> {
             val (keys, values) = args.map { t ->
               t as Tuple
@@ -116,6 +116,18 @@ fun pyPrint(slice1: TSlice) = when (slice1) {
 
 fun pyPrintStmt(s: Stmt): List<String> {
   return when(s) {
+    is VarDeclaration -> {
+      val type = "# " + (if (s.isVar) "var" else "val")
+      val st = if (s.annotation != null) {
+        if (s.target.size != 1) fail()
+        pyPrintStmt(AnnAssign(s.target[0], s.annotation, s.value))
+      } else if (s.target.size == 1) {
+        pyPrintStmt(Assign(s.target[0], s.value!!))
+      } else {
+        pyPrintStmt(Assign(Tuple(s.target, ctx = ExprContext.Load), s.value!!))
+      }
+      listOf(type).plus(st)
+    }
     is Assign -> listOf(pyPrint(s.target) + " = " + pyPrint(s.value))
     is AnnAssign -> listOf(pyPrint(s.target) + ": " + pyPrintType(s.annotation) + (s.value?.let { " = " + pyPrint(it) } ?: ""))
     is AugAssign -> listOf(pyPrint(s.target) + " ${pyPrint(s.op)}= " + pyPrint(s.value))
@@ -181,7 +193,8 @@ fun ClassVal.toTExpr(): TExpr {
   return if (this.tParams.size + this.eParams.size == 0)
     name
   else {
-    val elems = this.tParams.map { it.toTExpr() }.plus(this.eParams.map { it.e })
+    val elems = this.tParams.map { when(it) { is ClassVal -> it.toTExpr(); else -> TODO()
+    } }.plus(this.eParams.map { it.e })
     Subscript(name, Index(if (elems.size == 1) elems[0] else Tuple(elems, ExprContext.Load)), ExprContext.Load)
   }
 }

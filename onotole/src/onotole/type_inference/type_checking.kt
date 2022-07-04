@@ -22,6 +22,8 @@ import onotole.Let
 import onotole.Name
 import onotole.NameConstant
 import onotole.Num
+import onotole.PyDict
+import onotole.PyList
 import onotole.Return
 import onotole.Slice
 import onotole.Starred
@@ -32,6 +34,7 @@ import onotole.TExpr
 import onotole.Tuple
 import onotole.TypeResolver
 import onotole.While
+import onotole.asTypeVar
 import onotole.fail
 import onotole.mkName
 import onotole.typelib.TLTVar
@@ -181,10 +184,14 @@ class TypeChecker() {
         val iterType = resolveExprType(g.iter)
         val elemType = cs.newVar("E")
         cs.addConstr(ConST(iterType, FAtom("pylib.Iterable", listOf(elemType))))
-        val valueTypes = if (localVars.size == 1)
+        val valueTypes = if (localVars.size == 1) {
+          val p = cs.mkVar(((g.targetAnno!! as CTV).v as ExTypeVar).v)
+          cs.addST(elemType, p)
           listOf(elemType)
-        else {
-          val elems = localVars.mapIndexed { i,_ -> cs.mkVar("GEarg_$i") }
+        } else {
+          val anno = g.targetAnno
+          if (anno == null || anno !is CTV || anno.v !is ClassVal || anno.v.name != "pylib.Tuple") fail()
+          val elems = anno.v.tParams.map { cs.mkVar((it as ExTypeVar).v) }   //localVars.mapIndexed { i,_ -> cs.mkVar("GEarg_$i") }
           cs.addST(elemType, FAtom("pylib.Tuple", elems))
           elems
         }
@@ -210,6 +217,24 @@ class TypeChecker() {
         FAtom("pylib.Callable", argTypes.plus(retType))
       }
       is Starred -> resolveExprType(e.value)
+      is PyList -> {
+        val vv = FVar(e.valueAnno!!.asTypeVar().v)
+        e.elts.forEach {
+          cs.addConstr(ConST(resolveExprType(it), vv))
+        }
+        FAtom("pylib.PyList", listOf(vv))
+      }
+      is PyDict -> {
+        val kv = FVar(e.keyAnno!!.asTypeVar().v)
+        val vv = FVar(e.valueAnno!!.asTypeVar().v)
+        e.keys.forEach {
+          cs.addConstr(ConST(resolveExprType(it), kv))
+        }
+        e.values.forEach {
+          cs.addConstr(ConST(resolveExprType(it), vv))
+        }
+        FAtom("pylib.Dict", listOf(kv, vv))
+      }
       else -> TODO()
     }
   }

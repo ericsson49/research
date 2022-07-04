@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 fun isNameOrConst(e: TExpr?) = e == null || e is Name || e is Constant
+fun isNameOrConstOrTuple_(e: TExpr?) = e == null || e is Name || e is Constant || e is Tuple
 fun introduceVar(tmpVars: FreshNames, e: TExpr): Pair<List<Stmt>, TExpr> {
   val tmp = tmpVars.fresh("tmp")
   return listOf(Assign(mkName(tmp, true), e)) to mkName(tmp)
@@ -35,7 +36,7 @@ fun whileSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {
       tmp to listOf(Assign(mkName(tmp, true), s.test))
     } else s.test.id to emptyList()
     listOf(While(test = NameConstant(true),
-        body = testStmts.plus(If(mkName(tmpName), s.body, listOf(Break)))))
+        body = testStmts.plus(If(mkName(tmpName), s.body, listOf(Break())))))
   } else null
 }
 fun ifSimplifier(tmpVars: FreshNames, s: Stmt): List<Stmt>? {

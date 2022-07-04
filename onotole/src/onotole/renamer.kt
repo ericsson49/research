@@ -125,10 +125,18 @@ class ExprRenamer(val inRenames: Map<String, String>, val outRenames: Map<String
     return when (e) {
       is Constant -> e
       is Name -> e.copy(id = renameName(e.id, e.ctx))
+      is UnaryOp -> e.copy(operand = renameExpr(e.operand))
+      is BinOp -> e.copy(left = renameExpr(e.left), right = renameExpr(e.right))
+      is BoolOp -> e.copy(values = renameExprs(e.values))
+      is Compare -> e.copy(left = renameExpr(e.left), comparators = renameExprs(e.comparators))
       is Attribute -> e.copy(value = renameExpr(e.value))
       is Subscript -> e.copy(value = renameExpr(e.value), slice = renameSlice(e.slice))
       is IfExp -> e.copy(test = renameExpr(e.test), body = renameExpr(e.body), orelse = renameExpr(e.orelse))
       is GeneratorExp -> {
+        val (renamer, comps) = renameComprehensions(e.generators)
+        e.copy(elt = renamer.renameExpr(e.elt), generators = comps)
+      }
+      is ListComp -> {
         val (renamer, comps) = renameComprehensions(e.generators)
         e.copy(elt = renamer.renameExpr(e.elt), generators = comps)
       }

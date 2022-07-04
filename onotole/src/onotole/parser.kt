@@ -108,7 +108,7 @@ fun toBoolop(v: Item?): EBoolOp {
 fun toComprehension(v: Item?): Comprehension {
   val f = toFCall(v, "comprehension")
   val pm = paramsToMap(f.params)
-  return Comprehension(target = pm.toExpr("target"), iter = pm.toExpr("iter"), ifs = pm.toExprs("ifs"), is_async = toInt(pm["is_async"]))
+  return Comprehension(target = pm.toExpr("target"), iter = pm.toExpr("iter"), ifs = pm.toExprs("ifs"))
 }
 fun toComprehensions(v: Item?) = toList(v, ::toComprehension)
 
@@ -180,7 +180,7 @@ fun toExpr(v: Item?): TExpr {
         "Num" -> Num(toNum(pm["n"]))
         "NameConstant" -> toConstant(pm["value"])
         "Str" -> Str(toStr(pm["s"]))
-        "List" -> PyList(elts = pm.toExprs("elts"), ctx = toCtx(pm["ctx"]))
+        "List" -> PyList(elts = pm.toExprs("elts"))
         "Dict" -> PyDict(keys = pm.toExprs("keys"), values = pm.toExprs("values"))
         "Bytes" -> Bytes(toStr(pm["s"]))
         "Call" -> Call(func = pm.toExpr("func"), args = pm.toExprs("args"), keywords = toKeywords(pm["keywords"]))
@@ -285,10 +285,10 @@ fun toStmt(v: Item?): Stmt {
     }
     "If" -> If(test = pm.toExpr("test"), body = pm.toStmts("body"), orelse = pm.toStmts("orelse"))
     "Assert" -> Assert(test = pm.toExpr("test"), msg = pm.toExprOpt("msg"))
-    "Pass" -> Pass
+    "Pass" -> Pass()
     "Return" -> Return(value = pm.toExprOpt("value"))
-    "Continue" -> Continue
-    "Break" -> Break
+    "Continue" -> Continue()
+    "Break" -> Break()
     "Try" -> Try(body = pm.toStmts("body"), handlers = toExceptHandlers(pm["handlers"]), orelse = pm.toStmts("orelse"), finalbody = pm.toStmts("finalbody"))
     "Nonlocal" -> Nonlocal(names = toIdentifiers(pm["names"]))
     "Raise" -> Raise(exc = pm.toExprOpt("exc"), cause = pm.toExprOpt("cause"))
@@ -460,13 +460,13 @@ object PhaseInfo {
       val (_, combinedDefs) = combine(prevDefs, defs)
       val newNames = combinedDefs.map { it.name }.toSet()
       prevDefs.filter { it.name !in newNames }.plus(combinedDefs) to combinedDefs
-    } ?: defs to defs
+    } ?: (defs to defs)
   }
 }
 
 
 fun loadSpecDefs(phase: String): List<TopLevelDef> {
-  val (_, defs) = PhaseInfo.getPhaseDefs(phase)
+  val (_, defs) = PhaseInfo.getPhaseDefs(phase, false)
 
   return loadTopLevelDefs(phase, defs)
 }
@@ -515,8 +515,8 @@ fun main(args: Array<String>) {
   }
   TypeResolver.importFromPackage(specVersion)
 
-  val gen = CGen(specVersion, setOf("bls", "ssz", specVersion))
-  //val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
+  //val gen = CGen(specVersion, setOf("bls", "ssz", specVersion))
+  val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
   //val gen = KotlinGen(specVersion, setOf("bls", "ssz", specVersion))
   //val gen = JavaGen("beacon_java." + specVersion, "beacon_java_generated/src", specVersion, setOf("bls", "ssz", specVersion))
   val preprocessedDefs = tlDefs.map {

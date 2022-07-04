@@ -1,25 +1,37 @@
 package onotole
 
+import onotole.lib_defs.Additional
+import onotole.lib_defs.BLS
+import onotole.lib_defs.PyLib
+import onotole.lib_defs.SSZLib
 import onotole.rewrite.ExprTransformRule
 import onotole.rewrite.combineRules
 import onotole.rewrite.mkExprTransformRule
+import onotole.type_inference.CallSiteTransormer
 import onotole.type_inference.FAtom
 import onotole.type_inference.TypeVarReplacer
 import onotole.type_inference.TypingContext
 import onotole.type_inference.inferConstTypes
+import onotole.type_inference.inferTypes
 import onotole.type_inference.inferTypes2
+import onotole.type_inference.replaceTypeVars
 import onotole.type_inference.toFAtom
+import onotole.type_inference.transformCallSites
 import onotole.typelib.*
 
 
 sealed class CTVal
 sealed interface CTLocal
+sealed interface ClassValParam
+fun ClassValParam.asClassVal() = when(this) { is ClassVal -> this; else -> TODO() }
+fun ClassValParam.asTypeVar() = when(this) { is ExTypeVar -> this; else -> TODO() }
+fun ClassValParam.asCTVal(): CTVal = when(this) { is ExTypeVar -> this; is ClassVal -> this }
 object CTNothing : CTVal()
-data class ExTypeVar(val v: String) : CTVal()
+data class ExTypeVar(val v: String) : CTVal(), ClassValParam
 data class ConstExpr(val e: TExpr) : CTVal(), CTLocal
 data class PkgVal(val pkg: String) : CTVal()
 data class ClassTemplate(val clsTempl: TLClassHead) : CTVal()
-data class ClassVal(val name: String, val tParams: List<ClassVal> = emptyList(), val eParams: List<ConstExpr> = emptyList()) : CTVal(), CTLocal
+data class ClassVal(val name: String, val tParams: List<ClassValParam> = emptyList(), val eParams: List<ConstExpr> = emptyList()) : CTVal(), CTLocal, ClassValParam
 data class ClassField(val cls: String, val field: String) : CTVal()
 data class FuncTempl(val func: TLFuncDecl) : CTVal()
 data class FuncInst(val name: String, val sig: TLSig) : CTVal()
@@ -108,21 +120,24 @@ fun mkCompileTimeCalcRule(freshNames: FreshNames): ExprTransformRule<TestResolve
   val listCase: ExprTransformRule<TestResolver> = mkExprTransformRule { e, _ ->
     if (e is PyList) {
       val tvv = TLTVar(freshNames.fresh("?T"))
-      val sig = TLSig(listOf(tvv), e.elts.indices.map { "_$it" to tvv }, TLTClass("pylib.PyList", listOf(tvv)))
-      mkCall(CTV(FuncInst("pylib.PyList", sig)), e.elts)
+      //val sig = TLSig(listOf(tvv), e.elts.indices.map { "_$it" to tvv }, TLTClass("pylib.PyList", listOf(tvv)))
+      //mkCall(CTV(FuncInst("pylib.PyList", sig)), e.elts)
+      e.copy(valueAnno = ExTypeVar(tvv.name))
     } else null
   }
   val dictCase: ExprTransformRule<TestResolver> = mkExprTransformRule { e, _ ->
     if (e is PyDict) {
+      if (e.keyAnno != null || e.valueAnno != null) TODO()
       val ktv = TLTVar(freshNames.fresh("?K"))
       val vtv = TLTVar(freshNames.fresh("?V"))
-      val keys = Tuple(elts = e.keys, ctx = ExprContext.Load)
-      val values = Tuple(elts = e.values, ctx = ExprContext.Load)
+      /*val items = Tuple(elts = e.keys.zip(e.values).map { (k,v) ->
+        Tuple(elts = listOf(k, v), ctx = ExprContext.Load)
+      }, ctx = ExprContext.Load)
       val argTypes = listOf(
-          "keys" to TLTClass("pylib.Sequence", listOf(ktv)),
-          "values" to TLTClass("pylib.Sequence", listOf(vtv)))
+          "items" to TLTClass("pylib.Sequence", listOf(TLTClass("pylib.Tuple", listOf(ktv, vtv)))))
       val resType = TLTClass("pylib.Dict", listOf(ktv, vtv))
-      mkCall(CTV(FuncInst("pylib.Dict", TLSig(listOf(ktv, vtv), argTypes, resType))), listOf(keys, values))
+      mkCall(CTV(FuncInst("pylib.Dict", TLSig(listOf(ktv, vtv), argTypes, resType))), listOf(items))*/
+      e.copy(keyAnno = ExTypeVar(ktv.name), valueAnno = ExTypeVar(vtv.name))
     } else null
   }
   val lambdaCase: ExprTransformRule<TestResolver> = mkExprTransformRule { e, _ ->
@@ -136,7 +151,22 @@ fun mkCompileTimeCalcRule(freshNames: FreshNames): ExprTransformRule<TestResolve
       )
     } else null
   }
-  return combineRules(nameResolveRule, staticNameResolveRule, subscriptCase, callCase, listCase, dictCase, lambdaCase)
+  fun convertGenerator(c: Comprehension): Comprehension {
+    return c.copy(targetAnno = when (c.target) {
+      is Name -> CTV(ExTypeVar(freshNames.fresh("?G")))
+      is Tuple -> CTV(ClassVal("pylib.Tuple", c.target.elts.map { ExTypeVar(freshNames.fresh("?G")) }))
+      else -> fail()
+    })
+  }
+  fun convertGenerators(cs: Collection<Comprehension>) = cs.map(::convertGenerator)
+  val generatorCase: ExprTransformRule<TestResolver> = mkExprTransformRule { e, _ ->
+    when(e) {
+      is GeneratorExp -> e.copy(generators = convertGenerators(e.generators))
+      is ListComp, is SetComp, is DictComp -> TODO()
+      else -> null
+    }
+  }
+  return combineRules(nameResolveRule, staticNameResolveRule, subscriptCase, callCase, listCase, dictCase, lambdaCase, generatorCase)
 }
 
 open class BaseNameTransformer(val transformRule: ExprTransformRule<TestResolver>) : ExprTransformer<TestResolver>() {
@@ -233,6 +263,19 @@ fun mkPhaseMod(phase: String): TLModLoader {
 fun simplifyFunc(f: FunctionDef) = desugarExprs(destructForLoops(destructTupleAssign(transformForEnumerate(transformForOps(f)))))
 
 fun main() {
+  PyLib.init()
+  SSZLib.init()
+  BLS.init()
+  val specVersion = "phase0"
+  Additional.init(specVersion)
+  val tlDefs = loadSpecDefs(specVersion)
+  PhaseInfo.getPkgDeps(specVersion).forEach {
+    TypeResolver.importFromPackage(it)
+  }
+  TypeResolver.importFromPackage(specVersion)
+
+
+
   val ph0Mod = mkPhaseMod("phase0")
   val altairMod = mkPhaseMod("altair")
   val bellatrixMod = mkPhaseMod("bellatrix")
@@ -244,11 +287,15 @@ fun main() {
   val p0Module = TopLevelScope.resolveModule("phase0")
   val constTypes_p0 = inferConstTypes(p0Module.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_p0)
+  val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
   p0Module.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val f = desugarStmts(it.func)
-    val types = inferTypes2(f)
-    val res = TypeVarReplacer(types).procStmts(f.body, Unit).first
-    pyPrintFunc(f.copy(body = res))
+    val f = convertToAndOutOfSSA(it.func)
+    pyPrintFunc(f)
+    val types = inferTypes2(f, ssa = true)
+    val res = replaceTypeVars(types, f)
+    val res2 = transformCallSites(types, res)
+    //pyPrintFunc(res2)
+    gen.genFunc(res2).forEach(::println)
     println("------------")
   }
 
@@ -256,11 +303,13 @@ fun main() {
   val constTypes_alt = inferConstTypes(altairModule.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_alt)
   altairModule.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val f = desugarStmts(it.func)
-    val types = inferTypes2(f)
-    val res = TypeVarReplacer(types).procStmts(f.body, Unit).first
-    pyPrintFunc(f.copy(body = res))
-    println("------------")
+    val f = desugarStmts(convertToAndOutOfSSA(it.func))
+    val types = inferTypes2(f, ssa = true)
+    val res = replaceTypeVars(types, f)
+    //val res2 = transformCallSites(types, res)
+    //pyPrintFunc(res2)
+    //gen.genFunc(res2).forEach(::println)
+    //println("------------")
   }
 
   val bellatrixModule = TopLevelScope.resolveModule("bellatrix")
@@ -269,10 +318,12 @@ fun main() {
   val constTypes_btx = inferConstTypes(bellatrixModule.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_btx)
   bellatrixModule.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val f = desugarStmts(it.func)
-    val types = inferTypes2(f)
-    val res = TypeVarReplacer(types).procStmts(f.body, Unit).first
-    pyPrintFunc(f.copy(body = res))
-    println("------------")
+    val f = desugarStmts(convertToAndOutOfSSA(it.func))
+    val types = inferTypes2(f, ssa = true)
+    val res = replaceTypeVars(types, f)
+    val res2 = transformCallSites(types, res)
+    //pyPrintFunc(res2)
+    //gen.genFunc(res2).forEach(::println)
+    //println("------------")
   }
 }

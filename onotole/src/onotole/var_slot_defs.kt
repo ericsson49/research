@@ -146,7 +146,7 @@ class VarSlotAnalysis(
             if (vars[vName] == null) fail("$vName is undefined")
             addVarRef(vName, s, false)
           }
-          is Subscript -> {}
+          is Subscript, is Attribute -> {}
           else -> TODO()
         }
       }

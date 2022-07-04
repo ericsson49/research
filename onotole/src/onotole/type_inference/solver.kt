@@ -216,7 +216,7 @@ fun st(a: FAtom, b: FAtom): Pair<Boolean,Set<Constraint>> {
     a.n == "pylib.bytes" && b.n == "phase0.BLSPubkey" -> true to emptySet()
     a.n == "ssz.uint8" && b.n == "altair.ParticipationFlags" -> true to emptySet()
     a.n == "pylib.int" && b.n == "pylib.bool" -> true to emptySet()
-    a.n == "ssz.Hash32" && b.n == "phase0.Root" -> true to emptySet()
+    a.n == "ssz.Bytes32" && b.n == "phase0.Root" -> true to emptySet()
     a.n == "ssz.Bytes96" && b.n == "phase0.BLSSignature" -> true to emptySet()
     else -> {
       val am = getAncestorByClassName(a, b.n)

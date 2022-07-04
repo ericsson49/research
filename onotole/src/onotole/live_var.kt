@@ -94,7 +94,7 @@ fun liveVarAnalysis(e: TExpr): Set<String> {
     is CTV -> when(e.v) {
       is ConstExpr -> liveVarAnalysis(e.v.e)
       is ClassVal -> setOf(e.v.name)
-          .plus(e.v.tParams.flatMap { liveVarAnalysis(CTV(it)) })
+          .plus(e.v.tParams.flatMap { liveVarAnalysis(CTV(it.asClassVal())) })
           .plus(e.v.eParams.flatMap { liveVarAnalysis(CTV(it)) })
       is FuncInst -> setOf(e.v.name)
       else -> TODO()

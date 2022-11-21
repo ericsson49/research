@@ -4,6 +4,7 @@ import onotole.lib_defs.Additional
 import onotole.lib_defs.BLS
 import onotole.lib_defs.PyLib
 import onotole.lib_defs.SSZLib
+import onotole.typelib.TLTClass
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -112,7 +113,58 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
             return (if (tgt == null) emptyList() else listOf(tgt)) to e
           }
           is Attribute -> {
-            return transformExpr(Call(mkName("attr_" + e.func.attr), listOf(e.func.value).plus(e.args), e.keywords), tgt)
+            val purirityInfo = getPurityDescr("attr_" + e.func.attr)
+            if (purirityInfo.impureArgs.isNotEmpty()) {
+              val args = listOf(e.func.value).plus(e.args)
+              val tgtArgs = purirityInfo.impureArgs.map { args[it] }
+              if (!purirityInfo.procedure) TODO()
+              val pureName = if (purirityInfo.pureName.startsWith("attr_"))
+                purirityInfo.pureName.substring("attr_".length)
+              else purirityInfo.pureName
+              return tgtArgs to e.copy(func = e.func.copy(attr = pureName))
+            } else {
+              val resExpr = if (tgt == null)
+                //if (!purirityInfo.procedure) listOf(Name("_", ExprContext.Store)) else emptyList()
+                TODO()
+              else
+                listOf(tgt)
+              return resExpr to e
+            }
+          }
+          is CTV -> when(e.func.v) {
+            is FuncInst -> {
+              val sig = e.func.v.sig
+              val purirityInfo = getPurityDescr(e.func.v.name)
+              val args = e.args
+              val tgtArgs = purirityInfo.impureArgs.map { args[it] }
+              val tgtTypes = purirityInfo.impureArgs.map { sig.args[it].second }
+              tgtArgs.forEach {
+                when (it) {
+                  is Name -> {}
+                  is Subscript -> {}
+                  is Attribute -> {}
+                  else -> TODO("not supported yet")
+                }
+              }
+              if (tgt != null && purirityInfo.procedure) fail()
+              val (resExpr, resType) = if (tgt == null)
+                if (!purirityInfo.procedure)
+                  listOf(Name("_", ExprContext.Store)) to listOf(sig.ret)
+                else
+                  emptyList<TExpr>() to emptyList()
+              else
+                listOf(tgt) to listOf(sig.ret)
+
+              val resOutTypes = tgtTypes.plus(resType)
+              val newRet = when {
+                resOutTypes.isEmpty() -> TODO()
+                resOutTypes.size == 1 -> resOutTypes.first()
+                else -> TLTClass("pylib.Tuple", resOutTypes)
+              }
+              val newSig = sig.copy(ret = newRet)
+              return tgtArgs.plus(resExpr) to e.copy(func = CTV(e.func.v.copy(sig = newSig)))
+            }
+            else -> TODO()
           }
           else -> TODO()
         }
@@ -135,7 +187,8 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
       is Assign -> {
         val (tgts, expr) = transformExpr(s.value, s.target)
         when {
-          tgts.isEmpty() -> TODO() //listOf(Expr(expr))
+          tgts.isEmpty() ->
+            TODO() //listOf(Expr(expr))
           tgts.size == 1 -> transformLVal(tgts[0], expr)
           else -> transformLVal(Tuple(tgts, ExprContext.Store), expr)
         }
@@ -157,7 +210,8 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
           null
         } else {
           val impArgs: List<TExpr> = pd.impureArgs.map {  mkName(f.args.args[it].arg) }
-          if (pd.procedure && s.value != null && s.value != NameConstant(null)) fail()
+          if (pd.procedure && isProcedureRetVal(s.value))
+            fail()
           val retVals = if (!pd.procedure) impArgs.plus(s.value!!) else impArgs
           val retVal = when {
             retVals.isEmpty() -> null
@@ -185,7 +239,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
       val newRetType = when {
         retVals.isEmpty() -> null
         retVals.size == 1 -> retVals[0]
-        else -> mkSubscript(mkName("Tuple"), Index(Tuple(retVals, ExprContext.Load)))
+        else -> CTV(ClassVal("pylib.Tuple", retVals.map { (it as CTV).v as ClassVal }))
       }
       val retStmt = if (pd.procedure && f.body.isNotEmpty() && f.body[f.body.size-1] !is Return)
         when {
@@ -335,6 +389,7 @@ fun phase0PDs(): Map<String,PurityDescriptor> {
       "on_tick" to PurityDescriptor(true, listOf(0), "on_tick_pure"),
       "on_block" to PurityDescriptor(true, listOf(0), "on_block_pure"),
       "on_attestation" to PurityDescriptor(true, listOf(0), "on_attestation_pure"),
+      "on_attester_slashing" to PurityDescriptor(true, listOf(0), "on_attester_slashing_pure"),
       "filter_block_tree" to PurityDescriptor(false, listOf(2), "filter_block_tree_pure"),
 
 
@@ -388,30 +443,30 @@ fun main() {
     val fd = transformForOps(fd)
     pyPrintFunc(fd)
     println()
-    val tf = purify2(fd, descrs)
+    val tf = purify2(fd, descrs, TypeResolver.topLevelTyper)
     pyPrintFunc(tf)
     println()
   }
 }
 
-fun purify1(f: FunctionDef, descrs: Map<String, PurityDescriptor>): FunctionDef {
+fun purify1(f: FunctionDef, descrs: Map<String, PurityDescriptor>, typer: ExprTyper): FunctionDef {
   val fd2 = desugarExprs(transformForEnumerate(f))
   val cfg = convertToCFG(fd2)
   val analyses = getFuncAnalyses(cfg)
   val ssa = convertToSSA(cfg)
-  val mutRefs = findMutableAliases(fd2, ssa, descrs[fd2.name])
+  val mutRefs = findMutableAliases(fd2, ssa, descrs[fd2.name], typer)
   val (cfg2, renamer) = destructSSA(ssa, analyses.cfgAnalyses.dom)
   val fd3 = reconstructFuncDef(fd2, cfg2)
   val mutRefs2 = mutRefs.mapValues { it.value.map { it.copy(second = renamer.renameExpr(it.second)) } }
   if (mutRefs != mutRefs2) TODO()
   return PureFormConvertor(fd3, descrs, mutRefs).transformFunction()
 }
-fun purify2(f: FunctionDef, descrs: Map<String, PurityDescriptor>): FunctionDef {
+fun purify2(f: FunctionDef, descrs: Map<String, PurityDescriptor>, typer: ExprTyper): FunctionDef {
   val fd2 = desugarExprs(transformForEnumerate(f))
   val cfg = convertToCFG(fd2)
   val analyses = getFuncAnalyses(cfg)
   val ssa = convertToSSA(cfg)
-  val aliases = findMutableAliases(fd2, ssa, descrs[fd2.name])
+  val aliases = findMutableAliases(fd2, ssa, descrs[fd2.name], typer)
   val (cfg2, renamer) = destructSSA(ssa, analyses.cfgAnalyses.dom)
   val mutRefs2 = aliases.mapValues { it.value.map { it.copy(second = renamer.renameExpr(it.second)) } }
   if (aliases != mutRefs2) TODO()

@@ -102,7 +102,7 @@ fun _classDef(name: String,
                 attrs = attrs, comparable = comparable)))
     } else {
         TypeResolver.register(MetaClassTInfo(name, nTParms, nEParams, _attrs = attrs) { tps ->
-            NamedType(base ?: "object", baseParams.map {
+            NamedType(base ?: "pylib.object", baseParams.map {
                 when (it) {
                     is TVIndex -> tps[it.i]
                     is TVConcrete -> it.t
@@ -110,6 +110,8 @@ fun _classDef(name: String,
             })
         })
     }
+    if (name.startsWith("pylib."))
+        TypeResolver.pylibAliases[name.substring("pylib.".length)] = name
 }
 
 fun convertToTInfo(cd: ClassDescr): TypeInfo {

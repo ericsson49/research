@@ -11,49 +11,52 @@ fun mkSimpleResolver(ret: () -> RTType) = run {
 
 object PyLib {
   fun init() {
-    classDef("Nothing")
-    classDef("object")
-    classDef("None", "object")
-    classDef("int", "object", comparable = true) {
+    classDef("pylib.Nothing")
+    classDef("pylib.object")
+    classDef("pylib.None", "pylib.object")
+    classDef("pylib.int", "pylib.object", comparable = true) {
       staticMeth("from_bytes")
       meth("bit_length")
       meth("to_bytes")
     }
-    classDef("bool", "int")
+    classDef("pylib.bool", "pylib.int")
 
-    classDef("Optional", "object", nTParms = 1)
-    classDef("Iterator", "object", nTParms = 1)
-    classDef("Iterable", "object", nTParms = 1) {
+    classDef("<Outcome>", "pylib.object", nTParms = 1)
+
+    classDef("pylib.Optional", "pylib.object", nTParms = 1)
+    classDef("pylib.Iterator", "pylib.object", nTParms = 1)
+    classDef("pylib.Iterable", "pylib.object", nTParms = 1) {
       meth("__contains__")
     }
-    classDef("Collection", "Iterable", nTParms = 1, baseParams = listOf(TVIndex(0))) {
+    classDef("pylib.Collection", "pylib.Iterable", nTParms = 1, baseParams = listOf(TVIndex(0))) {
       meth("__iter__")
       meth("__len__")
     }
-    classDef("Mapping", "Collection", nTParms = 2, baseParams = listOf(TVIndex(0))) {
+    classDef("pylib.Mapping", "pylib.Collection", nTParms = 2, baseParams = listOf(TVIndex(0))) {
       meth("__getitem__")
       meth("keys")
       meth("values")
       meth("items")
     }
-    classDef("Sequence", "Collection", nTParms = 1, baseParams = listOf(TVIndex(0))) {
+    classDef("pylib.Sequence", "pylib.Collection", nTParms = 1, baseParams = listOf(TVIndex(0))) {
       meth("__getitem__")
       meth("__reversed__")
       meth("index")
       meth("count")
     }
-    classDef("Set", "Collection", nTParms = 1, baseParams = listOf(TVIndex(0))) {
+    classDef("pylib.Set", "pylib.Collection", nTParms = 1, baseParams = listOf(TVIndex(0))) {
       meth("union")
       meth("intersection")
       meth("difference")
       meth("add")
     }
-    TypeResolver.register(MetaClassTInfo("Tuple", null, 0, emptyList()) { tParams ->
+    TypeResolver.register(MetaClassTInfo("pylib.Tuple", null, 0, emptyList()) { tParams ->
       val elemType = if (tParams.isNotEmpty()) getCommonSuperType(tParams)
-      else parseType(TypeResolver.topLevelTyper, "ValidatorIndex")
+      else parseType(TypeResolver.topLevelTyper, "phase0.ValidatorIndex")
       TPySequence(elemType)
     })
-    classDef("MutableSequence", "Sequence", nTParms = 1, baseParams = listOf(TVIndex(0))) {
+    TypeResolver.pylibAliases["Tuple"] = "pylib.Tuple"
+    classDef("pylib.MutableSequence", "pylib.Sequence", nTParms = 1, baseParams = listOf(TVIndex(0))) {
       meth("__setitem__")
       meth("__delitem__")
       meth("__iadd__")
@@ -63,14 +66,14 @@ object PyLib {
       meth("pop")
       meth("remove")
     }
-    classDef("PyList", "MutableSequence", nTParms = 1, baseParams = listOf(TVIndex(0)))
-    classDef("Dict", "Mapping", nTParms = 2, baseParams = listOf(TVIndex(0), TVIndex(1)))
+    classDef("pylib.PyList", "pylib.MutableSequence", nTParms = 1, baseParams = listOf(TVIndex(0)))
+    classDef("pylib.Dict", "pylib.Mapping", nTParms = 2, baseParams = listOf(TVIndex(0), TVIndex(1)))
     //classDef("PyDict", "Mapping", nTParms = 2, baseParams = listOf(0,1))
 
-    classDef("bytes", baseType = TPySequence(TPyInt)) {
+    classDef("pylib.bytes", baseType = TPySequence(TPyInt)) {
       meth("join")
     }
-    classDef("str", "object", comparable = true)
+    classDef("pylib.str", "pylib.object", comparable = true)
 
     val resolvers = listOf(
         "bool" to PyLib::boolResolver,
@@ -124,10 +127,10 @@ object PyLib {
     funDef("any", listOf(TPySequence(TPyObject)), TPyBool)
     funDef("all", listOf(TPySequence(TPyObject)), TPyBool)
 
-    funDef("uint_to_bytes", listOf("ssz.uint"),"bytes")
-    funDef("int.from_bytes", listOf("bytes:bytes","endiannes:str"), "int")
-    funDef("ceillog2", listOf("int"), "ssz.uint64")
-    funDef("floorlog2", listOf("int"), "ssz.uint64")
+    funDef("uint_to_bytes", listOf("ssz.uint"),"pylib.bytes")
+    funDef("int.from_bytes", listOf("bytes:pylib.bytes","endiannes:pylib.str"), "pylib.int")
+    funDef("ceillog2", listOf("pylib.int"), "ssz.uint64")
+    funDef("floorlog2", listOf("pylib.int"), "ssz.uint64")
   }
 
   fun powResolver(argTypes: List<RTType>): RTType {

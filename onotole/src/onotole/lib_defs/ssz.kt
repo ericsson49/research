@@ -5,32 +5,32 @@ import onotole.*
 object SSZLib {
   fun init() {
     packageDef("ssz") {
-      classDef("List", "MutableSequence", nTParms = 1, nEParams = 1, baseParams = listOf(TVIndex(0)))
-      classDef("Vector", "MutableSequence", nTParms = 1, nEParams = 1, baseParams = listOf(TVIndex(0)))
-      classDef("Bitlist", "MutableSequence", nTParms = 0, nEParams = 1, baseParams = listOf(TVConcrete(NamedType("ssz.boolean"))))
-      classDef("ByteList", "bytes", nTParms = 0, nEParams = 1)
-      classDef("Bitvector", "MutableSequence", nTParms = 0, nEParams = 1, baseParams = listOf(TVConcrete(NamedType("ssz.boolean"))))
-      classDef("ByteVector", "bytes", nTParms = 0, nEParams = 1)
+      classDef("List", "pylib.MutableSequence", nTParms = 1, nEParams = 1, baseParams = listOf(TVIndex(0)))
+      classDef("Vector", "pylib.MutableSequence", nTParms = 1, nEParams = 1, baseParams = listOf(TVIndex(0)))
+      classDef("Bitlist", "pylib.MutableSequence", nTParms = 0, nEParams = 1, baseParams = listOf(TVConcrete(NamedType("ssz.boolean"))))
+      classDef("ByteList", "pylib.bytes", nTParms = 0, nEParams = 1)
+      classDef("Bitvector", "pylib.MutableSequence", nTParms = 0, nEParams = 1, baseParams = listOf(TVConcrete(NamedType("ssz.boolean"))))
+      classDef("ByteVector", "pylib.bytes", nTParms = 0, nEParams = 1)
 
       // ???
-      classDef("Container", "object") {
+      classDef("Container", "pylib.object") {
         ctor()
       }
       // SSZ
       //classDef("Bitlist", "Sequence")
       //classDef("Bitvector", "Sequence")
-      classDef("merkle_tree.Node", "bytes") {
+      classDef("merkle_tree.Node", "pylib.bytes") {
         meth("merkle_tree.Node:get_left")
         meth("merkle_tree.Node:get_right")
         meth("merkle_tree.Node:merkle_root")
       }
-      classDef("ByteVector", "bytes") {
+      classDef("ByteVector", "pylib.bytes") {
         meth("get_backing")
       }
-      classDef("ByteList", "bytes") {
+      classDef("ByteList", "pylib.bytes") {
         meth("get_backing")
       }
-      classDef("uint", "int")
+      classDef("uint", "pylib.int")
       classDef("boolean", "uint") {
         meth("__bool__")
       }
@@ -39,7 +39,7 @@ object SSZLib {
       classDef("uint32", "uint")
       classDef("uint64", "uint")
       classDef("uint256", "uint")
-      classDef("Bytes", "bytes")
+      classDef("Bytes", "pylib.bytes")
       classDef("Bytes1", "Bytes")
       classDef("Bytes4", "Bytes")
       classDef("Bytes20", "Bytes")
@@ -48,7 +48,7 @@ object SSZLib {
       classDef("Bytes64", "Bytes")
       classDef("Bytes96", "Bytes")
 
-      classDef("GeneralizedIndex", "int")
+      classDef("GeneralizedIndex", "pylib.int")
 
       val resolvers = listOf(
           "Bytes1" to mkSimpleResolver { NamedType("ssz.Bytes1") },

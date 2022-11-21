@@ -66,6 +66,10 @@ fun _inferTypes_FunctionDef(f: FunctionDef): Map<String,RTType> {
 fun _inferTypes_CFG(ssa: CFGraphImpl): Map<String, RTType> {
   val typer = TypeResolver.topLevelTyper
 
+  return inferTypesCFG(ssa, typer)
+}
+
+fun inferTypesCFG(ssa: CFGraphImpl, typer: ExprTyper): Map<String, RTType> {
   val init = ssa.get(ssa.entry).stmts.map {
     val lv = it.lval as VarLVal
     lv.v to parseType(typer, lv.t!!)

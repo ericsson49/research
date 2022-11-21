@@ -33,13 +33,20 @@ import onotole.nameResolveRule
 import onotole.pyPrintFunc
 import onotole.rewrite.combineRules
 import onotole.staticNameResolveRule
+import onotole.string
 
-class ModuleNames(val mod: String, _entries: Collection<TLModEntry>, deps: Collection<TLModule>) {
+interface NameInfo {
+  fun resolveAlias(n: String): String?
+  fun resolveName(n: String): CTVal
+}
+class ModuleNames(val mod: String, _entries: Collection<TLModEntry>, deps: Collection<TLModule>): NameInfo {
   val pkgs = deps.map { it.name }.plus(mod)
   val imported = deps.flatMap { (it.declarations + it.constantDefs).map { it.name to it } }.toMap()
   val entries = _entries.map { "$mod.${it.name}" to it }.toMap()
   val aliases = (imported.keys + entries.keys).map { getShortName(it) to it }.toMap()
   val cache = mutableMapOf<String,CTVal>()
+
+  override fun resolveAlias(n: String): String? = aliases[n]
 
   fun getClassHead(n: String): TLClassHead {
     return when(val nk = resolveName(n)) {
@@ -55,7 +62,7 @@ class ModuleNames(val mod: String, _entries: Collection<TLModEntry>, deps: Colle
     else ClassTemplate(cls)
   }
 
-  fun resolveName(n: String): CTVal {
+  override fun resolveName(n: String): CTVal {
     val n = aliases[n] ?: n
     return cache.getOrPut(n) {
       val entry = entries[n]
@@ -108,7 +115,7 @@ fun resolveAliasesInType(t: TExpr, aliases: Map<String, String>): TExpr {
   }
 }
 
-class TestResolver(val globals: ModuleNames, val locals: Set<String>) {
+class TestResolver(val globals: NameInfo, val locals: Set<String>) {
   fun get(n: String) = globals.resolveName(n)
   fun isSpecialFunc(n: String) = n in TypeResolver.specialFuncNames
   fun isLocal(n: String) = n in locals
@@ -117,11 +124,11 @@ class TestResolver(val globals: ModuleNames, val locals: Set<String>) {
       null
     else CTV(get(n))
   }
-  fun resolveAlias(n: String) = if (n !in locals) globals.aliases[n] else null
+  fun resolveAlias(n: String) = if (n !in locals) globals.resolveAlias(n) else null
   fun updated(ns: Collection<String>) = TestResolver(globals, locals.plus(ns))
 }
 
-class ModuleTransformer(globals: ModuleNames) {
+class ModuleTransformer(globals: NameInfo) {
   val transformer = BaseNameTransformer(combineRules(
       aliasResolveRule,
       nameResolveRule,

@@ -1,5 +1,6 @@
 package onotole
 
+import onotole.typelib.TLTClass
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.*
@@ -140,11 +141,34 @@ class StmtToNode {
 
 val convertToCFG = MemoizingFunc(::makeCFGFromFunctionDef)
 
+fun isOutcome(c: TExpr) = c is CTV && c.v is ClassVal && c.v.name == "<Outcome>"
+fun isProcedureRetType(c: ClassVal): Boolean = c.name == "pylib.None"
+    || c.name == "<Outcome>" && isProcedureRetType(c.tParams[0].asClassVal())
+fun isProcedureRetType(t: TExpr?): Boolean {
+  return when {
+    t == null -> true
+    t == NameConstant(null) -> true
+    t is CTV && t.v is ClassVal -> isProcedureRetType(t.v)
+    else -> false
+  }
+}
+fun isProcedureRetVal(v: TExpr?): Boolean {
+  return when {
+    v == null -> true
+    v == NameConstant(null) -> true
+    v is Call && v.func is Name && v.func.id == "<Result>::new" -> true
+    else -> false
+  }
+}
+fun isProcedure(f: FunctionDef) = isProcedureRetType(f.returns)
 private fun makeCFGFromFunctionDef(f: FunctionDef): CFGraphImpl {
   val convertor = StmtToNode()
   val exit = convertor.mkExit()
-  val implicitReturn = if (f.returns == null || f.returns == NameConstant(null))
-    listOf(Return())
+  val implicitReturn = if (isProcedure(f) && f.body[f.body.size-1] !is Return)
+    if (isOutcome(f.returns!!))
+      listOf(Return(mkResult(NameConstant(null), TLTClass("pylib.None", listOf()))))
+    else
+      listOf(Return())
   else
     emptyList()
   val funcBody = convertor.convert(f.body.plus(implicitReturn), exit, exit, emptyList())
@@ -495,7 +519,15 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
 
   fun processAssign(i: StmtInstr): List<Stmt> {
     val s = when(i.lval) {
-      is EmptyLVal -> Expr(i.rval)
+      is EmptyLVal -> {
+        if (isCall_Name(i.rval, "<assert>")) {
+          val call = i.rval as Call
+          if (call.keywords.isNotEmpty()) fail()
+          if (call.args.size > 2) fail()
+          Assert(call.args[0], if (call.args.size == 2) call.args[1] else null)
+        } else
+          Expr(i.rval)
+      }
       is VarLVal ->
         Assign(mkName(i.lval.v, true), i.rval)
       is FieldLVal -> Assign(Attribute(i.lval.r, i.lval.f, ExprContext.Store), i.rval)
@@ -551,8 +583,10 @@ class CfgToStmtConvertor2(val fd: FunctionDef, val cfg: CFGraphImpl) {
 
 }
 
-fun isCall(e: TExpr, name: String) = e is Call && e.func == mkName(name)
-fun isParamCall(e: TExpr) = isCall(e, "<Parameter>")
+fun isCall(e: TExpr, name: String) = isCall_FuncInst(e, name) || isCall_Name(e, name)
+fun isCall_FuncInst(e: TExpr, name: String) = e is Call && e.func is CTV && e.func.v is FuncInst && e.func.v.name == name
+fun isCall_Name(e: TExpr, name: String) = e is Call && e.func == mkName(name)
+fun isParamCall(e: TExpr) = isCall_Name(e, "<Parameter>")
 fun isParamDef(s: Stmt): Boolean = s is Assign && s.target is Name && isParamCall(s.value)
 fun isParamDef(s: StmtInstr): Boolean = s.lval is VarLVal && isParamCall(s.rval)
 
@@ -564,7 +598,10 @@ fun cfgToStmts2(fd: FunctionDef, cfg: CFGraphImpl): List<Stmt> {
     val lastParamIndex = res.indexOf(lastParamDef)
     res.subList(lastParamIndex + 1, res.size)
   } else res
-  return stmts
+  return if (isProcedure(fd) && fd.body[fd.body.size-1] !is Return && stmts[stmts.size-1] is Return)
+    stmts.subList(0, stmts.size-1)
+  else
+    stmts
 }
 
 fun reconstructFuncDef(orig: FunctionDef, cfg: CFGraphImpl): FunctionDef {
@@ -611,7 +648,7 @@ fun main() {
 
     cfgs.add(f to ssa)
 
-    val mutRefs = findMutableAliases(f, ssa, pds[f.name])
+    val mutRefs = findMutableAliases(f, ssa, pds[f.name], TypeResolver.topLevelTyper)
     println()
 
     //printCFG(ssa)

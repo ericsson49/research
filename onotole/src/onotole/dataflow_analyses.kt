@@ -244,7 +244,7 @@ fun main() {
       continue
     println(it.name)
     val newF = convertToAndOutOfSSA(it)
-    KotlinGen("", emptySet()).genFunc(newF).forEach { println(it) }
+    //KotlinGen("", emptySet()).genFunc(newF).forEach { println(it) }
     /*println()
     println("SSA")
     val ssa = CFG<Instr>()
@@ -275,6 +275,13 @@ fun main() {
 
 }
 
+fun convertToAndOutOfSSA2(it: FunctionDef): FunctionDef {
+  val cfg = convertToCFG(it)
+  val analyses = getFuncAnalyses(cfg)
+  val ssa = convertToSSA(cfg)
+  val (cfg2, renamer) = destructSSA(ssa, analyses.cfgAnalyses.dom)
+  return reconstructFuncDef(it, cfg2)
+}
 fun convertToAndOutOfSSA(it: FunctionDef) = convertToAndOutOfSSA(it, SimpleProcessor())
 
 fun <T: IInstr> convertToAndOutOfSSA(it: FunctionDef, proc: NodeProcessor<T>): FunctionDef {

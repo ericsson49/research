@@ -23,6 +23,7 @@ import onotole.mkName
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
 
+class TLModuleDef(val name: String, val deps: Collection<String>, val extern: Collection<TLModDecl> = listOf())
 class TLModLoader(val name: String, val deps: Collection<String>, val load: (List<TLModule>) -> TLModule)
 data class TLModule(val name: String, val declarations: Collection<TLModDecl>, val definitions: Collection<TLModDef> = emptyList()) {
   val constantDecls = declarations.filterIsInstance<TLConstDecl>()
@@ -52,7 +53,12 @@ data class TLClassHead(val name: String, val tvars: List<String> = emptyList()) 
   val noTParams = tvars.filter { it[0].isUpperCase() }.size
   val noEParams = tvars.filter { it[0].isLowerCase() }.size
 }
-data class TLSig(val tParams: List<TLType>, val args: List<Pair<String,TLType>>, val ret: TLType, val defaults: List<TExpr> = emptyList())
+data class TLSig(val tParams: List<TLType>, val args: List<Pair<String,TLType>>, val ret: TLType, val defaults: List<TExpr> = emptyList()) {
+  init {
+    if (ret is TLTClass && ret.name == "<Outcome>" && ret.params[0] is TLTClass && (ret.params[0] as TLTClass).name == "<Outcome>")
+      println()
+  }
+}
 data class TLFuncDecl(override val name: String, val sigs: List<TLSig>): TLModDecl()
 sealed class TLType
 data class TLTConst(val const: ConstExpr): TLType()

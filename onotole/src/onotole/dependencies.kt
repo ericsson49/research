@@ -1,5 +1,7 @@
 package onotole
 
+import onotole.util.toTExpr
+
 fun <T> flatten(vararg t: T?): List<T> {
   val res = mutableListOf<T>()
   for (e in t) {

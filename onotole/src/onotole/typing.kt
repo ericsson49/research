@@ -33,27 +33,27 @@ data class FArg(val name: String, val type: RTType, val default: TExpr? = null) 
   override fun toString() = name + ": " + type + (default?.let { " = $it" } ?: "")
 }
 
-val TPyNothing = NamedType("Nothing")
-val TPyObject = NamedType("object")
-val TPyInt = NamedType("int")
-val TPyStr = NamedType("str")
-val TPyBytes = NamedType("bytes")
-val TPyBool = NamedType("bool")
-val TPyNone = NamedType("None")
+val TPyNothing = NamedType("pylib.Nothing")
+val TPyObject = NamedType("pylib.object")
+val TPyInt = NamedType("pylib.int")
+val TPyStr = NamedType("pylib.str")
+val TPyBytes = NamedType("pylib.bytes")
+val TPyBool = NamedType("pylib.bool")
+val TPyNone = NamedType("pylib.None")
 
-fun TPySet(t: RTType) = NamedType("Set", listOf(t))
-fun TPyList(t: RTType) = NamedType("PyList", listOf(t))
-fun TPyDict(k: RTType, v: RTType) = NamedType("Dict", listOf(k, v))
-fun TPyIterator(t: RTType) = NamedType("Iterator", listOf(t))
-fun TPyIterable(t: RTType) = NamedType("Iterable", listOf(t))
-fun TPyCollection(t: RTType) = NamedType("Collection", listOf(t))
-fun TPySequence(t: RTType) = NamedType("Sequence", listOf(t))
-fun TPyTuple(a: RTType, b: RTType) = NamedType("Tuple", listOf(a,b))
+fun TPySet(t: RTType) = NamedType("pylib.Set", listOf(t))
+fun TPyList(t: RTType) = NamedType("pylib.PyList", listOf(t))
+fun TPyDict(k: RTType, v: RTType) = NamedType("pylib.Dict", listOf(k, v))
+fun TPyIterator(t: RTType) = NamedType("pylib.Iterator", listOf(t))
+fun TPyIterable(t: RTType) = NamedType("pylib.Iterable", listOf(t))
+fun TPyCollection(t: RTType) = NamedType("pylib.Collection", listOf(t))
+fun TPySequence(t: RTType) = NamedType("pylib.Sequence", listOf(t))
+fun TPyTuple(a: RTType, b: RTType) = NamedType("pylib.Tuple", listOf(a,b))
 fun TPyTuple(p: Pair<RTType,RTType>) = TPyTuple(p.first,p.second)
-fun TPyTuple(els: List<RTType>) = NamedType("Tuple", els)
-fun TPyMapping(k: RTType, v: RTType) = NamedType("Mapping", listOf(k, v))
-fun TPyMutableSequence(t: RTType) = NamedType("MutableSequence", listOf(t))
-fun TPyOptional(t: RTType) = NamedType("Optional", listOf(t))
+fun TPyTuple(els: List<RTType>) = NamedType("pylib.Tuple", els)
+fun TPyMapping(k: RTType, v: RTType) = NamedType("pylib.Mapping", listOf(k, v))
+fun TPyMutableSequence(t: RTType) = NamedType("pylib.MutableSequence", listOf(t))
+fun TPyOptional(t: RTType) = NamedType("pylib.Optional", listOf(t))
 
 
 fun RTType.toTExpr(): TExpr = when(this) {
@@ -71,19 +71,19 @@ fun RTType.toTExpr(): TExpr = when(this) {
   else -> TODO()
 }
 
-fun getSeqElemTyp(x: RTType) = getNamedAncestorF(x, "Sequence").tParams[0]
+fun getSeqElemTyp(x: RTType) = getNamedAncestorF(x, "pylib.Sequence").tParams[0]
 
-fun getIterableElemType(x: RTType) = getNamedAncestorF(x, "Iterable").tParams[0]
+fun getIterableElemType(x: RTType) = getNamedAncestorF(x, "pylib.Iterable").tParams[0]
 
 fun getMapLikeValueElemTyp(x: RTType): RTType {
   val ancestors = getNamedAncestors(x)
-  return ancestors["Sequence"]?.tParams?.get(0)
-          ?: ancestors["Mapping"]?.tParams?.get(1)
+  return ancestors["pylib.Sequence"]?.tParams?.get(0)
+          ?: ancestors["pylib.Mapping"]?.tParams?.get(1)
           ?: fail("$x is not a subclass of Sequence or Mapping")
 }
 
 fun getMappingTypeParams(x: RTType): Pair<RTType,RTType> {
-  val anc = getNamedAncestorF(x, "Mapping")
+  val anc = getNamedAncestorF(x, "pylib.Mapping")
   return anc.tParams[0] to anc.tParams[1]
 }
 
@@ -98,7 +98,7 @@ fun getCommonSuperType(a: RTType, b: RTType): RTType {
   fun testOptional(t: RTType) = t == TPyNone || t is NamedType && t.name == "Optional"
   fun extractOptionalTypeParam(t: RTType): RTType = when {
     t == TPyNone -> TPyNothing
-    t is NamedType && t.name == "Optional" -> t.tParams[0]
+    t is NamedType && t.name == "pylib.Optional" -> t.tParams[0]
     else -> t
   }
   if (testOptional(a) || testOptional(b)) {
@@ -120,11 +120,12 @@ fun getSuperClass(a: RTType) = a.typeInfo.baseType?.asType() ?: TPyObject
 fun _isSubType1(a: RTType, b: NamedType): Boolean = b in getAncestorClasses(a)
 
 fun getTypePramVariances(cls: String, size: Int): Triple<List<Int>,List<Int>,List<Int>> = when(cls) {
-  "Iterable", "Iterator", "Collection", "Sequence", "Optional" -> Triple(listOf(0), emptyList(), emptyList())
-  "Mapping" -> Triple(listOf(0,1), emptyList(), emptyList())
-  "Tuple" -> Triple((0 until size).toList(), emptyList(), emptyList())
-  "PyList", "List", "Vector", "Set" -> Triple(emptyList(), listOf(0), emptyList())
-  "Dict", "PyDict" -> Triple(emptyList(), listOf(0,1), emptyList())
+  "pylib.Iterable", "pylib.Iterator", "pylib.Collection", "pylib.Sequence", "pylib.Optional" -> Triple(listOf(0), emptyList(), emptyList())
+  "pylib.Mapping" -> Triple(listOf(0,1), emptyList(), emptyList())
+  "pylib.Tuple" -> Triple((0 until size).toList(), emptyList(), emptyList())
+  "pylib.PyList", "List", "Vector", "pylib.Set" -> Triple(emptyList(), listOf(0), emptyList())
+  "pylib.Dict" -> Triple(emptyList(), listOf(0,1), emptyList())
+  "<Outcome>" -> Triple(listOf(0), emptyList(), emptyList())
   else -> TODO("Variances for $cls are not implemented")
 }
 
@@ -134,6 +135,8 @@ fun isSubType(a: RTType, b: RTType): Boolean = a == b
         || b is NamedType && a == TPyNone
         || b is NamedType && isSimpleType(b) && _isSubType1(a, b)
         || b is NamedType && isGenType(b) && b.name == "Optional" && (a == TPyNone || isSubType(a, b.tParams[0]))
+        || b is NamedType && isGenType(b) && b.name == "<Outcome>"
+              && a is NamedType && (a.name == "<Exception>" || a.name == "<Result>" && isSubType(a.tParams[0], b.tParams[0]))
         || b is NamedType && _isSubType2(a,b)
 
 fun getNamedAncestorF(x: RTType, ancestor: String): NamedType {
@@ -141,7 +144,7 @@ fun getNamedAncestorF(x: RTType, ancestor: String): NamedType {
 }
 
 fun getNamedAncestors(x: RTType): Map<String, NamedType> {
-  return getAncestorClasses(x).filterIsInstance<NamedType>().map { it.name to it }.toMap()
+  return getAncestorClasses(x).filterIsInstance<NamedType>().associateBy { it.name }
 }
 
 fun _isSubType2(a: RTType, b: NamedType): Boolean {

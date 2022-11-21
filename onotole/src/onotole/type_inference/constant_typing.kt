@@ -16,6 +16,7 @@ import onotole.asClassVal
 import onotole.fail
 import onotole.typelib.TLTClass
 import onotole.typelib.TLTConst
+import onotole.util.toFAtom
 
 
 fun classValToTLType(c: ClassVal): TLTClass {

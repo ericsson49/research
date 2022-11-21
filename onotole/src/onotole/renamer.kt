@@ -70,6 +70,7 @@ class ExprRenamer2(val inRenames: Map<String, TExpr>, val outRenames: Map<String
       is Call -> e.copy(func = renameExpr(e.func), args = renameExprs(e.args), keywords = e.keywords.map(::renameKwd))
       is Lambda -> renameLambda(e)
       is Let -> renameLet(e)
+      is CTV -> e
       else -> fail("Not supported $e")
     }
   }

@@ -497,7 +497,7 @@ fun loadTopLevelDefs(phase: String, defs: List<TopLevelDef>): List<TopLevelDef> 
   return defs
 }
 
-fun main(args: Array<String>) {
+fun main() {
   PyLib.init()
   SSZLib.init()
   BLS.init()
@@ -516,7 +516,7 @@ fun main(args: Array<String>) {
   TypeResolver.importFromPackage(specVersion)
 
   //val gen = CGen(specVersion, setOf("bls", "ssz", specVersion))
-  val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
+  val gen = DafnyGen(TypeResolver.topLevelTyper)
   //val gen = KotlinGen(specVersion, setOf("bls", "ssz", specVersion))
   //val gen = JavaGen("beacon_java." + specVersion, "beacon_java_generated/src", specVersion, setOf("bls", "ssz", specVersion))
   val preprocessedDefs = tlDefs.map {

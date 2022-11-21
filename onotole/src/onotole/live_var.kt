@@ -1,5 +1,8 @@
 package onotole
 
+import onotole.util.deconstructS
+import onotole.util.reduceLet
+
 abstract class ForwardAnalysis<T> {
   val before = StmtAnnoMap<T>()
   val after = StmtAnnoMap<T>()
@@ -8,9 +11,11 @@ abstract class ForwardAnalysis<T> {
   abstract fun merge(a: T, b: T): T
   abstract val bottom: T
 
-  fun freshVar(): Name = TODO()
+  val freshNames = FreshNames()
+  fun freshVar(): Name = mkName(freshNames.fresh("vt"))
 
   fun procStmt(s: Stmt, ctx: T): T = when(s) {
+    is Expr, is Return -> ctx
     is Assign -> procAssign(s.target, s.value, s, ctx)
     is AnnAssign -> s.value?.let { procAssign(s.target, it, s, ctx) } ?: ctx
     is AugAssign -> procAssign(s.target, BinOp(s.target, s.op, s.value), s, ctx)
@@ -52,57 +57,87 @@ abstract class BackwardAnalysis<T> {
   fun analyze(c: List<Stmt>, out: T): T = c.foldRight(out, { s, acc -> analyzeStmt(s, acc)})
 }
 
-fun liveVarAnalysis(c: Collection<TExpr>): Set<String> = c.flatMap { liveVarAnalysis(it) }.toSet()
 fun liveVarAnalysis(e: TExpr): Set<String> {
+  val r1 = liveVarAnalysis1(e)
+  val r2 = liveVarAnalysis2(e)
+  if (r1 != r2)
+    fail()
+  return r1
+}
+fun liveVarAnalysis2(e: TExpr): Set<String> {
   return when (e) {
-    is Lambda -> liveVarAnalysis(e.body).minus(e.args.args.map { it.arg })
-    is IfExp -> liveVarAnalysis(listOf(e.test, e.body, e.orelse))
+    is CTV, is Constant, is Name -> liveVarAnalysis1(e)
+    is Lambda -> liveVarAnalysis2(e.body).minus(e.args.args.map { it.arg })
+    is IfExp -> listOf(e.test, e.body, e.orelse).flatMap { liveVarAnalysis2(it) }.toSet()
+    is Let -> liveVarAnalysis2(reduceLet(e))
+    is GeneratorExp -> {
+      if (e.generators.size != 1) TODO()
+      val gen = e.generators[0]
+      val vars = getVarNamesInStoreCtx(gen.target)
+      val args = Arguments(args = vars.map { Arg(it) })
+      val ifLambdas = gen.ifs.map { Lambda(args, it) }
+      val mapLambda = Lambda(args, e.elt)
+      val exprs = listOf(gen.iter).plus(ifLambdas).plus(mapLambda)
+      exprs.flatMap { liveVarAnalysis2(it) }.toSet()
+    }
+    else -> {
+      val (exprs, _) = deconstructS(e)
+      exprs.flatMap { liveVarAnalysis2(it) }.toSet()
+    }
+  }
+
+}
+fun liveVarAnalysis1(c: Collection<TExpr>): Set<String> = c.flatMap { liveVarAnalysis1(it) }.toSet()
+fun liveVarAnalysis1(e: TExpr): Set<String> {
+  return when (e) {
+    is Lambda -> liveVarAnalysis1(e.body).minus(e.args.args.map { it.arg })
+    is IfExp -> liveVarAnalysis1(listOf(e.test, e.body, e.orelse))
     is GeneratorExp -> {
       if (e.generators.size != 1)
         fail("not yet implemented")
       val gen = e.generators[0]
-      val out1 = liveVarAnalysis(e.elt).union(liveVarAnalysis(gen.ifs))
+      val out1 = liveVarAnalysis1(e.elt).union(liveVarAnalysis1(gen.ifs))
       val kill = getVarNamesInStoreCtx(gen.target)
-      out1.minus(kill).union(liveVarAnalysis(gen.iter))
+      out1.minus(kill).union(liveVarAnalysis1(gen.iter))
     }
     is ListComp -> {
       if (e.generators.size != 1)
         fail("not yet implemented")
       val gen = e.generators[0]
-      val out1 = liveVarAnalysis(e.elt).union(liveVarAnalysis(gen.ifs))
+      val out1 = liveVarAnalysis1(e.elt).union(liveVarAnalysis1(gen.ifs))
       val kill = getVarNamesInStoreCtx(gen.target)
-      out1.minus(kill).union(liveVarAnalysis(gen.iter))
+      out1.minus(kill).union(liveVarAnalysis1(gen.iter))
     }
-    is Call -> liveVarAnalysis(listOf(e.func).plus(e.args).plus(e.keywords.map { it.value }))
+    is Call -> liveVarAnalysis1(listOf(e.func).plus(e.args).plus(e.keywords.map { it.value }))
     is Constant -> emptySet()
-    is Attribute -> liveVarAnalysis(e.value)
+    is Attribute -> liveVarAnalysis1(e.value)
     is Subscript -> {
       fun gatherExprs(s: TSlice) = when (s) {
         is Slice -> flatten(s.lower, s.upper, s.step)
         is Index -> listOf(s.value)
         else -> fail("unsupported $s")
       }
-      liveVarAnalysis(listOf(e.value).plus(gatherExprs(e.slice)))
+      liveVarAnalysis1(listOf(e.value).plus(gatherExprs(e.slice)))
     }
-    is Starred -> liveVarAnalysis(e.value)
+    is Starred -> liveVarAnalysis1(e.value)
     is Name -> setOf(e.id)
-    is Tuple -> liveVarAnalysis(e.elts)
-    is PyList -> liveVarAnalysis(e.elts)
-    is PySet -> liveVarAnalysis(e.elts)
-    is PyDict -> liveVarAnalysis(e.keys.plus(e.values))
-    is Let -> liveVarAnalysis(e.value).minus(e.bindings.map { it.arg!! }.plus(e.bindings.map { liveVarAnalysis(it.value) }.flatten()))
+    is Tuple -> liveVarAnalysis1(e.elts)
+    is PyList -> liveVarAnalysis1(e.elts)
+    is PySet -> liveVarAnalysis1(e.elts)
+    is PyDict -> liveVarAnalysis1(e.keys.plus(e.values))
+    is Let -> e.bindings.foldRight(liveVarAnalysis1(e.value)) { k, res -> res.minus(k.arg!!).plus(liveVarAnalysis1(k.value)) }
     is CTV -> when(e.v) {
-      is ConstExpr -> liveVarAnalysis(e.v.e)
+      is ConstExpr -> liveVarAnalysis1(e.v.e)
       is ClassVal -> setOf(e.v.name)
-          .plus(e.v.tParams.flatMap { liveVarAnalysis(CTV(it.asClassVal())) })
-          .plus(e.v.eParams.flatMap { liveVarAnalysis(CTV(it)) })
+          .plus(e.v.tParams.flatMap { liveVarAnalysis1(CTV(it.asClassVal())) })
+          .plus(e.v.eParams.flatMap { liveVarAnalysis1(CTV(it)) })
       is FuncInst -> setOf(e.v.name)
       else -> TODO()
     }
-    is BinOp -> liveVarAnalysis(e.left).plus(liveVarAnalysis(e.right))
-    is Compare -> liveVarAnalysis(listOf(e.left) + e.comparators)
-    is BoolOp -> liveVarAnalysis(e.values)
-    is UnaryOp -> liveVarAnalysis(e.operand)
+    is BinOp -> liveVarAnalysis1(e.left).plus(liveVarAnalysis1(e.right))
+    is Compare -> liveVarAnalysis1(listOf(e.left) + e.comparators)
+    is BoolOp -> liveVarAnalysis1(e.values)
+    is UnaryOp -> liveVarAnalysis1(e.operand)
     else -> fail("unsupported $e")
   }
 }

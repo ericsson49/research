@@ -2,10 +2,51 @@ package onotole.type_inference
 
 import onotole.*
 import onotole.typelib.*
+import onotole.util.toClassVal
+import onotole.util.toFAtom
+
+
+abstract class FAtomTypeCalculator(): TypeCalculator<FAtom> {
+  override val boolT = FAtom("pylib.bool")
+  override val bytesT = FAtom("pylib.bytes")
+  override val numT = FAtom("pylib.int")
+  override val strT = FAtom("pylib.str")
+  override val noneT = FAtom("pylib.None")
+  override fun parseType(e: TExpr): FAtom {
+    return TODO()
+  }
+  override fun isSubType(a: FAtom, b: FAtom): Boolean {
+    with(TypingContext) {
+      return st(a, b).first
+    }
+  }
+
+  override fun join(a: FAtom, b: FAtom): FAtom {
+    with(TypingContext) {
+      val res = tryJoin(a, b)
+      return if (res.first == res.second)
+        res.first
+      else fail("can't calculate join of $a nd $b")
+    }
+  }
+
+  override fun mkListType(t: FAtom): FAtom = FAtom("pylib.PyList", listOf(t))
+  override fun mkSetType(t: FAtom): FAtom = FAtom("pylib.Set", listOf(t))
+  override fun mkDictType(k: FAtom, v: FAtom): FAtom = FAtom("pylib.Dict", listOf(k, v))
+  override fun mkTupleType(elts: List<FAtom>): FAtom = FAtom("pylib.Tuple", elts)
+  override fun resolveAttrGet(t: FAtom, attr: identifier): FAtom {
+    with(TypingContext) {
+      return resolveAttributeGet(t, attr) as FAtom
+    }
+  }
+}
 
 object TypingContext: TypingCtx {
   var classes: MutableMap<String,TLClassDecl> = mutableMapOf()
   var constTypes = mutableMapOf<String,FAtom>()
+
+  override fun getClassDecl(cls: String) = classes[cls]
+      ?: fail()
   fun initConstants(consts: Map<String,FAtom>) {
     constTypes.putAll(consts)
   }
@@ -52,22 +93,36 @@ object TypingContext: TypingCtx {
 
 }
 
+context (TypingCtx)
 fun resolveAttributeGet(cls: FAtom, attr: String): FTerm {
   if (cls.n == "pylib.Optional") {
     return resolveAttributeGet(cls.ps[0] as FAtom, attr)
+  }
+  if (cls.n == "phase0.Store" && attr == "updated") {
+    return TLTCallable(emptyList(), classValToTLType(cls.toClassVal())).toFAtom(emptyMap())
+  }
+  val classesWithCopy = setOf("phase0.BeaconState", "altair.BeaconState", "bellatrix.BeaconState")
+  if (cls.n in classesWithCopy && attr == "copy") {
+    return TLTCallable(emptyList(), classValToTLType(cls.toClassVal())).toFAtom(emptyMap())
+  }
+
+  if (attr in int_funcs && st(cls,FAtom("ssz.uint")).first) {
+    return TLTCallable(listOf(TLTClass("pylib.int", emptyList())), classValToTLType(cls.toClassVal())).toFAtom(emptyMap())
   }
   when(cls.n) {
     in TypingContext.classes -> {
       val classDescr = TypingContext.classes[cls.n]!!
       val cd = classDescr.head
-      if (cls.ps.size != cd.tvars.size) fail()
+      if (cls.ps.size != cd.noTParams) fail()
       val tvAssgn = cd.tvars.zip(cls.ps).toMap()
       val attrs = classDescr.attrs
       if (attr in attrs) {
         val f = attrs[attr]!!
-        if (f !is TLTClass) fail()
-        return f.toFAtom(emptyMap())
-      }
+        if (f !is TLTClass && f !is TLTCallable)
+          fail()
+        return f.toFAtom(tvAssgn)
+      } else if (classDescr.parent != null)
+        return resolveAttributeGet(classDescr.parent.toFAtom(tvAssgn) as FAtom, attr)
       TODO()
     }
   }
@@ -91,48 +146,22 @@ fun resolveSliceGet(cls: FAtom, lower: FTerm?, upper: FTerm?, step: FTerm?): FTe
 }
 
 
-fun TLType.toFAtom(tvm: Map<String,FTerm>): FTerm = when(this) {
-  is TLTVar -> tvm[this.name] ?: FVar(this.name)
-  is TLTClass -> FAtom(this.name, this.params.filter { it !is TLTConst }.map { it.toFAtom(tvm) })
-  is TLTCallable -> FAtom("pylib.Callable", this.args.plus(this.ret).map { it.toFAtom(tvm) })
-  else -> TODO()
-}
 val int_funcs = setOf(
     "add", "sub","mult","floordiv","mod"
 ).flatMap { setOf(it, "r$it") }.map { "__${it}__" }.toSet()
 context (TypingCtx)
 fun resolveAttributeCall(cls: FAtom, attr: String): Pair<FTerm,List<FTerm>> {
   val attr = attr.toLowerCase()
-
-  val classesWithCopy = setOf("phase0.BeaconState", "altair.BeaconState", "bellatrix.BeaconState")
-  if (cls.n in classesWithCopy && attr == "copy") {
-    return cls to emptyList()
-  }
-
-  if (attr in int_funcs && st(cls,FAtom("ssz.uint")).first) {
-    return cls to listOf(FAtom("pylib.int"))
-  }
-
-  when(cls.n) {
-    in TypingContext.classes -> {
-      val classDescr = TypingContext.classes[cls.n]!!
-      val cd = classDescr.head
-      if (cls.ps.size != cd.noTParams)
-        fail()
-      val tvAssgn = cd.tvars.zip(cls.ps).toMap()
-      val attrs = classDescr.attrs
-      if (attr in attrs) {
-        val f = attrs[attr]!!
-        if (f !is TLTCallable) fail()
-        val args = f.args
-        val res = f.ret
-        return res.toFAtom(tvAssgn) to args.map { it.toFAtom(tvAssgn) }
-      } else if (classDescr.parent != null)
-        return resolveAttributeCall(classDescr.parent.toFAtom(tvAssgn) as FAtom, attr)
-    }
-    else -> TODO()
-  }
-  fail()
+  val res = resolveAttributeGet(cls, attr) as FAtom
+  if (res.n != "pylib.Callable") fail()
+  return res.ps[res.ps.size-1] to res.ps.subList(0, res.ps.size-1)
+//  val classesWithCopy = setOf("phase0.BeaconState", "altair.BeaconState", "bellatrix.BeaconState")
+//  if (cls.n in classesWithCopy && attr == "copy") {
+//    return cls to emptyList()
+//  }
+//  if (attr in int_funcs && st(cls,FAtom("ssz.uint")).first) {
+//    return cls to listOf(FAtom("pylib.int"))
+//  }
 }
 
 context (TypingCtx)
@@ -470,17 +499,8 @@ private fun processStmt(s: Stmt, vars: Map<String, FTerm>, cs: IConstrStore<FTer
   }
 }
 
-fun toFTerm(t: TLType): FTerm = when(t) {
-  is TLTClass -> toFAtom(t)
-  is TLTVar -> FVar(t.name)
-  else -> TODO()
-}
-fun toFAtom(cls: TLTClass): FAtom = FAtom(cls.name, cls.params.filter { it !is TLTConst }.map { toFTerm(it) })
-
 fun inferTypes2(fd: FunctionDef, ssa: Boolean = false): Map<String,ClassVal> {
   val f = if (ssa) fd else convertToAndOutOfSSA(fd)
-  //pyPrintFunc(f)
-  //println()
 
   with(TypingContext) {
     val tc = TypeChecker()
@@ -556,14 +576,6 @@ fun inferTypes(fd: FunctionDef): Map<String,ClassVal> {
 fun replaceTypeVars(t: FTerm, vars: Map<String,FTerm>): FTerm = when(t) {
   is FVar -> vars[t.v] ?: t
   is FAtom -> t.copy(ps = t.ps.map { replaceTypeVars(it, vars) })
-}
-fun FTerm.toClassVal(): ClassVal = when(this) {
-  is FVar ->
-    fail()
-  is FAtom -> this.toClassVal()
-}
-fun FAtom.toClassVal(): ClassVal {
-  return ClassVal(this.n, this.ps.map { it.toClassVal() })
 }
 fun main() {
   val f = FunctionDef(name = "test",

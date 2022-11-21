@@ -1,5 +1,9 @@
 package onotole
 
+import onotole.type_inference.TypingContext
+import onotole.typelib.TLClassDecl
+import onotole.typelib.TLClassHead
+import onotole.typelib.TLTClass
 import org.junit.jupiter.api.Test
 
 import org.junit.jupiter.api.Assertions.*
@@ -293,7 +297,10 @@ internal class PureFormConvertorTest {
 
   @Test
   fun transform_alias1() {
-    val f = FunctionDef("test", Arguments(args = listOf(Arg("a", mkName("A")))), body = listOf(
+    TypingContext.classes["A"] = TLClassDecl(true, TLClassHead("A"), null, mapOf(
+        "f" to TLTClass("B", listOf())
+    ))
+    val f = FunctionDef("test", Arguments(args = listOf(Arg("a", CTV(ClassVal("A"))))), body = listOf(
         mkAssign(mkName("b", true), mkAttribute("a", "f")),
         mkAssign(mkAttribute("b", "g"), Num(1))
     ))
@@ -305,7 +312,7 @@ internal class PureFormConvertorTest {
     val pf = PureFormConvertor(f, descrs, aliasInfo).transformFunction()
     assertEquals("test_pure", pf.name)
     assertEquals(f.args, pf.args)
-    assertEquals(mkName("A"), pf.returns)
+    assertEquals(CTV(ClassVal("A")), pf.returns)
     assertEquals("b = a.f\nb = b.updated(g = 1)\na = a.updated(f = b)\nreturn a", toStr(pf.body))
   }
 

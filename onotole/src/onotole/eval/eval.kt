@@ -29,14 +29,12 @@ import onotole.fail
 import onotole.identifier
 import onotole.mkCall
 import onotole.resolveAttrType
-import onotole.type_inference.FAtom
 import onotole.type_inference.TypingCtx
 import onotole.type_inference.resolveAttributeGet
 import onotole.type_inference.resolveIndexGet
 import onotole.type_inference.resolveSliceGet
-import onotole.type_inference.toClassVal
-import onotole.type_inference.toFAtom
-import onotole.type_inference.toTLTClass
+import onotole.util.toClassVal
+import onotole.util.toFAtom
 
 interface NCtx<V> {
   fun resolve(n: String): V?
@@ -116,10 +114,10 @@ class CTVBaseExprEvaluator(val typingCtx: TypingCtx): BaseExprEvaluator<CTVal, C
     }
   }
 
-  private fun ClassVal.toFAtom() = this.toTLTClass().toFAtom(emptyMap()) as FAtom
-
   override fun evalAttr(v: ClassVal, attr: identifier): ClassVal {
-    return resolveAttributeGet(v.toFAtom(), attr).toClassVal()
+    with(typingCtx) {
+      return resolveAttributeGet(v.toFAtom(), attr).toClassVal()
+    }
   }
 
   override fun evalIndexGet(v: ClassVal, idx: ClassVal): ClassVal {

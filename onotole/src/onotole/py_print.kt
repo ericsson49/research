@@ -1,5 +1,7 @@
 package onotole
 
+import onotole.util.toTExpr
+
 fun pyPrint(op: EBinOp) = when(op) {
   EBinOp.Add -> "+"
   EBinOp.Sub -> "-"
@@ -80,7 +82,14 @@ fun pyPrint(e: TExpr): String {
         pyPrint(expr)
       } else {
         val func = pyPrint(e.func)
-        (if (e.func is Lambda) "($func)" else func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
+        when {
+          e.func is Lambda && e.func.args.args.size == 1 && (e.func.body is Name) && e.func.args.args[0].arg == e.func.body.id -> {
+            if (e.args.size != 1 || e.keywords.isNotEmpty()) TODO()
+            pyPrint(e.args[0])
+          }
+
+          else -> (if (e.func is Lambda) "($func)" else func) + "(" + e.args.map { pyPrint(it) }.union(e.keywords.map { "${it.arg} = ${pyPrint(it.value)}" }).joinToString(", ") + ")"
+        }
       }
     }
     is Subscript -> pyPrint(e.value) + "[" + pyPrint(e.slice) + "]"
@@ -91,7 +100,17 @@ fun pyPrint(e: TExpr): String {
     is ListComp -> "[" + pyPrint(e.elt) + " " + e.generators.joinToString(" ") { pyPrint(it) } + "]"
     is DictComp -> "{" + pyPrint(e.key) + ": " + pyPrint(e.value) + " " + e.generators.joinToString(" ") { pyPrint(it) } + "}"
     is Starred -> "*" + pyPrint(e.value)
-    is Let -> pyPrint(mkCall(Lambda(Arguments(args = e.bindings.map { Arg(it.arg!!) }), e.value), e.bindings.map { it.value }))
+    is Let -> when {
+      e.bindings.isEmpty() -> TODO()
+      e.bindings.size == 1 -> {
+        pyPrint(mkCall(Lambda(Arguments(args = listOf(Arg(e.bindings[0].arg!!))), e.value), listOf(e.bindings[0].value)))
+      }
+      else -> {
+        val let0 = Let(e.bindings.subList(e.bindings.size-1, e.bindings.size), e.value)
+        val let1 = Let(e.bindings.subList(0, e.bindings.size-1), let0)
+        pyPrint(let1)
+      }
+    }
     is CTV -> {
       when(e.v) {
         is ConstExpr -> pyPrint(e.v.e)
@@ -186,17 +205,6 @@ fun pyPrintType(e: TExpr): String = when(e) {
     }
   }
   else -> fail("not implemented $e")
-}
-
-fun ClassVal.toTExpr(): TExpr {
-  val name = Name(this.name, ExprContext.Load)
-  return if (this.tParams.size + this.eParams.size == 0)
-    name
-  else {
-    val elems = this.tParams.map { when(it) { is ClassVal -> it.toTExpr(); else -> TODO()
-    } }.plus(this.eParams.map { it.e })
-    Subscript(name, Index(if (elems.size == 1) elems[0] else Tuple(elems, ExprContext.Load)), ExprContext.Load)
-  }
 }
 
 fun pyPrint(a: Arg) = a.arg + (a.annotation?.let { ": " + pyPrintType(it) } ?: "")

@@ -37,18 +37,23 @@ val pylib = mkLibraryModule("pylib", emptySet(), listOf(
     parseClassDescr("Set[T] <: Collection[T]",
         "__init__" to "()->Set[T]\n(Collection[T])->Set[T]",
         "union" to "(Collection[T])->Set[T]",
-        "intersection" to "(Collection[T])->Set[T]"
+        "intersection" to "(Collection[T])->Set[T]",
+        "add" to "(T)->None",
+        "add_pure" to "(T)->Set[T]",
+        "remove" to "(T)->None"
     ),
     parseClassDescr("PyList[T] <: Sequence[T]",
         "__init__" to "()->PyList[T]\n(Sequence[T])->PyList[T]",
         "__add__" to "(Sequence[T])->Sequence[T]",
-        "append" to "(T)->None"
+        "append" to "(T)->None",
+        "append_pure" to "(T)->PyList[T]"
     ),
     parseClassDescr("Dict[K,V] <: object",
         "__init__" to "()->Dict[K,V]\n(Sequence[Tuple[K,V]])->Dict[K,V]",
         "__getitem__" to "(K)->V",
         "keys" to "()->Set[K]",
-        "values" to "()->Sequence[V]"
+        "values" to "()->Sequence[V]",
+        "updated_at" to "(K,V)->Dict[K,V]"
     ),
     parseClassDescr("Container <: object"),
     parseFuncDecl("zip[A,B](Sequence[A],Sequence[B])->Sequence[Tuple[A,B]]"),

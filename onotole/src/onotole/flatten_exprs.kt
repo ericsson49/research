@@ -1,5 +1,8 @@
 package onotole
 
+import onotole.exceptions.SimpleExcnChecker
+import onotole.exceptions.phase0_exc
+import onotole.exceptions.pylib_exc
 import onotole.lib_defs.Additional
 import onotole.lib_defs.BLS
 import onotole.lib_defs.PyLib
@@ -253,35 +256,35 @@ fun desugarStmts(f: FunctionDef): FunctionDef {
   )).transform(f)
 }
 
-fun main() {
-  PyLib.init()
-  SSZLib.init()
-  BLS.init()
-  val specVersion = "phase0"
-  Additional.init(specVersion)
-  val tlDefs = loadSpecDefs(specVersion)
-  PhaseInfo.getPkgDeps(specVersion).forEach {
-    TypeResolver.importFromPackage(it)
-  }
-  TypeResolver.importFromPackage(specVersion)
-  val phase = specVersion
-  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_${phase}_dev.txt")
-  val parsed = Files.readAllLines(path).map { ItemsParser2.parseToEnd(it) }
-  val defs = parsed.map { toStmt(it) }
-
-  val fDefs = defs.filterIsInstance<FunctionDef>()
-  fDefs.forEach { registerFuncInfo(phase, it) }
-
-  val excFuncs = phase0_exc.plus(pylib_exc)
-  fDefs.map { it.name }.forEach { n ->
-    val fdi = getFuncDefInfo(phase, n)
-    println("-----")
-    val transformed = desugarStmts(fdi.destructedWithCopies)
-    pyPrintFunc(transformed)
-    println("-")
-    val fdi2 = FuncDefInfo(transformed)
-    val typer = TypeResolver.topLevelTyper.updated(fdi2.varTypes)
-    val noExc = DeExceptionizer(transformed.name, typer, excFuncs).transform(transformed)
-    pyPrintFunc(noExc)
-  }
-}
+//fun main() {
+//  PyLib.init()
+//  SSZLib.init()
+//  BLS.init()
+//  val specVersion = "phase0"
+//  Additional.init(specVersion)
+//  val tlDefs = loadSpecDefs(specVersion)
+//  PhaseInfo.getPkgDeps(specVersion).forEach {
+//    TypeResolver.importFromPackage(it)
+//  }
+//  TypeResolver.importFromPackage(specVersion)
+//  val phase = specVersion
+//  val path = Paths.get("../eth2.0-specs/tests/fork_choice/defs_${phase}_dev.txt")
+//  val parsed = Files.readAllLines(path).map { ItemsParser2.parseToEnd(it) }
+//  val defs = parsed.map { toStmt(it) }
+//
+//  val fDefs = defs.filterIsInstance<FunctionDef>()
+//  fDefs.forEach { registerFuncInfo(phase, it) }
+//
+//  val excFuncs = phase0_exc.plus(pylib_exc)
+//  fDefs.map { it.name }.forEach { n ->
+//    val fdi = getFuncDefInfo(phase, n)
+//    println("-----")
+//    val transformed = desugarStmts(fdi.destructedWithCopies)
+//    pyPrintFunc(transformed)
+//    println("-")
+//    val fdi2 = FuncDefInfo(transformed)
+//    val typer = TypeResolver.topLevelTyper.updated(fdi2.varTypes)
+//    val noExc = DeExceptionizer(transformed.name, typer, SimpleExcnChecker(excFuncs)).transform(transformed)
+//    pyPrintFunc(noExc)
+//  }
+//}

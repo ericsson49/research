@@ -7,21 +7,22 @@ private fun getBaseName(e: TExpr): String? = when(e) {
   else -> null
 }
 
-fun findMutableAliases(f: FunctionDef, cfg: CFGraphImpl, pd: PurityDescriptor?): Map<String, List<Pair<String,TExpr>>> {
+fun findMutableAliases(f: FunctionDef, cfg: CFGraphImpl, pd: PurityDescriptor?, typer: ExprTyper): Map<String, List<Pair<String,TExpr>>> {
   val impureArgs = pd?.impureArgs ?: emptyList()
-  val aliases = findAliases(f, cfg)
+  val aliases = findAliases(f, cfg, typer)
   val funArgs = getFunArgs(f)
   val mutableArgNames = impureArgs.map { funArgs[it].first.arg }.toSet()
   return aliases.filterKeys { it in mutableArgNames }
 }
 
-fun findAliases(f: FunctionDef, cfg: CFGraphImpl): Map<String, List<Pair<String,TExpr>>> {
-  val argTypes = getFArgs(TypeResolver.topLevelTyper, f).map { it.type }
-  val varTypes = inferTypes_FD.invoke(f)
-  val exprTypes = TypeResolver.topLevelTyper.updated(varTypes)
+fun findAliases(f: FunctionDef, cfg: CFGraphImpl, typer: ExprTyper): Map<String, List<Pair<String,TExpr>>> {
+  val argTypes = getFArgs(typer, f).map { it.type }
+  val varTypes = inferTypesCFG(cfg, typer)
+  val exprTypes = typer.updated(varTypes)
   fun getType(e: TExpr): RTType = exprTypes[e].asType()
   fun isValueType(t: RTType): Boolean {
-    return t == TPyNone || (t is NamedType && t.name == "Tuple") || canAssignOrCoerceTo(t, TPyInt) || canAssignOrCoerceTo(t, TPyBytes)
+    return t == TPyNone || (t is NamedType && t.name == "Tuple") || (t is NamedType && t.name == "<Outcome>")
+        || canAssignOrCoerceTo(t, TPyInt) || canAssignOrCoerceTo(t, TPyBytes)
   }
   fun isValueType(e: TExpr): Boolean {
     val t = if (isParamCall(e)) {
@@ -42,7 +43,7 @@ fun findAliases(f: FunctionDef, cfg: CFGraphImpl): Map<String, List<Pair<String,
       return res[v]!!
     }
     return when(def) {
-      is Call -> {
+      is Call, is PyDict, is PyList -> {
         if (isParamCall(def)) {
           val resolved = mkName(v)
           res[v] = resolved

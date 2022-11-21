@@ -1,23 +1,26 @@
 package onotole
 
-import onotole.lib_defs.Additional
-import onotole.lib_defs.BLS
-import onotole.lib_defs.PyLib
-import onotole.lib_defs.SSZLib
+import onotole.dafny.ComprehensionTransformer
+import onotole.dafny.DafnyExprGen
+import onotole.exceptions.ExceptionAnalysis
+import onotole.exceptions.SimpleExcnChecker
+import onotole.lib_defs.phaseModuleDefs
 import onotole.rewrite.ExprTransformRule
 import onotole.rewrite.combineRules
 import onotole.rewrite.mkExprTransformRule
-import onotole.type_inference.CallSiteTransormer
 import onotole.type_inference.FAtom
-import onotole.type_inference.TypeVarReplacer
 import onotole.type_inference.TypingContext
+import onotole.type_inference.TypingCtx
+import onotole.type_inference.alignArgs
+import onotole.type_inference.canConvertTo
 import onotole.type_inference.inferConstTypes
-import onotole.type_inference.inferTypes
 import onotole.type_inference.inferTypes2
 import onotole.type_inference.replaceTypeVars
-import onotole.type_inference.toFAtom
 import onotole.type_inference.transformCallSites
 import onotole.typelib.*
+import onotole.util.toClassVal
+import onotole.util.toFAtom
+import onotole.util.toTExpr
 
 
 sealed class CTVal
@@ -72,6 +75,30 @@ fun matchSig(s: TLSig, noPosArgs: Int, kwds: List<String>): Boolean {
   return true
 }
 
+context (TypingCtx)
+fun checkSigTypes(t: TLSig, argTypes: List<RTType>, kwdTypes: List<Pair<String,RTType>>): Boolean {
+  val aligned = alignArgs(t, argTypes.size, kwdTypes.map { it.first })
+  aligned.forEach { ar ->
+    when(ar) {
+      is PositionalRef -> {
+        val paramType = t.args[ar.idx].second as TLTClass
+        val argType = argTypes[ar.idx]
+        if (!canConvertTo(argType.toFAtom(), paramType.toFAtom(emptyMap()) as FAtom))
+          return false
+      }
+      is KeywordRef -> {
+        val paramType = t.args.find { it.first == kwdTypes[ar.idx].first }!!.second
+        val argType = kwdTypes[ar.idx].second
+        if (!canConvertTo(argType.toFAtom(), paramType.toFAtom(emptyMap()) as FAtom))
+          return false
+      }
+      else -> {}
+    }
+  }
+  return true
+}
+
+
 fun mkCompileTimeCalcRule(freshNames: FreshNames): ExprTransformRule<TestResolver> {
   val subscriptCase: ExprTransformRule<TestResolver> = mkExprTransformRule { e, _ ->
     if (e is Subscript) {
@@ -120,8 +147,6 @@ fun mkCompileTimeCalcRule(freshNames: FreshNames): ExprTransformRule<TestResolve
   val listCase: ExprTransformRule<TestResolver> = mkExprTransformRule { e, _ ->
     if (e is PyList) {
       val tvv = TLTVar(freshNames.fresh("?T"))
-      //val sig = TLSig(listOf(tvv), e.elts.indices.map { "_$it" to tvv }, TLTClass("pylib.PyList", listOf(tvv)))
-      //mkCall(CTV(FuncInst("pylib.PyList", sig)), e.elts)
       e.copy(valueAnno = ExTypeVar(tvv.name))
     } else null
   }
@@ -130,13 +155,6 @@ fun mkCompileTimeCalcRule(freshNames: FreshNames): ExprTransformRule<TestResolve
       if (e.keyAnno != null || e.valueAnno != null) TODO()
       val ktv = TLTVar(freshNames.fresh("?K"))
       val vtv = TLTVar(freshNames.fresh("?V"))
-      /*val items = Tuple(elts = e.keys.zip(e.values).map { (k,v) ->
-        Tuple(elts = listOf(k, v), ctx = ExprContext.Load)
-      }, ctx = ExprContext.Load)
-      val argTypes = listOf(
-          "items" to TLTClass("pylib.Sequence", listOf(TLTClass("pylib.Tuple", listOf(ktv, vtv)))))
-      val resType = TLTClass("pylib.Dict", listOf(ktv, vtv))
-      mkCall(CTV(FuncInst("pylib.Dict", TLSig(listOf(ktv, vtv), argTypes, resType))), listOf(items))*/
       e.copy(keyAnno = ExTypeVar(ktv.name), valueAnno = ExTypeVar(vtv.name))
     } else null
   }
@@ -228,7 +246,7 @@ open class BaseNameTransformer(val transformRule: ExprTransformRule<TestResolver
   }
 }
 
-fun mkPhaseMod(phase: String): TLModLoader {
+fun mkPhaseModule(phase: String): TLModLoader {
   val (_, defs) = PhaseInfo.getPhaseDefs(phase, false)
 
   val modDefs = defs.map { when(it) {
@@ -237,93 +255,170 @@ fun mkPhaseMod(phase: String): TLModLoader {
     is FuncTLDef -> TLFuncDef(simplifyFunc(it.func))
   } }
 
-  val phaseDeps = mapOf(
-      "phase0" to listOf("ssz", "bls"),
-      "altair" to listOf("ssz", "bls", "phase0"),
-      "bellatrix" to listOf("ssz", "bls", "phase0", "altair")
-  )
-  val externs = mapOf(
-      "phase0" to listOf(
-          parseFuncDecl("get_eth1_data(Eth1Block)->Eth1Data")
-      ),
-      "bellatrix" to listOf(
-          TLConstDecl("EXECUTION_ENGINE", TLTClass("ExecutionEngine", emptyList())),
-          parseClassDescr("ExecutionEngine <: object",
-              "get_payload" to "(PayloadId)->ExecutionPayload",
-              "notify_new_payload" to "(ExecutionPayload)->bool",
-              "notify_forkchoice_updated" to "(Hash32,Hash32,Optional[PayloadAttributes])->Optional[PayloadId]"
-          ),
-          parseFuncDecl("get_pow_block(Hash32)->PowBlock")
-      )
-  )
-
-  return mkModule(phase, listOf("pylib").plus(phaseDeps[phase]!!), modDefs, externs[phase] ?: emptyList())
+  val moduleDef = phaseModuleDefs.find { it.name == phase }!!
+  return mkModule(phase, moduleDef.deps, modDefs, moduleDef.extern)
 }
 
 fun simplifyFunc(f: FunctionDef) = desugarExprs(destructForLoops(destructTupleAssign(transformForEnumerate(transformForOps(f)))))
 
 fun main() {
-  PyLib.init()
-  SSZLib.init()
-  BLS.init()
   val specVersion = "phase0"
-  Additional.init(specVersion)
-  val tlDefs = loadSpecDefs(specVersion)
-  PhaseInfo.getPkgDeps(specVersion).forEach {
-    TypeResolver.importFromPackage(it)
-  }
-  TypeResolver.importFromPackage(specVersion)
 
-
-
-  val ph0Mod = mkPhaseMod("phase0")
-  val altairMod = mkPhaseMod("altair")
-  val bellatrixMod = mkPhaseMod("bellatrix")
-  val modLoaders = listOf(pylib, ssz, bls, ph0Mod, altairMod, bellatrixMod)
+  val modLoaders = listOf(pylib, ssz, bls, mkPhaseModule("phase0"), mkPhaseModule("altair"), mkPhaseModule("bellatrix"))
   modLoaders.forEach(TopLevelScope::registerModule)
-  val modules = modLoaders.map { TopLevelScope.resolveModule(it.name) }
-  TypingContext.registerModules(modules)
+  TypingContext.registerModules(modLoaders.map { TopLevelScope.resolveModule(it.name) })
 
   val p0Module = TopLevelScope.resolveModule("phase0")
   val constTypes_p0 = inferConstTypes(p0Module.constantDefs.map { it.name to it.value.const.e })
   TypingContext.initConstants(constTypes_p0)
-  val gen = DafnyGen(specVersion, setOf("bls", "ssz", specVersion))
-  p0Module.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val f = convertToAndOutOfSSA(it.func)
-    pyPrintFunc(f)
-    val types = inferTypes2(f, ssa = true)
-    val res = replaceTypeVars(types, f)
-    val res2 = transformCallSites(types, res)
+  val aa = TypingContext.classes.filterValues { (it.head.noTParams + it.head.noEParams) == 0 }
+  val simpleClasses = aa.mapValues { NamedType(it.value.head.name) }
+  val tlTyper1 = TypeResolver.topLevelTyper.updated(simpleClasses)
+  val constantsSort = constTypes_p0.mapValues { parseType(tlTyper1, it.value.toClassVal().toTExpr()) }
+  val tlTyper = tlTyper1.updated(constantsSort)
+  val gen = DafnyGen(tlTyper)
+
+  val forkChoiceFuncs = setOf(
+      "compute_start_slot_at_epoch",
+      "compute_epoch_at_slot",
+      // fork choice methods
+      "is_previous_epoch_justified",
+      "get_forkchoice_store",
+      "get_slots_since_genesis",
+      "get_current_slot",
+      "compute_slots_since_epoch_start",
+      "get_ancestor",
+      "get_latest_attesting_balance",
+      "filter_block_tree",
+      "get_filtered_block_tree",
+      "get_head",
+      "should_update_justified_checkpoint",
+      "update_checkpoints",
+      "pull_up_tip",
+      "on_tick_per_slot",
+      "validate_target_epoch_against_current_time",
+      "validate_on_attestation",
+      "store_target_checkpoint_state",
+      "update_latest_messages",
+      "on_tick",
+      "on_block",
+      "on_attestation",
+      "on_attester_slashing"
+  )
+  val p0ds = phase0PDs()
+      .mapKeys { "phase0." + it.key }
+      .mapValues { it.value.copy(pureName = "phase0." + it.value.pureName) }
+      .plus("attr_append" to PurityDescriptor(true, listOf(0), "attr_append_pure"))
+      .plus("attr_add" to PurityDescriptor(true, listOf(0), "attr_add_pure"))
+      .plus("phase0.get_head" to PurityDescriptor(false, listOf(0), "phase0.get_head_pure"))
+      .plus("<Result>::new" to PurityDescriptor(false, emptyList(), "<Result>::new"))
+
+  val p0Funcs = p0Module.definitions.filterIsInstance<TLFuncDef>()
+  val transformedAndTypes = p0Funcs.map {
+    //val f_prev = convertToAndOutOfSSA(it.func)
+    val comprehensionTransformer = ComprehensionTransformer(tlTyper)
+    val shortName = it.name.substring("phase0.".length)
+    val f_ = if (shortName in forkChoiceFuncs && !fcFuncsDescr[shortName]!!.function)
+      comprehensionTransformer.transform(it.func)
+    else
+      it.func
+    //pyPrintFunc(f_)
+    val f = convertToAndOutOfSSA2(f_)
+    //pyPrintFunc(f)
+    val varTypes = inferTypes2(f, ssa = true)
+    val res = replaceTypeVars(varTypes, f)
+    val res2 = transformCallSites(tlTyper, res)
     //pyPrintFunc(res2)
-    gen.genFunc(res2).forEach(::println)
-    println("------------")
+    res2 to varTypes.filterKeys { it.startsWith("T") }.mapKeys { it.key.substring(1) }
   }
 
-  val altairModule = TopLevelScope.resolveModule("altair")
-  val constTypes_alt = inferConstTypes(altairModule.constantDefs.map { it.name to it.value.const.e })
-  TypingContext.initConstants(constTypes_alt)
-  altairModule.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val f = desugarStmts(convertToAndOutOfSSA(it.func))
-    val types = inferTypes2(f, ssa = true)
-    val res = replaceTypeVars(types, f)
-    //val res2 = transformCallSites(types, res)
-    //pyPrintFunc(res2)
-    //gen.genFunc(res2).forEach(::println)
-    //println("------------")
+  val forkChoice = transformedAndTypes.filter {
+    val shortName = it.first.name.substring("phase0.".length)
+    shortName in forkChoiceFuncs
+  }
+  val depsExcn = mapOf(
+      "phase0.get_current_epoch" to false,
+      "phase0.get_active_validator_indices" to false,
+      "phase0.get_total_active_balance" to false,
+      "phase0.get_indexed_attestation" to false,
+      "phase0.is_valid_indexed_attestation" to false,
+      "phase0.is_slashable_attestation_data" to false,
+      "phase0.process_slots" to true,
+      "phase0.state_transition" to true,
+      "phase0.process_justification_and_finalization" to true
+  )
+
+  val excnAnalysis = ExceptionAnalysis("phase0", forkChoice.unzip().first, SimpleExcnChecker(depsExcn), tlTyper)
+  val funcsExcn = excnAnalysis.solve()
+
+  val excnChecker = SimpleExcnChecker(depsExcn).updated(funcsExcn.toList())
+
+
+  transformedAndTypes.forEach { (res2, varTypes) ->
+    val shortName = res2.name.substring("phase0.".length)
+    if (shortName in forkChoiceFuncs) {
+      val typer = tlTyper.updated(res2.args.args.map { it.arg to parseType(tlTyper, it.annotation!!) })
+      val excnStmtProcessor = DeExceptionizer(excnChecker, fcFuncsDescr)
+      val methProcessor = MethodProcessor(FreshNames(), object: EffectDetector {
+        override fun hasEffect(e: TExpr, typer: ExprTyper, recursive: Boolean): Boolean {
+          return checkSideEffects(e, typer, recursive)
+        }
+      })
+      val res2_ = if (fcFuncsDescr[shortName]!!.exception)
+        methProcessor.transformFunc(res2, typer)
+      else res2
+      //pyPrintFunc(res_)
+      val res3 = if (fcFuncsDescr[shortName]!!.exception)
+        excnStmtProcessor.transformFunc(res2_, typer)
+      else res2_
+
+
+      //val res3p = purify2(res4, descrs)
+      //pyPrintFunc(res3p)
+      gen.genFunc(res3).forEach(::println)
+      println()
+
+      val pf = purify2(res3, p0ds, tlTyper)
+      val funcTyper = tlTyper.updated(varTypes.mapValues { toRTType(it.value) })
+      val funcPure = MethodToFuncTransformer(pf, funcTyper).transform()
+      val ttt = DafnyExprGen(gen::genNativeType, false, emptySet())
+      val rrr = ttt.genExpr(funcPure, typer)
+      val args = pf.args.args.joinToString(", ") { gen.genArg(it) }
+      println("function method ${pf.name}($args): ${gen.genNativeType(pf.returns!!)} {")
+      println("  " + gen.render(rrr))
+      println("}")
+      println()
+      println()
+      //println("------------")
+    }
   }
 
-  val bellatrixModule = TopLevelScope.resolveModule("bellatrix")
-  val btxconst_decls = bellatrixModule.constantDecls.map { it.name to it.type.toFAtom(emptyMap()) as FAtom }.toMap()
-  TypingContext.initConstants(btxconst_decls)
-  val constTypes_btx = inferConstTypes(bellatrixModule.constantDefs.map { it.name to it.value.const.e })
-  TypingContext.initConstants(constTypes_btx)
-  bellatrixModule.definitions.filterIsInstance<TLFuncDef>().forEach {
-    val f = desugarStmts(convertToAndOutOfSSA(it.func))
-    val types = inferTypes2(f, ssa = true)
-    val res = replaceTypeVars(types, f)
-    val res2 = transformCallSites(types, res)
-    //pyPrintFunc(res2)
-    //gen.genFunc(res2).forEach(::println)
-    //println("------------")
-  }
+
+//  val altairModule = TopLevelScope.resolveModule("altair")
+//  val constTypes_alt = inferConstTypes(altairModule.constantDefs.map { it.name to it.value.const.e })
+//  TypingContext.initConstants(constTypes_alt)
+//  altairModule.definitions.filterIsInstance<TLFuncDef>().forEach {
+//    val f = desugarStmts(convertToAndOutOfSSA(it.func))
+//    val types = inferTypes2(f, ssa = true)
+//    val res = replaceTypeVars(types, f)
+//    //val res2 = transformCallSites(types, res)
+//    //pyPrintFunc(res2)
+//    //gen.genFunc(res2).forEach(::println)
+//    //println("------------")
+//  }
+//
+//  val bellatrixModule = TopLevelScope.resolveModule("bellatrix")
+//  val btxconst_decls = bellatrixModule.constantDecls.map { it.name to it.type.toFAtom(emptyMap()) as FAtom }.toMap()
+//  TypingContext.initConstants(btxconst_decls)
+//  val constTypes_btx = inferConstTypes(bellatrixModule.constantDefs.map { it.name to it.value.const.e })
+//  TypingContext.initConstants(constTypes_btx)
+//  bellatrixModule.definitions.filterIsInstance<TLFuncDef>().forEach {
+//    val f = desugarStmts(convertToAndOutOfSSA(it.func))
+//    val types = inferTypes2(f, ssa = true)
+//    val res = replaceTypeVars(types, f)
+//    val res2 = transformCallSites(types, res)
+//    //pyPrintFunc(res2)
+//    //gen.genFunc(res2).forEach(::println)
+//    //println("------------")
+//  }
 }

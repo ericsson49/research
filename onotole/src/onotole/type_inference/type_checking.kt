@@ -39,6 +39,8 @@ import onotole.fail
 import onotole.mkName
 import onotole.typelib.TLTVar
 import onotole.typelib.parseTypeDecl
+import onotole.util.toFAtom
+import onotole.util.toTLTClass
 
 sealed class CConstr
 sealed interface SimpleCon
@@ -240,7 +242,7 @@ class TypeChecker() {
   }
 
   fun processFunc(f: FunctionDef, cs: CConstrStore) {
-    fun toFAtom(t: TExpr) = when((t as CTV).v) {
+    fun toFAtom(t: TExpr): FAtom = when((t as CTV).v) {
       is ClassVal -> toFAtom((t.v as ClassVal).toTLTClass())
       else -> TODO()
     }
@@ -483,7 +485,8 @@ fun applyCallConstraint(rr: FTerm, c: CallHandle, args: List<FAtom>, kwds: List<
     is CallAttr -> {
       val valType = c.tgt
       val (retType, paramTypes) = resolveAttributeCall(valType as FAtom, c.attr)
-      if (args.size != paramTypes.size) fail()
+      if (args.size != paramTypes.size)
+        fail()
       args.zip(paramTypes).forEach {
         res.add(ConST(it.first, it.second))
       }

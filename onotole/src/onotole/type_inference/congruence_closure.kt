@@ -41,33 +41,32 @@ class EQS {
   }
 }
 
-typealias C = FTerm
+typealias Cc = FTerm
 typealias F = FAtom
-data class TT(val f: F, val r: C)
+data class TT(val f: F, val r: Cc)
 class CC() {
-  @JvmInline
-  value class R(val c: C)
-  val pending = mutableListOf<Pair<C,C>>()
-  val _repr = mutableMapOf<C,R>()
-  val _classList = mutableMapOf<R,MutableSet<C>>()
+  class R(val c: Cc)
+  val pending = mutableListOf<Pair<Cc,Cc>>()
+  val _repr = mutableMapOf<Cc,R>()
+  val _classList = mutableMapOf<R,MutableSet<Cc>>()
   val _useList = mutableMapOf<R,MutableSet<TT>>()
-  val lookup = mutableMapOf<Pair<String,List<R>>,C>()
+  val lookup = mutableMapOf<Pair<String,List<R>>,Cc>()
 
-  var C.r
+  var Cc.r
     get() = _repr.getOrPut(this) { R(this) }
     set(c: R) { _repr[this] = c }
 
   val R.uses: MutableSet<TT>
     get() = _useList.getOrPut(this) { mutableSetOf() }
 
-  val R.cls: MutableSet<C>
+  val R.cls: MutableSet<Cc>
     get() = _classList.getOrPut(this) { mutableSetOf(this.c) }
 
-  fun merge(s: C, t: C) {
+  fun merge(s: Cc, t: Cc) {
     pending.add(s to t)
     propagate()
   }
-  fun merge(f: F, a: C) {
+  fun merge(f: F, a: Cc) {
     val fr = f.n to f.ps.map { it.r }
     val t = lookup[fr]
     if (t != null) {
@@ -105,7 +104,7 @@ class CC() {
       }
     }
   }
-  fun normalize(c: C) {
+  fun normalize(c: Cc) {
 
   }
 }

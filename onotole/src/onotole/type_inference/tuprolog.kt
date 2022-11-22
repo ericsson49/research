@@ -2,10 +2,11 @@ package onotole.type_inference
 
 import it.unibo.tuprolog.core.*
 import it.unibo.tuprolog.core.List
+import it.unibo.tuprolog.dsl.Prolog
 import it.unibo.tuprolog.dsl.prolog
 import it.unibo.tuprolog.solve.MutableSolver
 import it.unibo.tuprolog.solve.Solution
-import it.unibo.tuprolog.solve.classic.classicWithDefaultBuiltins
+import it.unibo.tuprolog.solve.classicWithDefaultBuiltins
 import it.unibo.tuprolog.theory.Theory
 import it.unibo.tuprolog.unify.Unificator
 import onotole.fail
@@ -15,6 +16,24 @@ class TPVars() {
   val vars = mutableMapOf<String,Var>()
   fun getVar(v: String) = vars.getOrPut(v) { Var.of(v) }
 }
+
+val A = "A"
+val B = "B"
+val C = "C"
+val H = "H"
+val P = "P"
+val R = "R"
+val S = "S"
+val T = "T"
+val X = "X"
+val Y = "Y"
+val Z = "Z"
+
+fun Prolog.list(vararg t: Any) = this.listOf(t)
+fun Prolog.ktListOf(vararg t: Any) = this.listOf(t)
+
+infix fun String.`=`(t: Any): Term = TODO()
+infix fun String.`==`(t: Any): Term = TODO()
 
 object TuPrologSolver {
   val baseTheory = prolog {
@@ -97,9 +116,9 @@ object TuPrologSolver {
 
 
   val solver =
-    MutableSolver.classicWithDefaultBuiltins(
-            staticKb = Theory.of(baseTheory.plus(pylibThrory)),
-            dynamicKb = Theory.Companion.of(currTheory)
+    MutableSolver.Companion.classicWithDefaultBuiltins(
+            //staticKb = Theory.of(baseTheory, pylibThrory),
+            //dynamicKb = Theory.of(currTheory)
     )
 
   fun solve(s: Struct): Solution {

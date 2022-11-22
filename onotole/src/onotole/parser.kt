@@ -2,16 +2,6 @@ package onotole
 
 import antlr.PyASTParserLexer
 import antlr.PyASTParserParser
-import com.github.h0tk3y.betterParse.combinators.and
-import com.github.h0tk3y.betterParse.combinators.map
-import com.github.h0tk3y.betterParse.combinators.or
-import com.github.h0tk3y.betterParse.combinators.separatedTerms
-import com.github.h0tk3y.betterParse.combinators.times
-import com.github.h0tk3y.betterParse.combinators.unaryMinus
-import com.github.h0tk3y.betterParse.combinators.use
-import com.github.h0tk3y.betterParse.grammar.Grammar
-import com.github.h0tk3y.betterParse.grammar.parser
-import com.github.h0tk3y.betterParse.parser.Parser
 import onotole.lib_defs.Additional
 import onotole.lib_defs.BLS
 import onotole.lib_defs.FunDecl
@@ -303,37 +293,6 @@ fun toExceptHandler(v: Item?): ExceptHandler {
   return ExceptHandler(typ = pm.toExpr("type"), name = toIdentifierOpt(pm["name"]), body = pm.toStmts("body"))
 }
 fun toExceptHandlers(v: Item?) = toList(v, ::toExceptHandler)
-
-object ItemsParser : Grammar<Item>() {
-  val NUM by token("\\d+")
-  val WORD by token("[A-Z_a-z]+(?!\")")
-  val COMMA by token(",\\s+")
-  val LPAR by token("\\(")
-  val RPAR by token("\\)")
-  val EQ by token("=")
-  val STRINGLIT by token("\".*?\"")
-  val B_STRINGLIT by token("b\".*?\"")
-
-
-  val litp = (B_STRINGLIT or STRINGLIT) use { Literal(text)}
-  val nump = NUM use {
-    try {
-      CNumber(text.toInt())
-    } catch (e: java.lang.NumberFormatException) {
-      CBigNumber(text.toBigInteger())
-    }
-  }
-  val ident = WORD use { Ident(text) }
-
-  val namedParam: Parser<FParam> = ident * -EQ * parser {value} map { NamedParam(it.t1, it.t2)}
-  val fParam: Parser<FParam> = parser {value} map {VParam(it)}
-  val params = separatedTerms(namedParam or fParam , COMMA, true)
-  val fcall by ident and -LPAR * params * -RPAR map { FCall(it.t1.name, it.t2) }
-
-  val value: Parser<Item> = fcall or ident or nump or litp
-
-  override val rootParser by fcall
-}
 
 object ItemsParser2 {
   fun parseValue(value: PyASTParserParser.ValueContext): Item {

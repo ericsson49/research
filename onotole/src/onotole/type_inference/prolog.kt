@@ -304,14 +304,14 @@ fun main() {
         prolog { fact { "class_attr"(cls, attrName, attrType) } }
       }
 
-      TuPrologSolver.solver.appendDynamicKb(Theory.of(
-              prolog {
-                ktListOf(
-                        fact { "base_class"(cls, base) },
-                        fact { "fun_type"(it.name, list(), cls) }
-                )
-              }.plus(fields)
-      ))
+//      TuPrologSolver.solver.appendDynamicKb(Theory.of(
+//              prolog {
+//                ktListOf(
+//                        fact { "base_class"(cls, base) },
+//                        fact { "fun_type"(it.name, list(), cls) }
+//                )
+//              }.plus(fields)
+//      ))
       println()
     }
     if (it is FunctionDef && it.name !in ignoredFuncs) {

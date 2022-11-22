@@ -230,14 +230,19 @@ class DafnyExprGen(val nativeTypeFunc: (TExpr) -> String, val insideMethod: Bool
             genFunCall(fh, resArgs)
           }
           e.func is Attribute -> {
-            when(e.func.attr) {
-              "updated" -> {
+            when {
+              !insideMethod && e.func.attr == "keys" -> {
+                if (e.args.isNotEmpty() || e.keywords.isNotEmpty()) fail()
+                val tgt = genExpr(e.func.value, typer)
+                genAttrBase(tgt, "Keys")
+              }
+              e.func.attr == "updated" -> {
                 if (e.args.isNotEmpty()) TODO()
                 val tgt = genExpr(e.func.value, typer)
                 val args = e.keywords.map { atomic(it.arg!! + " := " + render(genExpr(it.value))) }
                 atomic(render(tgt) + ".(" + args.joinToString(", ") { render(it) } + ")")
               }
-              "updated_at" -> {
+              e.func.attr == "updated_at" -> {
                 if (e.keywords.isNotEmpty() || e.args.size != 2) TODO()
                 val tgt = genExpr(e.func.value, typer)
                 val idx = genExpr(e.args[0])

@@ -80,7 +80,11 @@ import onotole.mkName
 import onotole.parseType
 import onotole.toInstance
 
-class DafnyExprGen(val nativeTypeFunc: (TExpr) -> String, val insideMethod: Boolean, val nonlocalVars: Set<String> = emptySet()) {
+class DafnyExprGen(
+        val nativeTypeFunc: (TExpr) -> String, val insideMethod: Boolean,
+        val nonlocalVars: Set<String> = emptySet(),
+        val nonPureMethods: Map<String, String> = emptyMap()
+) {
   fun genNativeType(t: TExpr): String {
     return nativeTypeFunc.invoke(t)
   }
@@ -140,6 +144,7 @@ class DafnyExprGen(val nativeTypeFunc: (TExpr) -> String, val insideMethod: Bool
       n.startsWith("phase0.") -> n.substring("phase0.".length)
       n.startsWith("ssz.") -> n.substring("ssz.".length)
       n.startsWith("pylib.") -> n.substring("pylib.".length)
+      n == "<Result>" -> "Result"
       else -> n
     })
   }
@@ -162,6 +167,141 @@ class DafnyExprGen(val nativeTypeFunc: (TExpr) -> String, val insideMethod: Bool
 
   fun genTuple(elts: List<RExpr>): RExpr {
     return atomic("(" + elts.joinToString(", ") { render(it) } + ")")
+  }
+
+  val collectionTypes = setOf("pylib.Set", "pylib.Dict", "pylib.PyList", "ssz.List", "ssz.Vector")
+  fun genCtorCall(className: String, args: List<RExpr>): RExpr {
+    val cn = (genName(className) as RPExpr).expr
+    return when {
+      dafnyClassKinds[className] == DafnyClassKind.Class ->
+        when {
+          className in collectionTypes && insideMethod ->
+            genFunCall(RLit("${cn}_new"), args)
+          className in collectionTypes && !insideMethod -> when(className) {
+            "pylib.Set" -> atomic("{" + args.joinToString(", ") + "}")
+            "pylib.PyList", "ssz.List" -> atomic("[" + args.joinToString(", ") + "]")
+            "pylib.Dict" -> atomic("map[" + args.joinToString(", ") + "]")
+            else -> TODO()
+          }
+          insideMethod ->
+            genFunCall(RLit("new $cn.Init"), args)
+          else ->
+            genFunCall(RLit(cn + "_dt"), args)
+        }
+
+      dafnyClassKinds[className] == DafnyClassKind.Primitive ->
+        genFunCall(RLit("${cn}_new"), args)
+
+      else -> genFunCall(RLit(cn), args)
+    }
+  }
+
+  fun genCall_FuncInst(e: Call, typer: ExprTyper): RExpr {
+    if (e.func !is CTV || e.func.v !is FuncInst) fail()
+    if (e.keywords.isNotEmpty()) TODO()
+    fun genExpr(e: TExpr) = genExpr(e, typer)
+    fun getExprType(e: TExpr) = typer[e]
+
+    val resArgs: List<RExpr> = e.args.map { genExpr(it) }
+
+    if (e.func.v.name.endsWith("::new")) {
+      val className = e.func.v.name.substring(0, e.func.v.name.length - "::new".length)
+      return genCtorCall(className, resArgs)
+    }
+
+    return if (e.func.v.name == "pylib.copy") {
+      if (resArgs.size != 1) fail()
+      genFunCall(genAttrBase(resArgs[0], "copy"), emptyList())
+    } else if (e.func.v.name == "pylib.len" && !insideMethod) {
+      if (e.args.size != 1 || e.keywords.isNotEmpty()) fail()
+      atomic("|" + render(genExpr(e.args[0])) + "|")
+    } else {
+      val funcName = when {
+        e.func.v.name.startsWith("pylib.map") -> {
+          val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
+          if (insideMethod)
+            RLit("py" + fn)
+          else
+            RLit("seq_" + fn)
+        }
+        e.func.v.name.startsWith("pylib.filter") -> {
+          val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
+          if (insideMethod)
+            RLit(fn)
+          else
+            RLit("seq_" + fn)
+        }
+        e.func.v.name.startsWith("pylib.sum") -> {
+          val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
+          if (insideMethod)
+            RLit(fn)
+          else
+            RLit("seq_" + fn)
+        }
+        e.func.v.name == "<assert>" -> RLit("pyassert")
+        e.func.v.name == "<check>" -> fail()
+        e.func.v.name == "pylib.list" -> RLit("pylist")
+        e.func.v.name == "pylib.set" -> RLit("pyset")
+        e.func.v.name == "pylib.dict" -> if (resArgs.isEmpty()) RLit("Dict_new") else RLit("pydict")
+        else -> {
+          if (e.keywords.isNotEmpty()) fail()
+          val funcName = if (e.func.v.name in nonPureMethods) {
+            val classArgExists = e.args.any { canReferToClass(it, typer) }
+            if (!insideMethod && !classArgExists)
+              nonPureMethods[e.func.v.name]!!
+            else
+              e.func.v.name
+          } else
+            e.func.v.name
+          genName(funcName)
+          //genExpr(mkName(e.func.v.name), typer)
+        }
+      }
+      if (insideMethod && findFuncDescr(e.func.v.name)?.memoryModel == MemoryModel.FRESH) {
+        val t = getExprType(e).asType() as NamedType
+        wrapFreshValue(t.name, genFunCall(funcName, resArgs))
+      } else
+        genFunCall(funcName, resArgs)
+    }
+  }
+
+  fun genCall_Attribute(e: Call, typer: ExprTyper): RExpr {
+    if (e.func !is Attribute) fail()
+    fun getExprType(e: TExpr) = typer[e]
+    fun genExpr(e: TExpr) = genExpr(e, typer)
+    return when {
+      !insideMethod && e.func.attr == "keys" -> {
+        if (e.args.isNotEmpty() || e.keywords.isNotEmpty()) fail()
+        val tgt = genExpr(e.func.value, typer)
+        val t = canReferToClass(e.func.value, typer)
+        genAttrBase(tgt, "Keys")
+      }
+      e.func.attr == "updated" -> {
+        if (e.args.isNotEmpty()) TODO()
+        val tgt = genExpr(e.func.value, typer)
+        val args = e.keywords.map { atomic(it.arg!! + " := " + render(genExpr(it.value))) }
+        atomic(render(tgt) + ".(" + args.joinToString(", ") { render(it) } + ")")
+      }
+      e.func.attr == "updated_at" -> {
+        if (e.keywords.isNotEmpty() || e.args.size != 2) TODO()
+        val tgt = genExpr(e.func.value, typer)
+        val idx = genExpr(e.args[0])
+        val value = genExpr(e.args[1])
+        atomic(render(tgt) + "[" + render(idx) + " := " + render(value) + "]")
+      }
+      else -> {
+        if (e.keywords.isNotEmpty())
+          fail()
+        val resArgs_: List<RExpr> = e.args.map { genExpr(it) }
+        val resArgs = resArgs_.plus(e.keywords.map { atomic(it.arg!! + " := " + render(genExpr(it.value))) })
+        val res = genFunCall(genAttrBase(genExpr(e.func.value, typer), e.func.attr), resArgs)
+        val valType = getExprType(e.func.value).asType() as NamedType
+        if (insideMethod && (e.func.attr + "()") in (dafnyFreshAttrs[valType.name] ?: emptySet())) {
+          val t = getExprType(e).asType() as NamedType
+          wrapFreshValue(t.name, res)
+        } else res
+      }
+    }
   }
 
   fun genExpr(e: TExpr, typer: ExprTyper): RExpr {
@@ -227,103 +367,13 @@ class DafnyExprGen(val nativeTypeFunc: (TExpr) -> String, val insideMethod: Bool
               else resArgs[0]
               listOf(resArg)
             } else resArgs
-            genFunCall(fh, resArgs)
+            genCtorCall(t.name, resArgs)
           }
           e.func is Attribute -> {
-            when {
-              !insideMethod && e.func.attr == "keys" -> {
-                if (e.args.isNotEmpty() || e.keywords.isNotEmpty()) fail()
-                val tgt = genExpr(e.func.value, typer)
-                genAttrBase(tgt, "Keys")
-              }
-              e.func.attr == "updated" -> {
-                if (e.args.isNotEmpty()) TODO()
-                val tgt = genExpr(e.func.value, typer)
-                val args = e.keywords.map { atomic(it.arg!! + " := " + render(genExpr(it.value))) }
-                atomic(render(tgt) + ".(" + args.joinToString(", ") { render(it) } + ")")
-              }
-              e.func.attr == "updated_at" -> {
-                if (e.keywords.isNotEmpty() || e.args.size != 2) TODO()
-                val tgt = genExpr(e.func.value, typer)
-                val idx = genExpr(e.args[0])
-                val value = genExpr(e.args[1])
-                atomic(render(tgt) + "[" + render(idx) + " := " + render(value) + "]")
-              }
-              else -> {
-                if (e.keywords.isNotEmpty())
-                  fail()
-                val resArgs = resArgs.plus(e.keywords.map { atomic(it.arg!! + " := " + render(genExpr(it.value))) })
-                val res = genFunCall(genAttrBase(genExpr(e.func.value, typer), e.func.attr), resArgs)
-                val valType = getExprType(e.func.value).asType() as NamedType
-                if (insideMethod && (e.func.attr + "()") in (dafnyFreshAttrs[valType.name] ?: emptySet())) {
-                  val t = getExprType(e).asType() as NamedType
-                  wrapFreshValue(t.name, res)
-                } else res
-              }
-            }
+            genCall_Attribute(e, typer)
           }
           e.func is CTV && e.func.v is FuncInst -> {
-            if (e.keywords.isNotEmpty()) TODO()
-            if (e.func.v.name == "pylib.copy") {
-              if (resArgs.size != 1) fail()
-              genFunCall(genAttrBase(resArgs[0], "copy"), emptyList())
-            } else if (e.func.v.name == "pylib.len" && !insideMethod) {
-              if (e.args.size != 1 || e.keywords.isNotEmpty()) fail()
-              atomic("|" + render(genExpr(e.args[0])) + "|")
-            } else {
-              val funcName = when {
-                e.func.v.name.startsWith("pylib.map") -> {
-                  val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
-                  if (insideMethod)
-                    RLit("py" + fn)
-                  else
-                    RLit("seq_" + fn)
-                }
-                e.func.v.name.startsWith("pylib.filter") -> {
-                  val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
-                  if (insideMethod)
-                    RLit(fn)
-                  else
-                    RLit("seq_" + fn)
-                }
-                e.func.v.name.startsWith("pylib.sum") -> {
-                  val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
-                  if (insideMethod)
-                    RLit(fn)
-                  else
-                    RLit("seq_" + fn)
-                }
-                e.func.v.name == "<assert>" -> RLit("pyassert")
-                e.func.v.name == "<check>" -> fail()
-                e.func.v.name == "<Result>::new" -> RLit("Result")
-                e.func.v.name == "pylib.list" -> RLit("pylist")
-                e.func.v.name == "pylib.set" -> RLit("pyset")
-                e.func.v.name == "pylib.dict" -> if (resArgs.isEmpty()) RLit("Dict_new") else RLit("pydict")
-                else -> {
-                  if (e.func.v.name.endsWith("::new")) {
-                    val className = e.func.v.name.substring(0, e.func.v.name.length - "::new".length)
-                    val cn = (genName(className) as RPExpr).expr
-                    when {
-                      dafnyClassKinds[className] == DafnyClassKind.Class ->
-                        RLit("new $cn.Init")
-
-                      dafnyClassKinds[className] == DafnyClassKind.Primitive ->
-                        RLit("${cn}_new")
-
-                      else -> RLit(cn)
-                    }
-                  } else {
-                    genName(e.func.v.name)
-                    //genExpr(mkName(e.func.v.name), typer)
-                  }
-                }
-              }
-              if (insideMethod && findFuncDescr(e.func.v.name)?.memoryModel == MemoryModel.FRESH) {
-                val t = getExprType(e).asType() as NamedType
-                wrapFreshValue(t.name, genFunCall(funcName, resArgs))
-              } else
-                genFunCall(funcName, resArgs)
-            }
+            genCall_FuncInst(e, typer)
           }
           e.func is Name -> {
             genFunCall(genExpr(e.func), resArgs)

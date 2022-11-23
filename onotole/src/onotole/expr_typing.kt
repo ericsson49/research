@@ -264,7 +264,7 @@ fun simplifyFunc(f: FunctionDef) = desugarExprs(destructForLoops(destructTupleAs
 fun main() {
   val specVersion = "phase0"
 
-  val modLoaders = listOf(pylib, ssz, bls, mkPhaseModule("phase0"), mkPhaseModule("altair"), mkPhaseModule("bellatrix"))
+  val modLoaders = listOf(pylib, ssz, bls, mkPhaseModule("phase0")/*, mkPhaseModule("altair"), mkPhaseModule("bellatrix")*/)
   modLoaders.forEach(TopLevelScope::registerModule)
   TypingContext.registerModules(modLoaders.map { TopLevelScope.resolveModule(it.name) })
 
@@ -381,10 +381,12 @@ fun main() {
       val pf = purify2(res3, p0ds, tlTyper)
       val funcTyper = tlTyper.updated(varTypes.mapValues { toRTType(it.value) })
       val funcPure = MethodToFuncTransformer(pf, funcTyper).transform()
-      val ttt = DafnyExprGen(gen::genNativeType, false, emptySet())
+      val nonPureMeths = p0ds.mapValues { it.value.pureName }
+      val ttt = DafnyExprGen(gen::genNativeType, false, emptySet(), nonPureMeths)
       val rrr = ttt.genExpr(funcPure, typer)
       val args = pf.args.args.joinToString(", ") { gen.genArg(it) }
-      println("function method ${pf.name}($args): ${gen.genNativeType(pf.returns!!)} {")
+      val shortPFName = pf.name.substring("phase0.".length)
+      println("function method ${shortPFName}($args): ${gen.genNativeType(pf.returns!!)} {")
       println("  " + gen.render(rrr))
       println("}")
       println()

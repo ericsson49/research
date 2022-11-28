@@ -1,6 +1,8 @@
 package onotole
 
 import onotole.typelib.TLTClass
+import onotole.util.toClassVal
+import onotole.util.toFAtom
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.*
@@ -142,6 +144,7 @@ class StmtToNode {
 val convertToCFG = MemoizingFunc(::makeCFGFromFunctionDef)
 
 fun isOutcome(c: TExpr) = c is CTV && c.v is ClassVal && c.v.name == "<Outcome>"
+fun isOutcome(c: RTType) = isOutcome(CTV(c.toFAtom().toClassVal()))
 fun isProcedureRetType(c: ClassVal): Boolean = c.name == "pylib.None"
     || c.name == "<Outcome>" && isProcedureRetType(c.tParams[0].asClassVal())
 fun isProcedureRetType(t: TExpr?): Boolean {

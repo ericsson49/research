@@ -1,7 +1,6 @@
 package onotole
 
 import onotole.util.deconstructS
-import onotole.util.reduceLet
 
 abstract class ForwardAnalysis<T> {
   val before = StmtAnnoMap<T>()
@@ -69,7 +68,7 @@ fun liveVarAnalysis2(e: TExpr): Set<String> {
     is CTV, is Constant, is Name -> liveVarAnalysis1(e)
     is Lambda -> liveVarAnalysis2(e.body).minus(e.args.args.map { it.arg })
     is IfExp -> listOf(e.test, e.body, e.orelse).flatMap { liveVarAnalysis2(it) }.toSet()
-    is Let -> liveVarAnalysis2(reduceLet(e))
+    is Let -> e.bindings.foldRight(liveVarAnalysis1(e.value)) { k, res -> res.minus(k.names).plus(liveVarAnalysis1(k.value)) }
     is GeneratorExp -> {
       if (e.generators.size != 1) TODO()
       val gen = e.generators[0]
@@ -125,7 +124,7 @@ fun liveVarAnalysis1(e: TExpr): Set<String> {
     is PyList -> liveVarAnalysis1(e.elts)
     is PySet -> liveVarAnalysis1(e.elts)
     is PyDict -> liveVarAnalysis1(e.keys.plus(e.values))
-    is Let -> e.bindings.foldRight(liveVarAnalysis1(e.value)) { k, res -> res.minus(k.arg!!).plus(liveVarAnalysis1(k.value)) }
+    is Let -> e.bindings.foldRight(liveVarAnalysis1(e.value)) { k, res -> res.minus(k.names).plus(liveVarAnalysis1(k.value)) }
     is CTV -> when(e.v) {
       is ConstExpr -> liveVarAnalysis1(e.v.e)
       is ClassVal -> setOf(e.v.name)

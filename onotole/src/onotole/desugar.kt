@@ -167,11 +167,11 @@ abstract class ExprTransformer<Ctx> {
       else -> TODO()
     }
     is Let -> {
-      val (newAssgnmts, newCtx) = procStmts(e.bindings.map { Assign(mkName(it.arg!!, true), it.value) }, ctx)
+      val (newAssgnmts, newCtx) = procStmts(e.bindings.map { Assign(namesToTExpr(it.names, true), it.value) }, ctx)
       val newBindings = newAssgnmts.map {
         when(it) {
-          is Assign -> Keyword((it.target as Name).id, it.value)
-          is AnnAssign -> Keyword((it.target as Name).id, it.value!!)
+          is Assign -> LetBinder(extractTargetNames(it.target), it.value)
+          is AnnAssign -> LetBinder(extractTargetNames(it.target), it.value!!)
           else -> TODO()
         }
       }
@@ -266,7 +266,7 @@ fun convertCompare(fresh: (String) -> String, l: TExpr, rest: List<Pair<ECmpOp, 
     } else cmp
     val bs = bs1.plus(bs2)
     return if (bs.isNotEmpty())
-      Let(bs.map { Keyword(it.first, it.second) }, res)
+      Let(bs.map { LetBinder(listOf(it.first), it.second) }, res)
     else res
   }
 }

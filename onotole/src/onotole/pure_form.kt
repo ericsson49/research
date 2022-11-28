@@ -5,6 +5,7 @@ import onotole.lib_defs.BLS
 import onotole.lib_defs.PyLib
 import onotole.lib_defs.SSZLib
 import onotole.typelib.TLTClass
+import onotole.typelib.TLType
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -85,7 +86,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
   fun getPurityDescr(f: identifier): PurityDescriptor = purityDescriptors[f] ?: PurityDescriptor(false, emptyList(), f)
 
   fun checkExpr(e: TExpr) = true
-  fun transformExpr(e: TExpr, tgt: TExpr?): Pair<List<TExpr>, TExpr> {
+  fun transformExpr(e: TExpr, tgt: TExpr?): Triple<List<TExpr>, TExpr, TLType?> {
     when {
       e is Call -> {
         when(e.func) {
@@ -107,10 +108,10 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
             else
               listOf(tgt)
 
-            return tgtArgs.plus(resExpr) to e.copy(func = Name(purirityInfo.pureName, ExprContext.Load))
+            return Triple(tgtArgs.plus(resExpr), e.copy(func = Name(purirityInfo.pureName, ExprContext.Load)), null)
           }
           is Subscript -> {
-            return (if (tgt == null) emptyList() else listOf(tgt)) to e
+            return Triple((if (tgt == null) emptyList() else listOf(tgt)), e, null)
           }
           is Attribute -> {
             val purirityInfo = getPurityDescr("attr_" + e.func.attr)
@@ -121,48 +122,65 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
               val pureName = if (purirityInfo.pureName.startsWith("attr_"))
                 purirityInfo.pureName.substring("attr_".length)
               else purirityInfo.pureName
-              return tgtArgs to e.copy(func = e.func.copy(attr = pureName))
+              return Triple(tgtArgs, e.copy(func = e.func.copy(attr = pureName)), null)
             } else {
               val resExpr = if (tgt == null)
                 //if (!purirityInfo.procedure) listOf(Name("_", ExprContext.Store)) else emptyList()
                 TODO()
               else
                 listOf(tgt)
-              return resExpr to e
+              return Triple(resExpr, e, null)
             }
           }
           is CTV -> when(e.func.v) {
             is FuncInst -> {
-              val sig = e.func.v.sig
-              val purirityInfo = getPurityDescr(e.func.v.name)
-              val args = e.args
-              val tgtArgs = purirityInfo.impureArgs.map { args[it] }
-              val tgtTypes = purirityInfo.impureArgs.map { sig.args[it].second }
-              tgtArgs.forEach {
-                when (it) {
-                  is Name -> {}
-                  is Subscript -> {}
-                  is Attribute -> {}
-                  else -> TODO("not supported yet")
+              if (e.func.v.name == "<check>") {
+                if (e.args.size != 1 || e.keywords.isNotEmpty()) fail()
+                val (tgts, resExp, resType) = transformExpr(e.args[0], tgt)
+                val sig = when {
+                  tgt == null && tgts.size == 0 -> e.func.v.sig
+                  tgt != null && tgts.size == 1 -> e.func.v.sig
+                  else -> {
+                    if (resType == null)
+                      TODO()
+                    else
+                      e.func.v.sig.copy(ret = resType)
+                  }
                 }
-              }
-              if (tgt != null && purirityInfo.procedure) fail()
-              val (resExpr, resType) = if (tgt == null)
-                if (!purirityInfo.procedure)
-                  listOf(Name("_", ExprContext.Store)) to listOf(sig.ret)
+                return Triple(tgts, e.copy(func = CTV(e.func.v.copy(sig = sig)), args = listOf(resExp)), resType)
+              } else {
+                val sig = e.func.v.sig
+                val purirityInfo = getPurityDescr(e.func.v.name)
+                val args = e.args
+                val tgtArgs = purirityInfo.impureArgs.map { args[it] }
+                val tgtTypes = purirityInfo.impureArgs.map { sig.args[it].second }
+                tgtArgs.forEach {
+                  when (it) {
+                    is Name -> {}
+                    is Subscript -> {}
+                    is Attribute -> {}
+                    else -> TODO("not supported yet")
+                  }
+                }
+                //if (tgt != null && tgt is Name && !tgt.id.startsWith("_") && purirityInfo.procedure)
+                //  fail()
+                val (resExpr, resType) = if (tgt == null)
+                  if (!purirityInfo.procedure)
+                    listOf(Name("_", ExprContext.Store)) to listOf(sig.ret)
+                  else
+                    emptyList<TExpr>() to emptyList()
                 else
-                  emptyList<TExpr>() to emptyList()
-              else
-                listOf(tgt) to listOf(sig.ret)
+                  listOf(tgt) to listOf(sig.ret)
 
-              val resOutTypes = tgtTypes.plus(resType)
-              val newRet = when {
-                resOutTypes.isEmpty() -> TODO()
-                resOutTypes.size == 1 -> resOutTypes.first()
-                else -> TLTClass("pylib.Tuple", resOutTypes)
+                val resOutTypes = tgtTypes.plus(resType)
+                val newRet = when {
+                  resOutTypes.isEmpty() -> TODO()
+                  resOutTypes.size == 1 -> resOutTypes.first()
+                  else -> TLTClass("pylib.Tuple", resOutTypes)
+                }
+                val newSig = sig.copy(ret = newRet)
+                return Triple(tgtArgs.plus(resExpr), e.copy(func = CTV(e.func.v.copy(sig = newSig))), newRet)
               }
-              val newSig = sig.copy(ret = newRet)
-              return tgtArgs.plus(resExpr) to e.copy(func = CTV(e.func.v.copy(sig = newSig)))
             }
             else -> TODO()
           }
@@ -171,7 +189,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
       }
       else -> {
         checkExpr(e)
-        return (if (tgt == null) emptyList() else listOf(tgt)) to e
+        return Triple(if (tgt == null) emptyList() else listOf(tgt), e, null)
       }
     }
   }
@@ -185,7 +203,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
   fun transformStmt(s: Stmt): List<Stmt>? {
     return when(s) {
       is Assign -> {
-        val (tgts, expr) = transformExpr(s.value, s.target)
+        val (tgts, expr, _) = transformExpr(s.value, s.target)
         when {
           tgts.isEmpty() ->
             TODO() //listOf(Expr(expr))
@@ -197,7 +215,7 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
         transformStmt(Assign(s.target, BinOp(s.target, s.op, s.value)))
       }
       is Expr -> {
-        val (tgts, expr) = transformExpr(s.value, null)
+        val (tgts, expr, _) = transformExpr(s.value, null)
         when {
           tgts.isEmpty() -> listOf(Expr(expr))
           tgts.size == 1 -> transformLVal(tgts[0], expr)
@@ -210,9 +228,10 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
           null
         } else {
           val impArgs: List<TExpr> = pd.impureArgs.map {  mkName(f.args.args[it].arg) }
-          if (pd.procedure && isProcedureRetVal(s.value))
+          if (pd.procedure && !isProcedureRetVal(s.value))
             fail()
-          val retVals = if (!pd.procedure) impArgs.plus(s.value!!) else impArgs
+          val throwsException = f.returns != null && isOutcome(f.returns)
+          val retVals = if (!pd.procedure || throwsException) impArgs.plus(s.value!!) else impArgs
           val retVal = when {
             retVals.isEmpty() -> null
             retVals.size == 1 -> retVals[0]
@@ -225,32 +244,40 @@ class PureFormConvertor(val f: FunctionDef, val purityDescriptors: Map<String, P
     }
   }
 
-  fun isProc(f: FunctionDef) = f.returns == null || f.returns is NameConstant && f.returns._value == null
   fun transformFunction(): FunctionDef {
     if (f.name in purityDescriptors) {
       val pd = purityDescriptor
       val newName = pd.pureName
       val updatedArgs = pd.impureArgs.map { f.args.args[it].annotation!! }
-      val ret = if (!isProc(f))
+      if (pd.procedure != isProcedure(f)) fail()
+      val isProcedure = pd.procedure
+      val throwsException = f.returns != null && isOutcome(f.returns)
+      val retType = if (!isProcedure || throwsException)
         listOf(f.returns!!)
       else
         emptyList()
-      val retVals = updatedArgs.plus(ret)
+      val retValTypes = updatedArgs.plus(retType)
       val newRetType = when {
-        retVals.isEmpty() -> null
-        retVals.size == 1 -> retVals[0]
-        else -> CTV(ClassVal("pylib.Tuple", retVals.map { (it as CTV).v as ClassVal }))
+        retValTypes.isEmpty() -> null
+        retValTypes.size == 1 -> retValTypes[0]
+        else -> CTV(ClassVal("pylib.Tuple", retValTypes.map { (it as CTV).v as ClassVal }))
       }
-      val retStmt = if (pd.procedure && f.body.isNotEmpty() && f.body[f.body.size-1] !is Return)
-        when {
-          pd.impureArgs.isEmpty() -> null
-          pd.impureArgs.size == 1 -> Return(mkName(f.args.args[pd.impureArgs[0]].arg))
-          else -> Return(Tuple(pd.impureArgs.map { mkName(f.args.args[it].arg) }, ExprContext.Load))
-        }
-      else null
+      val retVal = if (pd.procedure && f.body[f.body.size-1] !is Return) {
+        if (pd.impureArgs.isEmpty() && !throwsException) TODO()
+        val excnVal = if (throwsException)
+          listOf(mkResult(NameConstant(null), TLTClass("pylib.None", emptyList())))
+        else
+          emptyList()
+        val vals = pd.impureArgs.map { mkName(f.args.args[it].arg) }.plus(excnVal)
+        if (vals.size == 1)
+          vals.first()
+        else
+          Tuple(vals, ExprContext.Load)
+      } else null
+
       val st = PureFormStmtTransformer()
       val newBody1 = f.body.flatMap { st.transform(it) }
-      val newBody = if (retStmt != null) newBody1.plus(retStmt) else newBody1
+      val newBody = if (retVal != null) newBody1.plus(Return(retVal)) else newBody1
       return f.copy(name = newName, returns = newRetType, body = newBody)
     } else {
       return f

@@ -80,12 +80,6 @@ inline fun <reified T: TExpr> deconstruct(e: T): Pair<List<TExpr>, TExprAssemble
 }
 
 
-fun reduceLet(e: Let): TExpr {
-  return e.bindings.foldRight(e.value) { k, e ->
-    mkCall(Lambda(Arguments(args = listOf(Arg(k.arg!!))), e), listOf(k.value))
-  }
-}
-
 inline fun <reified T: TExpr> deconstructS(e: T): Pair<List<TExpr>, TExprAssembler<T>> = when(e) {
   is CTV, is Constant, is Name, is Lambda -> {
     emptyList<T>() to TExprAssembler { e }

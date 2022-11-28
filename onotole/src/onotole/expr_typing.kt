@@ -276,11 +276,10 @@ fun main() {
   val tlTyper1 = TypeResolver.topLevelTyper.updated(simpleClasses)
   val constantsSort = constTypes_p0.mapValues { parseType(tlTyper1, it.value.toClassVal().toTExpr()) }
   val tlTyper = tlTyper1.updated(constantsSort)
-  val gen = DafnyGen(tlTyper)
 
   val forkChoiceFuncs = setOf(
-      "compute_start_slot_at_epoch",
-      "compute_epoch_at_slot",
+      //"compute_start_slot_at_epoch",
+      //"compute_epoch_at_slot",
       // fork choice methods
       "is_previous_epoch_justified",
       "get_forkchoice_store",
@@ -310,7 +309,7 @@ fun main() {
       .mapValues { it.value.copy(pureName = "phase0." + it.value.pureName) }
       .plus("attr_append" to PurityDescriptor(true, listOf(0), "attr_append_pure"))
       .plus("attr_add" to PurityDescriptor(true, listOf(0), "attr_add_pure"))
-      .plus("phase0.get_head" to PurityDescriptor(false, listOf(0), "phase0.get_head_pure"))
+      .plus("phase0.get_head" to PurityDescriptor(false, listOf(), "phase0.get_head_pure"))
       .plus("<Result>::new" to PurityDescriptor(false, emptyList(), "<Result>::new"))
 
   val p0Funcs = p0Module.definitions.filterIsInstance<TLFuncDef>()
@@ -337,6 +336,8 @@ fun main() {
     shortName in forkChoiceFuncs
   }
   val depsExcn = mapOf(
+      "phase0.compute_start_slot_at_epoch" to false,
+      "phase0.compute_epoch_at_slot" to false,
       "phase0.get_current_epoch" to false,
       "phase0.get_active_validator_indices" to false,
       "phase0.get_total_active_balance" to false,
@@ -353,8 +354,16 @@ fun main() {
 
   val excnChecker = SimpleExcnChecker(depsExcn).updated(funcsExcn.toList())
 
+  val methodRenames = forkChoice.map {
+    val fn = it.first.name
+    fn to fn + "_purr"
+  }.plus(listOf(
+      "phase0.process_slots" to "phase0.process_slots_pure",
+      "phase0.state_transition" to "phase0.state_transition_pure"
+  )).toMap()
 
   transformedAndTypes.forEach { (res2, varTypes) ->
+    val gen = DafnyGen(excnChecker, tlTyper)
     val shortName = res2.name.substring("phase0.".length)
     if (shortName in forkChoiceFuncs) {
       val typer = tlTyper.updated(res2.args.args.map { it.arg to parseType(tlTyper, it.annotation!!) })
@@ -378,15 +387,42 @@ fun main() {
       gen.genFunc(res3).forEach(::println)
       println()
 
-      val pf = purify2(res3, p0ds, tlTyper)
       val funcTyper = tlTyper.updated(varTypes.mapValues { toRTType(it.value) })
-      val funcPure = MethodToFuncTransformer(pf, funcTyper).transform()
-      val nonPureMeths = p0ds.mapValues { it.value.pureName }
-      val ttt = DafnyExprGen(gen::genNativeType, false, emptySet(), nonPureMeths)
+      val pf_ = purify2(res2_, p0ds, tlTyper)
+      val pf = if (fcFuncsDescr[shortName]!!.exception)
+        excnStmtProcessor.transformFunc(pf_, funcTyper)
+      else pf_
+
+      val funcPure = MethodToFuncTransformer(pf, excnChecker, tlTyper).transform()
+      fun pureGenNativeType(t: TExpr): String {
+        val type = tlTyper[t]
+        val rrr = if (type is NamedType) {
+          when {
+            type.name in dafnyCollectionTypes -> {
+              dafnyCollectionTypes[type.name]!! + "<" + type.tParams.joinToString(",") { pureGenNativeType(CTV(it.toFAtom().toClassVal())) } + ">"
+            }
+            dafnyClassKinds[type.name] == DafnyClassKind.Class -> type.name.substring("phase0.".length) + "_dt"
+            type.name == "<Outcome>" -> {
+               "Outcome<" + type.tParams.joinToString(",") { pureGenNativeType(CTV(it.toFAtom().toClassVal())) } + ">"
+            }
+            type.name == "pylib.Tuple" -> {
+              "(" + type.tParams.joinToString(",") { pureGenNativeType(CTV(it.toFAtom().toClassVal())) } + ")"
+            }
+            else -> gen.genNativeType(t)
+          }
+        } else if (type is FunType) {
+          val argTypes = type.argTypes.joinToString(",") { pureGenNativeType(CTV(it.toFAtom().toClassVal())) }
+          val retType = pureGenNativeType(CTV(type.retType.toFAtom().toClassVal()))
+          "($argTypes) -> $retType"
+        } else
+          gen.genNativeType(t)
+        return rrr
+      }
+      val ttt = DafnyExprGen(::pureGenNativeType, false, emptySet(), methodRenames)
       val rrr = ttt.genExpr(funcPure, typer)
-      val args = pf.args.args.joinToString(", ") { gen.genArg(it) }
-      val shortPFName = pf.name.substring("phase0.".length)
-      println("function method ${shortPFName}($args): ${gen.genNativeType(pf.returns!!)} {")
+      val args = pf.args.args.joinToString(", ") { it.arg + ": " + pureGenNativeType(it.annotation!!) }
+      val shortPFName = (methodRenames[res2.name]!!).substring("phase0.".length)
+      println("function method ${shortPFName}($args): ${pureGenNativeType(pf.returns!!)} {")
       println("  " + gen.render(rrr))
       println("}")
       println()

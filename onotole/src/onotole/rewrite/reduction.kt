@@ -8,6 +8,7 @@ import onotole.Index
 import onotole.Keyword
 import onotole.Lambda
 import onotole.Let
+import onotole.LetBinder
 import onotole.Name
 import onotole.Subscript
 import onotole.TExpr
@@ -19,11 +20,11 @@ fun isSemanticallySimple(e: TExpr) = e is Constant || e is Name || e is Lambda
 
 fun makeReductions(e: TExpr, freshNames: FreshNames, testF: (TExpr) -> Boolean): TExpr {
   val (exprs, assembler) = deconstructS(e)
-  val kwds = mutableListOf<Keyword>()
+  val kwds = mutableListOf<LetBinder>()
   val newExprs = exprs.map {
     if (testF(it)) {
       val v = freshNames.fresh("tmp_")
-      kwds.add(Keyword(v, it))
+      kwds.add(LetBinder(listOf(v), it))
       mkName(v)
     } else it
   }

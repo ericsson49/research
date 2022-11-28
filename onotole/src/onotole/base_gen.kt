@@ -1,5 +1,7 @@
 package onotole
 
+import onotole.util.toClassVal
+import onotole.util.toFAtom
 import onotole.util.toTExpr
 import java.io.PrintStream
 
@@ -115,9 +117,17 @@ abstract class BaseGen(/*val currPkg: String, val importedPkgs: Set<String>, */v
   ): Pair<RExpr, List<String>>
 
   open fun genLet(e: Let, typer: ExprTyper): RExpr {
-    val args = Arguments(args = e.bindings.map { Arg(it.arg!!, typer[it.value].asType().toTExpr()) })
+    val args = Arguments(args = e.bindings.map { Arg(it.names.joinToString("_"), typer[it.value].asType().toTExpr()) })
     val type = typer[e].asType().toTExpr()
-    return genExpr(mkCall(Lambda(args, e.value, type), e.bindings.map { it.value }), typer)
+    val lamDestructors = e.bindings.flatMap {
+      if (it.names.size != 1) {
+        listOf(LetBinder(it.names, mkName(it.names.joinToString("_"))))
+      } else emptyList()
+    }
+    val lamBody = if (lamDestructors.isNotEmpty())
+      Let(lamDestructors, e.value)
+    else e.value
+    return genExpr(mkCall(Lambda(args, lamBody, type), e.bindings.map { it.value }), typer)
   }
 
   fun genFunCall(funcExpr: RExpr, args: List<String>) =
@@ -401,7 +411,13 @@ abstract class BaseGen(/*val currPkg: String, val importedPkgs: Set<String>, */v
           fail("return expr type doesn't match func return type")
         res.add(genReturn(s.value?.let { render(genExpr(it)) }, returnType))
       }
-      is Expr -> res.add(genExprStmt(render(genExpr(s.value))))
+      is Expr -> {
+        val s = if (isExceptionCheck(s.value))
+          genVarAssignment(false, mkName("_", true), null, s.value, exprTypes)
+        else
+          genExprStmt(render(genExpr(s.value)))
+        res.add(s)
+      }
       is Assign -> {
         when(val target = s.target) {
           is Name -> {

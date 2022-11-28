@@ -1,6 +1,9 @@
 package onotole
 
+import onotole.exceptions.ExcnChecker
+import onotole.type_inference.classValToTLType
 import onotole.typelib.TLSig
+import onotole.typelib.TLTCallable
 import onotole.typelib.TLTClass
 import onotole.util.mergeExprTypers
 import onotole.util.toClassVal
@@ -32,8 +35,11 @@ class VarTypesAnalysis(val f: FunctionDef, typer: ExprTyper): ForwardAnalysis<Ex
   }
 }
 
-class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
+class MethodToFuncTransformer(val f: FunctionDef, val excnChecker: ExcnChecker, val typer: ExprTyper) {
   val lva: LiveVarAnalysis
+  val throwsExcn = f.returns != null && isOutcome(f.returns)
+  val procedure = isProcedure(f)
+  val varTypes = inferVarTypes(typer, f)
   init {
     lva = LiveVarAnalysis()
     lva.analyze(f.body, emptySet())
@@ -46,15 +52,11 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
       null to f.body
     }
 
-    val outcomeType = (f.returns!! as CTV).v as ClassVal
-    val throwsExcn = outcomeType.name == "<Outcome>"
-    val returnType = if (throwsExcn) outcomeType.tParams[0].asClassVal() else outcomeType
-    val procedure = returnType.name == "pylib.None" || returnType.name == "None"
-
     val expr = transform(body, getFunArgs(f).map { it.first.arg }.toSet()) {
-      if (procedure)
-        if (throwsExcn) mkResult(NameConstant(null), TypeResolver.topLevelTyper) else NameConstant(null)
-      else
+      if (procedure) {
+        val retVal = NameConstant(null)
+        if (throwsExcn) mkResult(retVal, TypeResolver.topLevelTyper) else retVal
+      } else
         null
     }!!
     return expr
@@ -74,8 +76,8 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
       is Assert -> transform(Expr(assertToExpr(s)), av, cont)
       is Expr -> transform(Assign(mkName("_", true), s.value), av, cont)
       is Assign -> {
-        val t = s.target as Name
-        val b = Keyword(t.id, s.value)
+        val t = extractTargetNames(s.target)
+        val b = LetBinder(t, s.value)
         val nextExpr = cont() ?: fail()
         val (bindings, next) = if (nextExpr is Let) {
           listOf(b).plus(nextExpr.bindings) to nextExpr.value
@@ -84,7 +86,8 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
       }
       is AnnAssign -> transform(mkAssign(s.target, s.value!!), av, cont)
       is Return -> {
-        (s.value ?: NameConstant(null))
+        val r = (s.value ?: NameConstant(null))
+        r
       }
       is If -> {
         val k = cont()
@@ -122,16 +125,26 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
             val defs = getNewDefs(s, av)!!
             val next = k
             val lvs = lva.after[s]!!
-            val liveDefs = defs.intersect(lvs)
-            val (tgtVar, retExpr) = if (liveDefs.isEmpty())
-              Pair("_", mkResult(NameConstant(null), TypeResolver.topLevelTyper))
-            else if (liveDefs.size == 1)
-              Pair(liveDefs.first(), mkName(liveDefs.first()))
+            val liveDefs = defs.intersect(lvs).toList()
+            val retVal = if (liveDefs.isEmpty())
+              NameConstant(null)
             else
-              TODO()
-            val body = transform(s.body, av) { retExpr } ?: fail()
-            val orelse = transform(s.orelse, av) { retExpr } ?: fail()
-            Let(listOf(Keyword(tgtVar, IfExp(s.test, body, orelse))), next)
+              namesToTExpr(liveDefs, false)
+            val ctx = typer.updated(varTypes.varTypingsAfter[s]!!)
+            val body = transform(s.body, av) { retVal } ?: fail()
+            val orelse = transform(s.orelse, av) { retVal } ?: fail()
+            val be = excnChecker.canThrowExcn(body, ctx)
+            val ee = excnChecker.canThrowExcn(orelse, ctx)
+            val (body_, orelse_) = if (be || ee) {
+              val outcomeVal = mkResult(retVal, ctx)
+              val body_ = transform(s.body, av) { outcomeVal } ?: fail()
+              val orelse_ = transform(s.orelse, av) { outcomeVal } ?: fail()
+              body_ to orelse_
+            } else body to orelse
+            val outVars = if (liveDefs.isEmpty()) listOf("_") else liveDefs
+            val ifExp = IfExp(s.test, body_, orelse_)
+            val letBody = if (be || ee) mkCheck(ifExp, ctx) else ifExp
+            Let(listOf(LetBinder(outVars, letBody)), next)
           }
         }
       }
@@ -141,18 +154,27 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
             val nextE = cont()
             if (nextE != null) fail()
             val defs = getNewDefs(s.body, av)!!
-            val whileLvs = calcLiveVars(s, emptySet()).intersect(defs)
-            if (whileLvs.size != 1) TODO()
-            val fixFuncType = ClassVal("pylib.Callable", listOf(
-                typer[mkName(whileLvs.first())].asType().toFAtom().toClassVal(),
-                typer[mkName(whileLvs.first())].asType().toFAtom().toClassVal(),
-            ))
-            val lamArgs = Arguments(args = listOf(Arg("fix", CTV(fixFuncType))).plus(whileLvs.map { Arg(it, CTV(typer[mkName(it)].asType().toFAtom().toClassVal())) }))
-            val body = s.body.plus(Return(mkCall(mkName("fix"), listOf(mkName(whileLvs.first())))))
-            val lamBody = transform(body, av, cont)!!
+            val whileLvs_ = calcLiveVars(s, emptySet()).intersect(defs).toList()
+            val bodyResVal = namesToTExpr(whileLvs_, false)
+
+            val ctx = typer.updated(varTypes.varTypingsAfter[s]!!)
+            val bodyRetVal = mkCall(mkName("fix"), listOf(bodyResVal))
+            val lamBody = transform(s.body.plus(Return(bodyRetVal)), av, cont)!!
+            val be = excnChecker.canThrowExcn(lamBody, ctx)
+
+            val inType = ctx[bodyResVal].asType().toFAtom().toClassVal()
+            val outType = if (be) ctx[mkResult(bodyResVal, ctx)].asType().toFAtom().toClassVal() else inType
+            val fixFuncType = ClassVal("pylib.Callable", listOf(inType, outType))
+            val stateArgName = whileLvs_.joinToString("_")
+            val lamArgs = Arguments(args = listOf(Arg("fix", CTV(fixFuncType)), Arg(stateArgName, CTV(inType))))
             val lam = Lambda(lamArgs, lamBody)
-            val sig = TLSig(emptyList(), listOf("lam" to TLTClass("pylib.object", emptyList())), TLTClass("pylib.object", listOf()))
-            val loopCall = mkCall(CTV(FuncInst("loop", sig)), listOf(mkName(whileLvs.first()), lam))
+            val inT = classValToTLType(inType)
+            val retT = classValToTLType(outType)
+            val lamSig = TLSig(emptyList(), listOf("fix" to TLTCallable(listOf(inT), retT), stateArgName to inT), retT)
+            val sig = TLSig(emptyList(),
+                listOf("init" to inT, "body_fun" to TLTCallable(lamSig.args.map { it.second }, lamSig.ret)),
+                lamSig.ret)
+            val loopCall = mkCall(CTV(FuncInst("loop" + (if (be) "_f" else ""), sig)), listOf(mkName(stateArgName), lam))
             loopCall
           }
           s.test == NameConstant(false) -> TODO()
@@ -203,10 +225,8 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
   fun getNewDefs(s: Stmt, av: Set<String>): Set<String>? {
     return when(s) {
       is Assert, is Expr -> emptySet()
-      is Assign -> {
-        setOf((s.target as Name).id)
-      }
-      is AnnAssign -> setOf((s.target as Name).id)
+      is Assign -> extractTargetNames(s.target).toSet()
+      is AnnAssign -> extractTargetNames(s.target).toSet()
       is If -> {
         val bDefs = getNewDefs(s.body, av)
         val eDefs = getNewDefs(s.orelse, av)
@@ -246,19 +266,36 @@ class MethodToFuncTransformer(val f: FunctionDef, val typer: ExprTyper) {
 
     val defs = getNewDefs(body, av)!!
     val lvs = lva.after[s]!!
+    val ctx = typer.updated(varTypes.varTypingsAfter[s]!!)
 
-    val outVars = defs.intersect(lvs)
-    if (outVars.size != 1) TODO()
+    val outVars = defs.intersect(lvs).toList()
 
-    val bodyExpr = transform(body, av) { mkName(outVars.first()) }!!
+    val bodyRetVal = namesToTExpr(outVars, false)
 
-    val lamArgs = Arguments(args = outVars.map { Arg(it, CTV(typer[mkName(it)].asType().toFAtom().toClassVal())) }
-        .plus(Arg(tgt.id, CTV(tgtType.toFAtom().toClassVal()))))
-    val lam = Lambda(lamArgs, bodyExpr)
+    val bodyExpr_ = transform(body, av) { bodyRetVal }!!
+    val be = excnChecker.canThrowExcn(bodyExpr_, ctx)
+    val (bodyExpr, bodyOutVal) = if (be) {
+      val bodyOutcome = mkResult(bodyRetVal, ctx)
+      transform(body, av) { bodyOutcome }!! to bodyOutcome
+    } else bodyExpr_ to bodyRetVal
 
-    val sig = TLSig(emptyList(), listOf("lam" to TLTClass("pylib.object", emptyList())), TLTClass("pylib.object", listOf()))
-    val loopCall = mkCall(CTV(FuncInst("seq_loop", sig)), listOf(coll, mkName(outVars.first()), lam))
-    return Let(listOf(Keyword(outVars.first(), loopCall)), nextE)
+    val stateArgName = outVars.joinToString("_")
+    val stateArgType = ctx[bodyRetVal].asType().toFAtom().toClassVal()
+    val lamArgs = Arguments(args = listOf(Arg(stateArgName, CTV(stateArgType)), Arg(tgt.id, CTV(tgtType.toFAtom().toClassVal()))))
+    val lamBody = if (outVars.size == 1)
+      bodyExpr
+    else
+      Let(listOf(LetBinder(outVars, mkName(stateArgName))), bodyExpr)
+    val lam = Lambda(lamArgs, lamBody)
+
+    val lamSig = TLSig(emptyList(),
+        listOf(stateArgName to classValToTLType(stateArgType), tgt.id to classValToTLType(tgtType.toFAtom().toClassVal())),
+        classValToTLType(ctx[bodyOutVal].asType().toFAtom().toClassVal()))
+
+    val sig = TLSig(emptyList(), listOf("lam" to TLTCallable(lamSig.args.map { it.second }, lamSig.ret)), lamSig.ret)
+    val loopCall = mkCall(CTV(FuncInst("seq_loop" + (if (be) "_f" else ""), sig)), listOf(coll, bodyRetVal, lam))
+    val letBody = if (be) mkCheck(loopCall, ctx) else loopCall
+    return Let(listOf(LetBinder(outVars, letBody)), nextE)
   }
 
   fun findReturn(b: List<Stmt>): Return? {

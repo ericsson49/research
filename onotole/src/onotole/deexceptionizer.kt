@@ -70,7 +70,12 @@ class MethodInExprProcessor(val tmpVars: FreshNames, val effectDetector: EffectD
       is Constant, is Name, is CTV -> e to emptyList()
       is Attribute, is Subscript, is Call, is PyList, is PyDict, is Tuple ->
         _procExpr(deconstruct(e), outerVar)
-      is GeneratorExp -> e to emptyList()
+      is GeneratorExp -> {
+        if (e.generators.size != 1) TODO()
+        val g = e.generators[0]
+        val (newIter, assgns) = procExpr(g.iter)
+        e.copy(generators = listOf(g.copy(iter = newIter))) to assgns
+      }
       is IfExp -> e to emptyList()
       is Lambda -> e to emptyList()
       else -> TODO()
@@ -140,13 +145,13 @@ class ExprExceptionProcessor(val tmpVars: FreshNames, val excnChecker: ExcnCheck
           //if (bodyE != e.body) TODO()
           bodyE
         } else {
-          Let(bodyAssgns.map { Keyword((it.target as Name).id, it.value) }, bodyE)
+          Let(bodyAssgns.map { LetBinder(extractTargetNames(it.target), it.value) }, bodyE)
         }
         val orelseRes = if (orelseAssgns.isEmpty()) {
           //if (orelseE != e.orelse) TODO()
           orelseE
         } else {
-          Let(orelseAssgns.map { Keyword((it.target as Name).id, it.value) }, orelseE)
+          Let(orelseAssgns.map { LetBinder(extractTargetNames(it.target), it.value) }, orelseE)
         }
         val tExcn = excnChecker.canThrowExcn(testE, typer)
         val bExcn = excnChecker.canThrowExcn(bodyRes, typer)
@@ -160,7 +165,7 @@ class ExprExceptionProcessor(val tmpVars: FreshNames, val excnChecker: ExcnCheck
           if (bodyAssgns.isEmpty()) {
             bodyE2
           } else {
-            Let(bodyAssgns.map { Keyword((it.target as Name).id, it.value) }, bodyE2)
+            Let(bodyAssgns.map { LetBinder(extractTargetNames(it.target), it.value) }, bodyE2)
           }
         } else bodyRes
         val orelseRes2 = if (bExcn != eExcn) {
@@ -172,7 +177,7 @@ class ExprExceptionProcessor(val tmpVars: FreshNames, val excnChecker: ExcnCheck
           if (orelseAssgns.isEmpty()) {
             orelseE2
           } else {
-            Let(orelseAssgns.map { Keyword((it.target as Name).id, it.value) }, orelseE2)
+            Let(orelseAssgns.map { LetBinder(extractTargetNames(it.target), it.value) }, orelseE2)
           }
         } else orelseRes
         IfExp(testE, bodyRes2, orelseRes2) to testAssgns
@@ -185,9 +190,15 @@ class ExprExceptionProcessor(val tmpVars: FreshNames, val excnChecker: ExcnCheck
         val argType = (parseType(typer, g.targetAnno!!).asType() as NamedType).toTLTClass()
         val lamArgs = Arguments(args = listOf(Arg(arg = v, annotation = g.targetAnno)))
         val filterLamSig = TLTCallable(listOf(argType), TLTClass("pylib.bool", emptyList()))
+        val iterClass = typer[currIter].asType() as NamedType
+        val collClass = when (iterClass.name) {
+          "pylib.PyList" -> "pylib.PyList"
+          "pylib.Set" -> "pylib.Set"
+          else -> "pylib.Sequence"
+        }
         val filterSig = TLSig(emptyList(),
-            listOf("lam" to filterLamSig, "coll" to TLTClass("pylib.Sequence", listOf(argType))),
-            TLTClass("pylib.Sequence", listOf(argType)))
+            listOf("lam" to filterLamSig, "coll" to TLTClass(collClass, listOf(argType))),
+            TLTClass(collClass, listOf(argType)))
         val filterFI = FuncInst("pylib.filter", filterSig)
         val filters = g.ifs.fold(currIter) { a, b ->
           mkCall(CTV(filterFI), listOf(Lambda(args = lamArgs, body = b, returns = CTV(ClassVal("pylib.bool"))), a))
@@ -196,20 +207,13 @@ class ExprExceptionProcessor(val tmpVars: FreshNames, val excnChecker: ExcnCheck
         val retType = newCtx[e.elt].asType().toFAtom().toClassVal()
         val mapLamSig = TLTCallable(listOf(argType), retType.toTLTClass())
         val mapSig = TLSig(listOf(),
-            listOf("lam" to mapLamSig, "coll" to TLTClass("pylib.Sequence", listOf(argType))),
-            TLTClass("pylib.Sequence", listOf(retType.toTLTClass()))
+            listOf("lam" to mapLamSig, "coll" to TLTClass(collClass, listOf(argType))),
+            TLTClass(collClass, listOf(retType.toTLTClass()))
         )
         val mapFI = FuncInst("pylib.map", mapSig)
         val mapF = mkCall(CTV(mapFI), listOf(Lambda(args = lamArgs, body = e.elt, returns = CTV(retType)), filters))
-        procExpr(mapF, outerVar)
-//        val (iter, iterAssgns) = procExpr(g.iter)
-//        val (iter2, iterAssgns2) = if (excnChecker.canThrowExcn(iter, typer)) {
-//          val v = mkName(tmpVars.fresh("tmp"))
-//          mkCheck(v, typer) to iterAssgns.plus(mkAssign(v.copy(ctx = ExprContext.Store), iter))
-//        } else {
-//          iter to iterAssgns
-//        }
-//        e.copy(generators = listOf(g.copy(iter = iter2))) to iterAssgns2
+        val resF = if (e.elt == mkName(v)) filters else mapF
+        procExpr(resF, outerVar)
       }
       is Lambda -> {
         val newCtx = typer.forLambda(e)
@@ -219,7 +223,7 @@ class ExprExceptionProcessor(val tmpVars: FreshNames, val excnChecker: ExcnCheck
           val ep = ExprExceptionProcessor(tmpVars, excnChecker, newCtx)
           val (body, bodyAssigns) = ep.procExpr(e.body)
           val newCtx2 = bodyAssigns.fold(newCtx) { ctx, s -> ctx.updated(listOf((s.target as Name).id to ctx[s.value])) }
-          Let(bodyAssigns.map { Keyword((it.target as Name).id, it.value) }, mkResult(body, newCtx2))
+          Let(bodyAssigns.map { LetBinder(extractTargetNames(it.target), it.value) }, mkResult(body, newCtx2))
         } else e.body
         val newRetType = if (bodyExcn && retClass.name != "<Outcome>") {
           CTV(ClassVal("<Outcome>", listOf(retClass)))
@@ -381,15 +385,11 @@ class DeExceptionizer(val excnChecker: ExcnChecker, val funcInfo: Map<String, PF
     val excnProcessor = ExprExceptionProcessor(tmpVars, excnChecker, typer)
     return when(s) {
       is Expr -> {
-        val (e, assgns) = excnProcessor.procExpr(s.value)
-        if (excnChecker.canThrowExcn(e, typer)) {
-          TODO()
-        } else {
+        val (e, assgns) = excnProcessor.procExpr(s.value, true)
           if (e is Name)
             assgns
           else
             assgns.plus(Expr(e))
-        }
       }
       is Assert -> {
         if (s.msg != null) TODO()
@@ -419,6 +419,9 @@ class DeExceptionizer(val excnChecker: ExcnChecker, val funcInfo: Map<String, PF
             } else {
               assgns.plus(tgtAssgns).plus(s.copy(target = s.target.copy(value = tgtVal), value = e))
             }
+          }
+          is Tuple -> {
+            assgns.plus(s.copy(value = e))
           }
           else -> TODO()
         }
@@ -505,6 +508,7 @@ class DeExceptionizer(val excnChecker: ExcnChecker, val funcInfo: Map<String, PF
           is Name -> ctx.updated(listOf(s.target.id to ctx[s.value]))
           is Subscript -> ctx
           is Attribute -> ctx
+          is Tuple -> ctx.updated(matchNamesAndTypes(s.target.elts.map { (it as Name).id }, ctx[s.value].asType()))
           else -> TODO()
         }
         transformNode(s, ctx) to newCtx

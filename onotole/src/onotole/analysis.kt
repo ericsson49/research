@@ -11,7 +11,6 @@ import onotole.type_inference.tryJoin
 import onotole.util.toClassVal
 import onotole.util.toFAtom
 import onotole.util.toTExpr
-import onotole.util.toTLTClass
 import java.util.*
 
 fun canBeCoercedTo(a: RTType, b: RTType): Boolean = when {
@@ -589,7 +588,7 @@ interface ExprTyper {
   }
   fun forLet(let: Let): ExprTyper {
     return let.bindings.fold(this) { typer, k ->
-      typer.updated(listOf(k.arg!! to typer.get(k.value)))
+      typer.updated(matchNamesAndTypes(k.names, typer.get(k.value).asType()))
     }
   }
 }
@@ -605,7 +604,8 @@ interface TypeCalculator<T> {
   fun join(a: T, b: T): T
   fun join(a: Collection<T>): T = a.reduce(::join)
   fun asClass(v: T, className: String): Pair<T,List<T>>?
-  fun asClassF(v: T, className: String): Pair<T,List<T>> = asClass(v, className) ?: fail("cannot cast $v as $className")
+  fun asClassF(v: T, className: String): Pair<T,List<T>> = asClass(v, className)
+      ?: fail("cannot cast $v as $className")
   fun mkClass(name: String, tParams: List<T>): T
   fun parseType(e: TExpr): T
   fun mkListType(t: T): T = mkClass("pylib.PyList", listOf(t))
@@ -768,8 +768,10 @@ interface TypeCalculator<T> {
       is Tuple -> mkTupleType(e.elts.map { getType(it) })
       is Let -> {
         val newResolver = e.bindings.fold(this@NameResolver) { resolver, k ->
-          val t = with(resolver) { getType(k.value) }
-          resolver.copy(listOf(k.arg!! to t))
+          val t = with(resolver) {
+            getType(k.value)
+          }
+          resolver.copy(matchVarsAndTypes(namesToTExpr(k.names, true), t))
         }
         with(newResolver) { getType(e.value) }
       }
@@ -812,11 +814,15 @@ interface TypeCalculator<T> {
     return when(e) {
       is Name -> listOf(Pair(e.id, t))
       is Tuple -> {
-        val (_, params) = asClassF(t, "pylib.Tuple")
-        if (params.size == e.elts.size) {
-          e.elts.zip(params).flatMap{ matchVarsAndTypes(it.first, it.second) }
-        } else {
-          fail("target $e doesn't match elem type $t")
+        if (e.elts.size == 1)
+          matchVarsAndTypes(e.elts[0], t)
+        else {
+          val (_, params) = asClassF(t, "pylib.Tuple")
+          if (params.size == e.elts.size) {
+            e.elts.zip(params).flatMap { matchVarsAndTypes(it.first, it.second) }
+          } else {
+            fail("target $e doesn't match elem type $t")
+          }
         }
       }
       else -> fail("unsupported $e")
@@ -966,12 +972,32 @@ fun getVarNamesInLoadCtx(e: TExpr): Collection<String> = when(e) {
   else -> fail("unsupported $e")
 }
 
+fun extractTargetNames(lval: TExpr): List<String> = when(lval) {
+  is Name -> listOf(lval.id)
+  is Tuple -> lval.elts.map { (it as Name).id }
+  else -> TODO()
+}
+
+fun namesToTExpr(tgts: List<String>, store: Boolean): TExpr = when {
+  tgts.size == 1 -> mkName(tgts[0], store)
+  else -> Tuple(tgts.map { mkName(it, store) }, if (store) ExprContext.Store else ExprContext.Load)
+}
+
+fun matchNamesAndTypes(names: List<String>, t: RTType): Collection<Pair<String,RTType>> {
+  return when {
+    names.size == 1 -> listOf(names[0] to t)
+    else -> {
+      val res = matchVarsAndTypes(Tuple(names.map { mkName(it, true) }, ExprContext.Store), t)
+      res.map { it.first.id to it.second }
+    }
+  }
+}
 fun matchVarsAndTypes(e: TExpr, t: RTType): Collection<Pair<Name,RTType>> {
   return when(e) {
     is Name -> listOf(Pair(e, t))
     is Tuple -> {
       val gt = asGenType(t)
-      if (gt.name == "Tuple" || gt.tParams.size != e.elts.size) {
+      if (gt.name == "Tuple" || gt.name == "pylib.Tuple"|| gt.tParams.size != e.elts.size) {
         e.elts.zip(gt.tParams).flatMap{ matchVarsAndTypes(it.first, it.second) }
       } else {
         fail("unsupported")

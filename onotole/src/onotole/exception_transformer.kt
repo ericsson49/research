@@ -10,7 +10,7 @@ class ExceptionTransformer {
           val tmpVar = tmpVars.fresh("tmp_exc")
           val newAcc = acc.plus(tmpVar to ls[pos])
           val expr = if (throwsException(ls[pos])) {
-            val let = Let(newAcc.map { Keyword(it.first, it.second) },
+            val let = Let(newAcc.map { LetBinder(listOf(it.first), it.second) },
                 IfExp(Compare(mkName(tmpVar), listOf(ECmpOp.Is), listOf(mkName("<Fail>"))),
                     mkCall("Fail", listOf()),
                     transf(ls, pos+1, emptyList()))

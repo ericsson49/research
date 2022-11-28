@@ -61,6 +61,7 @@ import onotole.asType
 import onotole.`class`
 import onotole.convertCompareSimple
 import onotole.dafnyClassKinds
+import onotole.dafnyCollectionTypes
 import onotole.dafnyFreshAttrs
 import onotole.fail
 import onotole.findFuncDescr
@@ -73,24 +74,24 @@ import onotole.isDafnyClassKind
 import onotole.isExceptionCheck
 import onotole.isSubType_new
 import onotole.liveVarAnalysis
+import onotole.matchNamesAndTypes
 import onotole.matchVarsAndTypes
 import onotole.mkAttribute
 import onotole.mkCall
 import onotole.mkName
-import onotole.parseType
 import onotole.toInstance
 
 class DafnyExprGen(
-        val nativeTypeFunc: (TExpr) -> String, val insideMethod: Boolean,
-        val nonlocalVars: Set<String> = emptySet(),
-        val nonPureMethods: Map<String, String> = emptyMap()
+    val nativeTypeFunc: (TExpr) -> String, val insideMethod: Boolean,
+    val heapVars: Set<String> = emptySet(),
+    val methRename: Map<String, String> = emptyMap()
 ) {
   fun genNativeType(t: TExpr): String {
     return nativeTypeFunc.invoke(t)
   }
 
-  fun with(insideMethod: Boolean? = null, nonlocalVars: Set<String>? = null): DafnyExprGen {
-    return DafnyExprGen(nativeTypeFunc, insideMethod ?: this.insideMethod, nonlocalVars ?: this.nonlocalVars)
+  fun with(insideMethod: Boolean? = null, heapVars: Set<String>? = null): DafnyExprGen {
+    return DafnyExprGen(nativeTypeFunc, insideMethod ?: this.insideMethod, heapVars ?: this.heapVars, methRename)
   }
 
   fun isNonFresh(e: TExpr, typer: ExprTyper): Boolean {
@@ -105,7 +106,7 @@ class DafnyExprGen(
 
   fun canReferToClass(e: TExpr, typer: ExprTyper): Boolean {
     return isDafnyClassKind(e, typer, setOf(DafnyClassKind.Class, DafnyClassKind.Datatype)) && when(e) {
-      is Name -> e.id in nonlocalVars
+      is Name -> e.id in heapVars
       is Attribute -> canReferToClass(e.value, typer)
       is Subscript -> canReferToClass(e.value, typer)
       is Call -> {
@@ -169,15 +170,14 @@ class DafnyExprGen(
     return atomic("(" + elts.joinToString(", ") { render(it) } + ")")
   }
 
-  val collectionTypes = setOf("pylib.Set", "pylib.Dict", "pylib.PyList", "ssz.List", "ssz.Vector")
   fun genCtorCall(className: String, args: List<RExpr>): RExpr {
     val cn = (genName(className) as RPExpr).expr
     return when {
       dafnyClassKinds[className] == DafnyClassKind.Class ->
         when {
-          className in collectionTypes && insideMethod ->
+          className in dafnyCollectionTypes && insideMethod ->
             genFunCall(RLit("${cn}_new"), args)
-          className in collectionTypes && !insideMethod -> when(className) {
+          className in dafnyCollectionTypes && !insideMethod -> when(className) {
             "pylib.Set" -> atomic("{" + args.joinToString(", ") + "}")
             "pylib.PyList", "ssz.List" -> atomic("[" + args.joinToString(", ") + "]")
             "pylib.Dict" -> atomic("map[" + args.joinToString(", ") + "]")
@@ -216,39 +216,84 @@ class DafnyExprGen(
       if (e.args.size != 1 || e.keywords.isNotEmpty()) fail()
       atomic("|" + render(genExpr(e.args[0])) + "|")
     } else {
+      fun renameCollMethod(fn: String, coll: TExpr, imPrefix: String = ""): RExpr {
+        if (!fn.startsWith("pylib.")) TODO()
+        val fn = fn.substring("pylib.".length)
+        return if (insideMethod)
+          RLit(imPrefix + fn)
+        else {
+          val collType = typer[coll].asType() as NamedType
+          val prefix = when (collType.name) {
+            "pylib.PyList", "pylib.Sequence" -> "seq_"
+            "pylib.Set" -> "set_"
+            else -> TODO()
+          }
+          RLit(prefix + fn)
+        }
+      }
       val funcName = when {
         e.func.v.name.startsWith("pylib.map") -> {
-          val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
-          if (insideMethod)
-            RLit("py" + fn)
-          else
-            RLit("seq_" + fn)
+          renameCollMethod(e.func.v.name, e.args[1], "py")
         }
         e.func.v.name.startsWith("pylib.filter") -> {
-          val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
-          if (insideMethod)
-            RLit(fn)
-          else
-            RLit("seq_" + fn)
+          renameCollMethod(e.func.v.name, e.args[1])
         }
         e.func.v.name.startsWith("pylib.sum") -> {
-          val fn = e.func.v.name.substring("pylib.".length, e.func.v.name.length)
-          if (insideMethod)
-            RLit(fn)
-          else
-            RLit("seq_" + fn)
+          renameCollMethod(e.func.v.name, e.args[0])
+        }
+        e.func.v.name.startsWith("pylib.any") -> {
+          renameCollMethod(e.func.v.name, e.args[0])
+        }
+        e.func.v.name.startsWith("pylib.max") -> {
+          renameCollMethod(e.func.v.name, e.args[0])
         }
         e.func.v.name == "<assert>" -> RLit("pyassert")
         e.func.v.name == "<check>" -> fail()
-        e.func.v.name == "pylib.list" -> RLit("pylist")
-        e.func.v.name == "pylib.set" -> RLit("pyset")
-        e.func.v.name == "pylib.dict" -> if (resArgs.isEmpty()) RLit("Dict_new") else RLit("pydict")
+        e.func.v.name == "pylib.list" -> {
+          if (insideMethod)
+            RLit("pylist")
+          else {
+            if (e.args.size != 1) TODO()
+            val collType = typer[e.args[0]].asType() as NamedType
+            when(collType.name) {
+              "pylib.PyList", "pylib.Sequence" -> return genExpr(e.args[0])
+              "pylib.Set" -> RLit("set_to_seq")
+              else -> TODO()
+            }
+          }
+        }
+        e.func.v.name == "pylib.set" -> {
+          if (insideMethod)
+            RLit("pyset")
+          else {
+            if (e.args.size != 1) TODO()
+            val collType = typer[e.args[0]].asType() as NamedType
+            when(collType.name) {
+              "pylib.Set" -> return genExpr(e.args[0])
+              "pylib.PyList", "pylib.Sequence", "ssz.List" -> RLit("seq_to_set")
+              else -> TODO()
+            }
+          }
+        }
+        e.func.v.name == "pylib.dict" -> {
+          if (resArgs.isEmpty())
+            return genCtorCall("pylib.Dict", emptyList())
+          else
+            RLit("pydict")
+        }
+        e.func.v.name == "pylib.iter" -> {
+          if (e.args.size != 1 || e.keywords.isNotEmpty()) fail()
+          if (insideMethod)
+            RLit("iter")
+          else
+            return genExpr(e.args[0])
+        }
         else -> {
           if (e.keywords.isNotEmpty()) fail()
-          val funcName = if (e.func.v.name in nonPureMethods) {
+          val funcName = if (e.func.v.name in methRename) {
             val classArgExists = e.args.any { canReferToClass(it, typer) }
             if (!insideMethod && !classArgExists)
-              nonPureMethods[e.func.v.name]!!
+              methRename[e.func.v.name]!!
             else
               e.func.v.name
           } else
@@ -288,6 +333,30 @@ class DafnyExprGen(
         val idx = genExpr(e.args[0])
         val value = genExpr(e.args[1])
         atomic(render(tgt) + "[" + render(idx) + " := " + render(value) + "]")
+      }
+      e.func.attr == "add_pure" -> {
+        if (e.keywords.isNotEmpty() || e.args.size != 1) TODO()
+        val tgt = genExpr(e.func.value, typer)
+        val value = genExpr(e.args[0])
+        atomic(render(tgt) + " + {" + render(value) + "}")
+      }
+      !insideMethod && e.func.attr == "intersection" -> {
+        if (e.keywords.isNotEmpty() || e.args.size != 1) TODO()
+        val tgt = genExpr(e.func.value, typer)
+        val value = genExpr(e.args[0])
+        val valueType = typer[e.args[0]].asType() as NamedType
+        val value_ = when (valueType.name) {
+          "pylib.Set" -> value
+          "pylib.PyList", "pylib.Sequence", "ssz.List" -> genFunCall(RLit("seq_to_set"), listOf(value))
+          else -> TODO()
+        }
+        atomic(render(tgt) + " * " + render(value_))
+      }
+      e.func.attr == "append_pure" -> {
+        if (e.keywords.isNotEmpty() || e.args.size != 1) TODO()
+        val tgt = genExpr(e.func.value, typer)
+        val value = genExpr(e.args[0])
+        atomic(render(tgt) + " + [" + render(value) + "]")
       }
       else -> {
         if (e.keywords.isNotEmpty())
@@ -382,7 +451,11 @@ class DafnyExprGen(
         }
       }
 
-      is IfExp -> genIfExpr(genExpr(e.test), genExpr(e.body), genExpr(e.orelse))
+      is IfExp -> when {
+        e.body == NameConstant(true) -> genBoolOp(listOf(genExpr(e.test), genExpr(e.orelse)), EBoolOp.Or)
+        e.orelse == NameConstant(false) -> genBoolOp(listOf(genExpr(e.test), genExpr(e.body)), EBoolOp.And)
+        else -> genIfExpr(genExpr(e.test), genExpr(e.body), genExpr(e.orelse))
+      }
 
       is Tuple -> genTuple(e.elts.map { genExpr(it) })
       is PyList -> genPyList(e.elts.map { genExpr(it) })
@@ -392,13 +465,16 @@ class DafnyExprGen(
       is Lambda -> {
         val lamType = typer[e] as FunType
         val newExprTypes = typer.updated(e.args.args.zip(lamType.argTypes).map { it.first.arg to it.second })
-        val liveVars = liveVarAnalysis(e.body)
-        val nlvs = nonlocalVars.intersect(liveVars)
-        val newVS = e.args.args.map {it.arg }.filter {
-          isDafnyClassKind(mkName(it), newExprTypes, setOf(DafnyClassKind.Class, DafnyClassKind.Datatype))
-        }
-        val newNLVS = nlvs.plus(newVS).toSet()
-        atomic(genLambda(e.args.args.map(::genArg), this.with(insideMethod = false, nonlocalVars = newNLVS).genExpr(e.body, newExprTypes)))
+        val lvs = liveVarAnalysis(e)
+        val liveVars = lvs.filter { newExprTypes.ctx.contains(it) && !it.startsWith("<") }
+        if (insideMethod && e.args.args.any { isDafnyClassKind(mkName(it.arg), newExprTypes, DafnyClassKind.Class) })
+          TODO()
+        val prevHVs = heapVars.intersect(liveVars)
+        val newHVs = if (insideMethod)
+          liveVars.minus(heapVars).filter { isDafnyClassKind(mkName(it), newExprTypes, DafnyClassKind.Class) }
+        else emptyList()
+        val hvs = prevHVs.union(newHVs)
+        atomic(genLambda(e.args.args.map(::genArg), this.with(insideMethod = false, heapVars = hvs).genExpr(e.body, newExprTypes)))
       }
       is Starred -> RPrefix("*", genExpr(e.value))
       is CTV -> when(e.v) {
@@ -600,26 +676,35 @@ class DafnyExprGen(
     var ctx = typer
     var exprGen = this
     val bindings = e.bindings.map {
-      val va = genVarAssignment(mkName(it.arg!!), it.value, ctx)
-      ctx = ctx.updated(listOf(it.arg to ctx[it.value]))
+      val va = genVarAssignment(it.names, it.value, ctx)
+      ctx = ctx.updated(matchNamesAndTypes(it.names, ctx[it.value].asType()))
       if (exprGen.canReferToClass(it.value, ctx)) {
-        exprGen = exprGen.with(nonlocalVars = exprGen.nonlocalVars.plus(it.arg))
+        if (it.names.size != 1) TODO()
+        exprGen = exprGen.with(heapVars = exprGen.heapVars.plus(it.names))
       }
       va
     }
     return RPExpr(MIN_PRIO, bindings.joinToString(" ") + " " + render(exprGen.genExpr(e.value, ctx)))
   }
 
-  fun genVarAssignment(lv: Name, value: TExpr, typer: ExprTyper): String {
+  fun genVarAssignment(lv: List<String>, value: TExpr, typer: ExprTyper): String {
+    val tgt = when {
+      lv.isEmpty() -> fail()
+      lv.size == 1 -> lv[0]
+      else -> lv.joinToString(", ", "(", ")")
+    }
     if (isExceptionCheck(value)) {
       (((value as Call).func as CTV).v as FuncInst)
       if (value.args.size != 1 || value.keywords.isNotEmpty()) fail()
       val valueE = render(genExpr(value.args[0], typer))
-      return "var ${lv.id} :- " + valueE + ";"
+      return "var ${tgt} :- " + valueE + ";"
     } else {
       val valueE = render(genExpr(value, typer))
-      return "var ${lv.id} := $valueE;"
+      return "var ${tgt} := $valueE;"
     }
+  }
+  fun genVarAssignment(lv: Name, value: TExpr, typer: ExprTyper): String {
+    return genVarAssignment(listOf(lv.id), value, typer)
   }
 
 

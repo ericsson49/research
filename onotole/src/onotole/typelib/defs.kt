@@ -46,7 +46,8 @@ val pylib = mkLibraryModule("pylib", emptySet(), listOf(
         "__init__" to "()->PyList[T]\n(Sequence[T])->PyList[T]",
         "__add__" to "(Sequence[T])->Sequence[T]",
         "append" to "(T)->None",
-        "append_pure" to "(T)->PyList[T]"
+        "append_pure" to "(T)->PyList[T]",
+        "updated_at" to "(int,T)->PyList[T]"
     ),
     parseClassDescr("Dict[K,V] <: object",
         "__init__" to "()->Dict[K,V]\n(Sequence[Tuple[K,V]])->Dict[K,V]",

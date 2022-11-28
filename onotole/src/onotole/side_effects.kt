@@ -11,6 +11,13 @@ val dafnyFreshAttrs = mapOf(
 enum class DafnyClassKind {
   Primitive, Datatype, Class
 }
+val dafnyCollectionTypes = mapOf(
+    "pylib.Set" to "set",
+    "pylib.Dict" to "map",
+    "pylib.PyList" to "seq",
+    "pylib.Sequence" to "seq",
+    "ssz.List" to "seq",
+    "ssz.Vector" to "seq")
 
 val dafnyClassKinds = mapOf(
     "pylib.PyList" to DafnyClassKind.Class,
@@ -63,6 +70,7 @@ fun isDafnyClassKind(e: TExpr, typer: ExprTyper, kinds: Set<DafnyClassKind>): Bo
       k in kinds
     }
     is FunType -> false
+    is SpecialFuncRef -> false
     else -> TODO()
   }
 }

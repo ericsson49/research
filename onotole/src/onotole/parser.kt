@@ -401,7 +401,7 @@ object PhaseInfo {
     return setOf("ssz").plus(prevPhase[phase]?.let { getPkgDeps(it).plus(it) } ?: emptySet())
   }
   fun getPath(phase: String): Path {
-    return Paths.get("../eth2.0-specs/tests/fork_choice/defs_${phase}_dev.txt")
+    return Paths.get("onotole/defs_${phase}_dev.txt")
   }
   val cache = mutableMapOf<String,List<TopLevelDef>>()
   fun getDeclaredPhaseDefs(phase: String, desugar: Boolean): List<TopLevelDef> {

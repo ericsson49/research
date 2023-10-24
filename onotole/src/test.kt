@@ -1,8 +1,12 @@
 
-inline class TTA<TA,TB,TC>(val ta: IfcA<TA,TB,TC>)
-inline class TTB<TA,TB,TC>(val tb: IfcB<TA,TB,TC>)
-inline class TTC<TA,TD>(val tc: IfcC<TA,TD>)
-inline class TTD<TA>(val td: IfcD<TA>)
+@JvmInline
+value class TTA<TA,TB,TC>(val ta: IfcA<TA,TB,TC>)
+@JvmInline
+value class TTB<TA,TB,TC>(val tb: IfcB<TA,TB,TC>)
+@JvmInline
+value class TTC<TA,TD>(val tc: IfcC<TA,TD>)
+@JvmInline
+value class TTD<TA>(val td: IfcD<TA>)
 
 interface IfcA<TA, TB, TC> {
   fun copy(): TA

@@ -19,7 +19,8 @@ typealias pybool = Boolean
 typealias PyList<T> = MutableList<T>
 typealias PyDict<K,V> = MutableMap<K,V>
 
-inline class pyint(val value: BigInteger): Comparable<pyint> {
+@JvmInline
+value class pyint(val value: BigInteger): Comparable<pyint> {
   constructor(x: uint8) : this(x.toLong().toBigInteger())
   constructor(x: uint64) : this(x.toLong().toBigInteger())
 

@@ -103,7 +103,11 @@ fun pyPrint(e: TExpr): String {
     is Let -> when {
       e.bindings.isEmpty() -> TODO()
       e.bindings.size == 1 -> {
-        pyPrint(mkCall(Lambda(Arguments(args = listOf(Arg(e.bindings[0].arg!!))), e.value), listOf(e.bindings[0].value)))
+        val lamBody = if (e.bindings[0].names.size == 1)
+          e.value
+        else
+          TODO()
+        pyPrint(mkCall(Lambda(Arguments(args = listOf(Arg(e.bindings[0].names.joinToString("_")))), e.value), listOf(e.bindings[0].value)))
       }
       else -> {
         val let0 = Let(e.bindings.subList(e.bindings.size-1, e.bindings.size), e.value)

@@ -1,9 +1,10 @@
 package onotole
 
 import onotole.dafny.DafnyExprGen
+import onotole.exceptions.ExcnChecker
 
-class DafnyGen(/*currPkg: String, importedPkgs: Set<String>, */exprTyper: ExprTyper): BaseGen(/*currPkg, importedPkgs, */exprTyper) {
-  var _exprGen: DafnyExprGen? = null
+class DafnyGen(/*currPkg: String, importedPkgs: Set<String>, */val excnChecker: ExcnChecker, exprTyper: ExprTyper): BaseGen(/*currPkg, importedPkgs, */exprTyper) {
+  var _exprGen: DafnyExprGen? = DafnyExprGen(::genNativeType, true)
   val exprGen: DafnyExprGen
     get() = _exprGen
       ?: fail()
@@ -42,8 +43,8 @@ class DafnyGen(/*currPkg: String, importedPkgs: Set<String>, */exprTyper: ExprTy
   override fun genLet(e: Let, typer: ExprTyper): RExpr {
     var ctx = typer
     val bindings = e.bindings.map {
-      val va = genVarAssignment(false, mkName(it.arg!!), null, it.value, ctx)
-      ctx = ctx.updated(listOf(it.arg to ctx[it.value]))
+      val va = exprGen.genVarAssignment(it.names, it.value, ctx)
+      ctx = ctx.updated(matchNamesAndTypes(it.names, ctx[it.value].asType()))
       va
     }
     return RPExpr(MIN_PRIO, bindings.joinToString(" ") + " " + render(genExpr(e.value, ctx)))
@@ -355,7 +356,7 @@ class DafnyGen(/*currPkg: String, importedPkgs: Set<String>, */exprTyper: ExprTy
     } ?: emptyList()
     val preconditions = pfDescr.precondition?.let { listOf("requires $it") } ?: emptyList()
     val midSection = if (pfDescr.function) {
-      val funcVersion = MethodToFuncTransformer(f, typer).transform()
+      val funcVersion = MethodToFuncTransformer(f, excnChecker, typer).transform()
       val expr = render(exprGen.with(insideMethod = false).genExpr(funcVersion, typer))
       listOf("{", "  $expr", "} by method {")
     } else if (retType.name == "<Outcome>" && retType.tParams[0] is ClassVal && retType.tParams[0].asClassVal().name == "pylib.None") {
@@ -420,7 +421,7 @@ class DafnyGen(/*currPkg: String, importedPkgs: Set<String>, */exprTyper: ExprTy
         val ctx = analyses.varTypings[s]!!
         val exprTypes = exprTyper.updated(ctx)
         if (exprGen.canReferToClass(s.value, exprTypes)) {
-          _exprGen = exprGen.with(nonlocalVars = exprGen.nonlocalVars.union(s.target.map { it.id }))
+          _exprGen = exprGen.with(heapVars = exprGen.heapVars.union(s.target.map { it.id }))
         }
       }
       s is Assign && s.target is Name -> {

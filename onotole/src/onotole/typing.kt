@@ -163,7 +163,11 @@ fun _isSubType2(a: RTType, b: NamedType): Boolean {
 fun isSimpleType(a: RTType) = a is NamedType && a.tParams.isEmpty()
 fun isGenType(a: RTType) = a is NamedType && a.tParams.isNotEmpty()
 
-fun asGenType(a: RTType): NamedType = if (a is NamedType && isGenType(a)) a else fail()
+fun asGenType(a: RTType): NamedType =
+    if (a is NamedType && isGenType(a))
+      a
+    else
+      fail()
 
 data class FunSignature(val args: List<FArg>, val retType: RTType) {
   val defaults: List<TExpr> = args.filter { it.default != null }.map { it.default!! }

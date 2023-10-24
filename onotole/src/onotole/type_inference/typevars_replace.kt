@@ -22,10 +22,10 @@ import onotole.FuncInst
 import onotole.FunctionDef
 import onotole.GeneratorExp
 import onotole.If
-import onotole.Keyword
 import onotole.KeywordRef
 import onotole.Lambda
 import onotole.Let
+import onotole.LetBinder
 import onotole.ListComp
 import onotole.Name
 import onotole.NameConstant
@@ -51,6 +51,7 @@ import onotole.mkName
 import onotole.parseType
 import onotole.rewrite.ExprTransformRule
 import onotole.rewrite.combineRules
+import onotole.namesToTExpr
 import onotole.typelib.TLSig
 import onotole.typelib.TLTCallable
 import onotole.typelib.TLTClass
@@ -138,7 +139,8 @@ fun mkTypeVarRepalcer_Expr(typeVars: Map<String, ClassVal>): ExprTransformRule<U
       if (e.v.sig.tParams.isNotEmpty()) {
         val tvs = typeVars
         val remap = e.v.sig.tParams.filterIsInstance<TLTVar>().associate {
-          it.name to (typeVars[it.name]?.toTLTClass() ?: fail())
+          it.name to (typeVars[it.name]?.toTLTClass()
+              ?: fail())
         }
         val tparams = e.v.sig.tParams.map { replaceTypeVars(it, remap) }
         val args = e.v.sig.args.map { it.copy(second = replaceTypeVars(it.second, remap)) }
@@ -377,17 +379,17 @@ fun mkCallArgsTransformRule(freshNames: FreshNames) = ExprTransformRule<Unit> { 
         if (ordering.sorted() != ordering) {
           val posBindings = List(e.args.size) { i ->
             val n = freshNames.fresh("pa$i")
-            Keyword(n, e.args[i])
+            LetBinder(listOf(n), e.args[i])
           }
           val kwdBindings = List(e.keywords.size) { i ->
             val n = freshNames.fresh("ka${e.keywords[i].arg}")
-            Keyword(n, e.keywords[i].value)
+            LetBinder(listOf(n), e.keywords[i].value)
           }
           val bindings = posBindings.plus(kwdBindings)
           val args2 = args.map {
             when(it) {
-              is PositionalRef -> mkName(posBindings[it.idx].arg!!)
-              is KeywordRef -> mkName(kwdBindings[it.idx].arg!!)
+              is PositionalRef -> namesToTExpr(posBindings[it.idx].names, true)
+              is KeywordRef -> namesToTExpr(kwdBindings[it.idx].names, true)
               is DefaultRef -> sig.defaults[it.idx]
             }
           }

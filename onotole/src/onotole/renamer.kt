@@ -31,8 +31,10 @@ class ExprRenamer2(val inRenames: Map<String, TExpr>, val outRenames: Map<String
   fun renameLambda(l: Lambda): Lambda {
     return l.copy(args = renameArgs(l.args), body = renameInFuncBody(gatherIdentifiers(l.args), l.body))
   }
+
+  fun renameLetBinder(l: LetBinder): LetBinder = l.copy(value = renameExpr(l.value))
   fun renameLet(l: Let): Let {
-    return l.copy(bindings = l.bindings.map(::renameKwd), value = renameInFuncBody(l.bindings.map { it.arg!! }, l.value))
+    return l.copy(bindings = l.bindings.map(::renameLetBinder), value = renameInFuncBody(l.bindings.flatMap { it.names }, l.value))
   }
   fun renameComprehension(er: ExprRenamer2, c: Comprehension): Pair<ExprRenamer2, Comprehension> {
     val names = getVarNamesInStoreCtx(c.target)
@@ -102,8 +104,10 @@ class ExprRenamer(val inRenames: Map<String, String>, val outRenames: Map<String
   fun renameLambda(l: Lambda): Lambda {
     return l.copy(args = renameArgs(l.args), body = renameInFuncBody(gatherIdentifiers(l.args), l.body))
   }
+
+  fun renameLetBinder(l: LetBinder): LetBinder = l.copy(value = renameExpr(l.value))
   fun renameLet(l: Let): Let {
-    return l.copy(bindings = l.bindings.map(::renameKwd), value = renameInFuncBody(l.bindings.map { it.arg!! }, l.value))
+    return l.copy(bindings = l.bindings.map(::renameLetBinder), value = renameInFuncBody(l.bindings.flatMap { it.names }, l.value))
   }
   fun renameComprehension(er: ExprRenamer, c: Comprehension): Pair<ExprRenamer, Comprehension> {
     val names = getVarNamesInStoreCtx(c.target)

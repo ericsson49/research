@@ -36,7 +36,7 @@ import onotole.TypeResolver
 import onotole.While
 import onotole.asTypeVar
 import onotole.fail
-import onotole.mkName
+import onotole.namesToTExpr
 import onotole.typelib.TLTVar
 import onotole.typelib.parseTypeDecl
 import onotole.util.toFAtom
@@ -165,9 +165,9 @@ class TypeChecker() {
         v
       }
       is Let -> {
-        if (e.bindings.map { it.arg!! }.intersect(vars.keys).isNotEmpty()) fail()
+        if (e.bindings.flatMap { it.names }.intersect(vars.keys).isNotEmpty()) fail()
         e.bindings.forEach {
-          processStmt(Assign(mkName(it.arg!!, true), it.value), vars, cs)
+          processStmt(Assign(namesToTExpr(it.names, true), it.value), vars, cs)
         }
         resolveExprType(e.value)
       }

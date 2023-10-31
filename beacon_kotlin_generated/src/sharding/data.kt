@@ -52,8 +52,8 @@ open class BeaconBlockBody(
     voluntary_exits: SSZList<SignedVoluntaryExit> = SSZList<SignedVoluntaryExit>()
 ): merge.BeaconBlockBody(execution_payload = execution_payload, randao_reveal = randao_reveal, eth1_data = eth1_data, graffiti = graffiti, proposer_slashings = proposer_slashings, attester_slashings = attester_slashings, attestations = attestations, deposits = deposits, voluntary_exits = voluntary_exits)
 open class BeaconState(
-    override var previous_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
-    override var current_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
+    var previous_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
+    var current_epoch_attestations: SSZList<PendingAttestation> = SSZList<PendingAttestation>(),
     var shard_buffer: SSZVector<SSZList<ShardWork>> = SSZVector<SSZList<ShardWork>>(),
     var shard_gasprice: uint64 = 0uL,
     var current_epoch_start_shard: Shard = Shard(),

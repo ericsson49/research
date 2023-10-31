@@ -13,7 +13,7 @@ operator fun Interval.times(o: Number) = Interval(a * o.toDouble(), b * o.toDoub
 operator fun Interval.plus(o: Interval) = Interval( a + o.a, b + o.b)
 operator fun Interval.minus(o: Number) = Interval(a - o.toDouble(), b + o.toDouble())
 
-fun marzullo(data: List<Interval>, k: Int): Interval {
+fun marzullo(data: Collection<Interval>, k: Int): Interval {
   val lows = data.map { it.a }.sorted()
   val highs = data.map { it.b }.sorted()
   return Interval(lows[data.size-k-1], highs[k])

@@ -158,7 +158,7 @@ fun process_block(state: BeaconState, block: BeaconBlock): Unit {
   process_randao(state, block.body)
   process_eth1_data(state, block.body)
   process_operations(state, block.body)
-  if (is_execution_enabled(state, block)) {
+  if (is_execution_enabled(state, block.body)) {
     process_execution_payload(state, block.body.execution_payload, EXECUTION_ENGINE)
   }
 }

@@ -12,6 +12,7 @@ import java.math.BigInteger
 import java.nio.ByteOrder
 import java.util.*
 import java.util.stream.StreamSupport
+import kotlin.jvm.JvmInline
 import kotlin.streams.toList
 
 typealias pybytes = Bytes

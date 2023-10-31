@@ -1,3 +1,4 @@
+import kotlin.jvm.JvmInline
 
 @JvmInline
 value class TTA<TA,TB,TC>(val ta: IfcA<TA,TB,TC>)

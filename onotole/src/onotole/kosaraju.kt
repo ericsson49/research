@@ -30,6 +30,7 @@ fun <N> kosaraju(forward: Map<N, Collection<N>>, backward: Map<N, Collection<N>>
   return componentOf
 }
 
+@OptIn(ExperimentalStdlibApi::class)
 fun <N> tarjan(g: Graph<N>) {
   var index = 0
   val stack = mutableListOf<N>()

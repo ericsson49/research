@@ -2,12 +2,10 @@ package onotole.type_inference
 
 import it.unibo.tuprolog.core.*
 import it.unibo.tuprolog.core.List
-import it.unibo.tuprolog.dsl.Prolog
+import it.unibo.tuprolog.dsl.logicProgramming
 import it.unibo.tuprolog.dsl.prolog
-import it.unibo.tuprolog.solve.MutableSolver
 import it.unibo.tuprolog.solve.Solution
-import it.unibo.tuprolog.solve.classicWithDefaultBuiltins
-import it.unibo.tuprolog.theory.Theory
+import it.unibo.tuprolog.solve.Solver
 import it.unibo.tuprolog.unify.Unificator
 import onotole.fail
 import kotlin.collections.List as KList
@@ -29,14 +27,11 @@ val X = "X"
 val Y = "Y"
 val Z = "Z"
 
-fun Prolog.list(vararg t: Any) = this.listOf(t)
-fun Prolog.ktListOf(vararg t: Any) = this.listOf(t)
-
 infix fun String.`=`(t: Any): Term = TODO()
 infix fun String.`==`(t: Any): Term = TODO()
 
 object TuPrologSolver {
-  val baseTheory = prolog {
+  val baseTheory = logicProgramming {
     ktListOf(
             fact { "swappable_op"("add", atomOf("__add__"), atomOf("__radd__")) },
             fact { "swappable_op"("floordiv", atomOf("__floordiv__"), atomOf("__rfloordiv__")) },
@@ -49,12 +44,12 @@ object TuPrologSolver {
             rule { "op_type"("noteq", X, Y, Z) `if` "op_type"("eq", X, Y, Z) },
             fact { "op_type"("eq", X, X, "pybool") },
             fact { "op_type"("is", X, Y, "pybool") },
-            rule { "op_type"("lt", X, X, "pybool") `if` (X `==` "pyint") },
-            rule { "op_type"("gt", X, X, "pybool") `if` (X `==` "pyint") },
+            rule { "op_type"("lt", X, X, "pybool") `if` (X id "pyint") },
+            rule { "op_type"("gt", X, X, "pybool") `if` (X id "pyint") },
 
-            rule { "op_type"("mult", X, X, X) `if`  (X `=` "pyint") },
-            rule { "op_type"("floordiv", X, X, X) `if`  (X `=` "pyint") },
-            rule { "op_type"("mod", X, X, X) `if`  (X `=` "pyint") },
+            rule { "op_type"("mult", X, X, X) `if`  (X eq "pyint") },
+            rule { "op_type"("floordiv", X, X, X) `if`  (X eq "pyint") },
+            rule { "op_type"("mod", X, X, X) `if`  (X eq "pyint") },
 
             fact { "fun_type"("map", list("pycallable"(list(X),Y), "pysequence"(X)), "pysequence"(Y)) },
             fact { "fun_type"("len", list("pylist"(`_`)), "pyint") },
@@ -77,7 +72,7 @@ object TuPrologSolver {
             rule { "super_class"(A, B) `if` ("base_class"(A,C) and "super_class"(C,B)) },
     )
   }
-  val pylibThrory = prolog {
+  val pylibThrory = logicProgramming {
     ktListOf(
             fact { "type_vars"("pysequence"(X), list(X), list(), list()) },
             fact { "type_vars"("pycallable"(A, R), list(R), list(), A) },
@@ -99,7 +94,7 @@ object TuPrologSolver {
     )
   }
 
-  val currTheory = prolog {
+  val currTheory = logicProgramming {
     ktListOf(
             fact { "fun_type"("pyContainer::copy", list(X), X) },
             fact { "class_method"("pyContainer", "copy", "pyContainer::copy")},
@@ -116,7 +111,7 @@ object TuPrologSolver {
 
 
   val solver =
-    MutableSolver.Companion.classicWithDefaultBuiltins(
+          Solver.prolog.mutableSolverWithDefaultBuiltins(
             //staticKb = Theory.of(baseTheory, pylibThrory),
             //dynamicKb = Theory.of(currTheory)
     )
@@ -176,8 +171,8 @@ class EQCStore {
 
   fun unif(a: Term, b: Term) {
     //println("unif $a with $b")
-    val a = sub.applyTo(a)
-    val b = sub.applyTo(b)
+    val a = sub.applyTo(a)!!
+    val b = sub.applyTo(b)!!
     val s = Unificator.strict().mgu(a, b)
     if (s.isFailed)
       fail()
@@ -228,7 +223,7 @@ class STCStore(val eqs: EQCStore) {
   }
   private fun shrinkStore() {
     while (!allSubstsApplied) {
-      val subst = constraints.map { (a, b) -> sub.applyTo(a) to sub.applyTo(b) }
+      val subst = constraints.map { (a, b) -> sub.applyTo(a)!! to sub.applyTo(b)!! }
       constraints.clear()
       constraints.addAll(subst)
       latestEqsVersion = eqs.version
@@ -253,8 +248,8 @@ class STCStore(val eqs: EQCStore) {
       val unifs = mutableSetOf<Pair<Term, Term>>()
       val scan = mutableListOf<Pair<Term, Term>>()
       for ((a, b) in pendingConstraints) {
-        val a = sub.applyTo(a)
-        val b = sub.applyTo(b)
+        val a = sub.applyTo(a)!!
+        val b = sub.applyTo(b)!!
 
         if (a == b || a to b in constraints) {
           continue
@@ -276,8 +271,8 @@ class STCStore(val eqs: EQCStore) {
 
       val toAdd = mutableSetOf<Pair<Term, Term>>()
       for (p in scan) {
-        val a = sub.applyTo(p.first)
-        val b = sub.applyTo(p.second)
+        val a = sub.applyTo(p.first)!!
+        val b = sub.applyTo(p.second)!!
         constraints.forEach { (a2, b2) ->
           if (b == a2 && a != b2) {
             toAdd.add(a to b2)
@@ -442,13 +437,13 @@ class CStore: CStoreBase() {
   }
 
   fun processPred(p: String, ps: KList<Term>) {
-    val ps = ps.map(sub::applyTo)
+    val ps = ps.map { sub.applyTo(it)!! }
     if (p == "fun_type") {
       val s = solve(Struct.of(p, ps))
       eqs.applySubst(s)
     } else if (p == "op_type") {
       sts.flush()
-      val nonGrounds = ps.subList(0, ps.size - 1).filter { it.isVariable }
+      val nonGrounds = ps.subList(0, ps.size - 1).filter { it.isVar }
       if (nonGrounds.any()) {
         fail()
       }
@@ -463,14 +458,14 @@ class CStore: CStoreBase() {
         eqs.applySubst(s)
       }
     } else if (p == "attr_type") {
-      val nonGrounds = ps.subList(0, ps.size - 1).filter { it.isVariable }
+      val nonGrounds = ps.subList(0, ps.size - 1).filter { it.isVar }
       if (nonGrounds.any()) {
         fail()
       }
       val s = solve(Struct.of(p, ps))
       eqs.applySubst(s)
     } else if (p == "attr_fh") {
-      val nonGrounds = ps.subList(0, ps.size - 1).filter { it.isVariable }
+      val nonGrounds = ps.subList(0, ps.size - 1).filter { it.isVar }
       if (nonGrounds.any()) {
         fail()
       }

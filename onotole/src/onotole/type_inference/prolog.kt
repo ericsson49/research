@@ -49,7 +49,7 @@ class ConstraintStore {
   fun bindToLeastBound(v: PVar) {
     val pv = cs.convert(v)
     val r = cs.leastSolution(pv as Var)
-    if (r.isVariable) fail()
+    if (r.isVar) fail()
     history.add(EqConstr(v, convert(r)))
     cs.unif(pv, r)
   }
@@ -57,7 +57,7 @@ class ConstraintStore {
   fun convert(t: Term): PTerm = when(t) {
     is Var -> PVar(t.name)
     is Atom -> PAtom(t.value)
-    is Struct -> PStruct(t.functor, t.argsList.map(::convert))
+    is Struct -> PStruct(t.functor, t.args.map(::convert))
     is it.unibo.tuprolog.core.List -> PList(t.toList().map(::convert))
     else -> TODO()
   }

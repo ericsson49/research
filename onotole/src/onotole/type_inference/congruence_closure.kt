@@ -17,11 +17,11 @@ fun convert(t: FTerm): Term = when(t) {
   is FVar -> Var.of(t.v)
   is FAtom -> Struct.of(t.n, t.ps.map { convert(it) })
 }
-fun convertBack(t: Term): FTerm = if (t.isVariable) {
+fun convertBack(t: Term): FTerm = if (t.isVar) {
   FVar((t as Var).name)
 } else if (t.isStruct) {
   val s = t as Struct
-  FAtom(s.functor, s.argsList.map { convertBack(it) })
+  FAtom(s.functor, s.args.map { convertBack(it) })
 } else fail()
 
 class EQS {

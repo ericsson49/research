@@ -5,8 +5,6 @@ import it.unibo.tuprolog.core.Term
 import it.unibo.tuprolog.core.Var
 import onotole.FreshNames
 import onotole.fail
-import onotole.type_inference.EQCStore
-import kotlin.jvm.functions.FunctionN
 
 interface IEQStore {
   fun unif(a: FTerm, b: FTerm)
@@ -190,8 +188,8 @@ class TUPEQStore2(val fn: FreshNames): IEQStore {
     }
   }
   fun convertBack(t: Term): FTerm = when {
-    t.isVariable -> FVar((t as Var).name)
-    t.isStruct -> FAtom((t as Struct).functor, t.argsList.map(::convertBack))
+    t.isVar -> FVar((t as Var).name)
+    t.isStruct -> FAtom((t as Struct).functor, t.args.map(::convertBack))
     else -> TODO()
   }
   override fun unif(a: FTerm, b: FTerm) {
@@ -199,7 +197,7 @@ class TUPEQStore2(val fn: FreshNames): IEQStore {
   }
 
   override fun find(t: FTerm): FTerm {
-    return convertBack(eqs.sub.applyTo(convert(t)))
+    return convertBack(eqs.sub.applyTo(convert(t))!!)
   }
 
   override fun contains(a: FTerm): Boolean {
@@ -215,13 +213,13 @@ class TUPEQStore(val fn: FreshNames): IEQStore {
     is FVar -> varMap.getOrPut(t.v) { Var.of(t.v) }
     is FAtom -> {
       val nps = t.ps.map(::convert)
-      if (nps.any { !it.isVariable }) fail("should be flate")
+      if (nps.any { !it.isVar }) fail("should be flate")
       Struct.of(t.n, nps)
     }
   }
   fun convertBack(t: Term): FTerm = when {
-    t.isVariable -> FVar((t as Var).name)
-    t.isStruct -> FAtom((t as Struct).functor, t.argsList.map(::convertBack))
+    t.isVar -> FVar((t as Var).name)
+    t.isStruct -> FAtom((t as Struct).functor, t.args.map(::convertBack))
     else -> TODO()
   }
   override fun unif(a: FTerm, b: FTerm) {
@@ -231,7 +229,7 @@ class TUPEQStore(val fn: FreshNames): IEQStore {
   private fun findInEQs(a: FAtom): Var? {
     val res = eqs.sub.entries.find { (v,t) ->
       t.isStruct && (t as Struct).functor == a.n
-          && t.argsList == a.ps.map { convert(it as FVar) } }
+          && t.args == a.ps.map { convert(it as FVar) } }
     return res?.key
   }
   override fun contains(a: FTerm): Boolean {
@@ -264,7 +262,7 @@ class TUPEQStore(val fn: FreshNames): IEQStore {
     is FAtom -> internAtom(t)
   }
   fun internVar(v: String): FVar {
-    return postIntern(convertBack(eqs.sub.applyTo(convert(FVar(v))))) as FVar
+    return postIntern(convertBack(eqs.sub.applyTo(convert(FVar(v)))!!)) as FVar
   }
 
   fun internAtom(a: FAtom): FVar {
